@@ -1,0 +1,16 @@
+[Unit]
+Description=Ecobox Audiobook Player
+After=network.target
+
+[Service]
+Type=simple
+User=ecobox
+WorkingDirectory=/home/ecobox
+EnvironmentFile=/home/ecobox/.env
+ExecStart=/usr/bin/node build
+Restart=on-failure
+RestartSec=10
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

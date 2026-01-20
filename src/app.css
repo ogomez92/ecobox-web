@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+	html {
+		@apply antialiased;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	body {
+		@apply min-h-screen text-gray-900 dark:text-gray-100;
+		padding-top: env(safe-area-inset-top);
+		padding-bottom: env(safe-area-inset-bottom);
+		padding-left: env(safe-area-inset-left);
+		padding-right: env(safe-area-inset-right);
+	}
+}
+
+@layer components {
+	.btn {
+		@apply inline-flex items-center justify-center px-4 py-2 font-medium rounded-lg transition-colors;
+		@apply focus:outline-none focus:ring-2 focus:ring-offset-2;
+		min-height: 44px;
+		min-width: 44px;
+	}
+
+	.btn-primary {
+		@apply btn bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+	}
+
+	.btn-secondary {
+		@apply btn bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-500;
+		@apply dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
+	}
+
+	.btn-ghost {
+		@apply btn bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800;
+	}
+
+	.btn-icon {
+		@apply btn p-2;
+	}
+
+	.input {
+		@apply block w-full rounded-lg border border-gray-300 px-3 py-2;
+		@apply focus:border-primary-500 focus:ring-primary-500;
+		@apply dark:border-gray-600 dark:bg-gray-800;
+		min-height: 44px;
+	}
+
+	.card {
+		@apply bg-white dark:bg-gray-800 rounded-xl shadow-sm;
+	}
+}
+
+@layer utilities {
+	.touch-manipulation {
+		touch-action: manipulation;
+	}
+
+	.scrollbar-hide {
+		-ms-overflow-style: none;
+		scrollbar-width: none;
+	}
+
+	.scrollbar-hide::-webkit-scrollbar {
+		display: none;
+	}
+}
