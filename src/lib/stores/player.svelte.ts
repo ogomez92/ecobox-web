@@ -1,5 +1,6 @@
 import type { Chapter } from '$lib/types';
 import { settingsStore } from './settings.svelte';
+import { audioEffects } from '$lib/services/audioEffects';
 
 class PlayerStore {
 	// Playback state
@@ -29,6 +30,7 @@ class PlayerStore {
 	private audio: HTMLAudioElement | null = null;
 	private savePositionInterval: number | null = null;
 	private mediaSessionSetup = false;
+	private positionSavedForNavigation = false;
 
 	get currentChapter(): Chapter | null {
 		if (this.currentChapterIndex >= 0 && this.currentChapterIndex < this.chapters.length) {
@@ -77,7 +79,10 @@ class PlayerStore {
 		this.audio.addEventListener('pause', () => {
 			this.isPlaying = false;
 			this.stopPositionSaving();
-			this.savePosition();
+			// Don't save if we're navigating away or audio is being destroyed
+			if (!this.positionSavedForNavigation && this.audio && this.currentTime > 0) {
+				this.savePosition();
+			}
 		});
 
 		this.audio.addEventListener('ended', () => {
@@ -165,7 +170,10 @@ class PlayerStore {
 					this.audio.currentTime = startPosition;
 				}
 				if (settingsStore.autoplay) {
-					this.audio.play();
+					// Catch autoplay errors (browser blocks autoplay without user interaction)
+					this.audio.play().catch(() => {
+						// Silently ignore - user will need to click play manually
+					});
 				}
 			}
 		}, { once: true });
@@ -207,6 +215,16 @@ class PlayerStore {
 
 				// Set the audio source to the stream URL
 				this.audio.src = data.url;
+
+				// Wait for stream to be ready, then optionally autoplay
+				this.audio.addEventListener('canplay', () => {
+					if (this.audio && settingsStore.autoplay) {
+						this.audio.play().catch(() => {
+							// Silently ignore - user will need to click play manually
+						});
+					}
+				}, { once: true });
+
 				this.updateMediaSessionMetadata();
 			} else {
 				this.error = 'Failed to load radio station';
@@ -216,8 +234,16 @@ class PlayerStore {
 		}
 	}
 
-	play() {
-		this.audio?.play();
+	async play() {
+		// Resume AudioContext if suspended (required by browsers after page load)
+		await audioEffects.resumeContext();
+
+		this.audio?.play().catch((err) => {
+			// Only ignore NotAllowedError (autoplay policy), log others
+			if (err.name !== 'NotAllowedError') {
+				console.error('Play error:', err);
+			}
+		});
 	}
 
 	pause() {
@@ -308,7 +334,10 @@ class PlayerStore {
 	}
 
 	private handleEnded() {
-		this.savePosition();
+		// Don't save if we're navigating away (position already saved)
+		if (!this.positionSavedForNavigation) {
+			this.savePosition();
+		}
 		// Could implement auto-advance to next file here
 	}
 
@@ -316,7 +345,10 @@ class PlayerStore {
 		this.stopPositionSaving();
 		// Save position every 5 seconds
 		this.savePositionInterval = window.setInterval(() => {
-			this.savePosition();
+			// Don't save if we're navigating away
+			if (!this.positionSavedForNavigation) {
+				this.savePosition();
+			}
 		}, 5000);
 	}
 
@@ -327,8 +359,7 @@ class PlayerStore {
 		}
 	}
 
-	async savePosition() {
-		// Don't save position for radio streams
+	private async doSavePosition() {
 		if (!this.currentFile || this.isRadioStream) return;
 
 		try {
@@ -346,10 +377,28 @@ class PlayerStore {
 		}
 	}
 
+	async savePosition() {
+		// Don't save if already saved for navigation
+		if (this.positionSavedForNavigation) return;
+		await this.doSavePosition();
+	}
+
+	// Save position and mark as saved for navigation (prevents other saves)
+	async savePositionForNavigation() {
+		// Set flag FIRST to block any concurrent saves (like pause events)
+		this.positionSavedForNavigation = true;
+		await this.doSavePosition();
+	}
+
 	destroy() {
 		this.stopPositionSaving();
-		this.savePosition();
+		// Set audio to null first to prevent pause event from saving
+		const shouldSave = !this.positionSavedForNavigation;
 		this.audio = null;
+		if (shouldSave) {
+			this.savePosition();
+		}
+		this.positionSavedForNavigation = false;
 	}
 }
 

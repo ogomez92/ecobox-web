@@ -4,11 +4,14 @@ import { db, schema } from '$server/db';
 import { eq, and } from 'drizzle-orm';
 
 export const GET: RequestHandler = async ({ url }) => {
-	const mediaPath = url.searchParams.get('path');
+	const rawPath = url.searchParams.get('path');
 
-	if (!mediaPath) {
+	if (!rawPath) {
 		throw error(400, 'Path is required');
 	}
+
+	// Normalize Unicode to NFC form for consistent database lookups
+	const mediaPath = rawPath.normalize('NFC');
 
 	try {
 		const bookmarks = await db.query.bookmarks.findMany({
@@ -26,11 +29,14 @@ export const GET: RequestHandler = async ({ url }) => {
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
-		const { mediaPath, time, label } = body;
+		const { mediaPath: rawPath, time, label } = body;
 
-		if (!mediaPath || time === undefined) {
+		if (!rawPath || time === undefined) {
 			throw error(400, 'mediaPath and time are required');
 		}
+
+		// Normalize Unicode to NFC form for consistent database storage
+		const mediaPath = rawPath.normalize('NFC');
 
 		// Ensure media metadata exists
 		await db
@@ -58,7 +64,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 export const DELETE: RequestHandler = async ({ url }) => {
 	const id = url.searchParams.get('id');
-	const mediaPath = url.searchParams.get('path');
+	const rawPath = url.searchParams.get('path');
 	const time = url.searchParams.get('time');
 
 	try {
@@ -67,7 +73,9 @@ export const DELETE: RequestHandler = async ({ url }) => {
 			await db
 				.delete(schema.bookmarks)
 				.where(eq(schema.bookmarks.id, parseInt(id, 10)));
-		} else if (mediaPath && time) {
+		} else if (rawPath && time) {
+			// Normalize Unicode to NFC form for consistent database lookups
+			const mediaPath = rawPath.normalize('NFC');
 			// Delete by path and time
 			await db
 				.delete(schema.bookmarks)

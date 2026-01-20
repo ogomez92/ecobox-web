@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { goto, beforeNavigate } from '$app/navigation';
 	import Icon from './Icon.svelte';
 	import SeekBar from './SeekBar.svelte';
 	import PlaybackControls from './PlaybackControls.svelte';
@@ -24,6 +24,7 @@
 	let { filePath }: Props = $props();
 
 	let audioElement: HTMLAudioElement | null = $state(null);
+	let playButtonRef: HTMLButtonElement | null = $state(null);
 	let showChapters = $state(false);
 	let showSettings = $state(false);
 	let showBookmarks = $state(false);
@@ -37,10 +38,11 @@
 	let sleepTimerRemaining = $state(0);
 	let sleepTimerInterval: ReturnType<typeof setInterval> | null = null;
 
-	// Seek unit system (like iOS)
-	const SEEK_UNITS = [1, 5, 10, 30, 60, 300, 600];
+	// Seek unit system - matches settings page options
+	const SEEK_UNITS = [1, 5, 30, 60, 300, 900, 1800, 3600]; // 1s, 5s, 30s, 1m, 5m, 15m, 30m, 60m
 	let seekUnitIndex = $state(1); // Default to 5 seconds
 	const seekUnit = $derived(SEEK_UNITS[seekUnitIndex]);
+	let seekUnitAnnouncement = $state('');
 
 	const title = $derived(playerStore.currentTitle);
 	const chapterTitle = $derived(playerStore.currentChapter?.title);
@@ -117,16 +119,29 @@
 		// Load settings first so autoplay setting is available
 		await settingsStore.load();
 
+		// Load saved seek unit index
+		try {
+			const saved = localStorage.getItem('ecobox-seek-unit-index');
+			if (saved !== null) {
+				const idx = parseInt(saved, 10);
+				if (idx >= 0 && idx < SEEK_UNITS.length) {
+					seekUnitIndex = idx;
+				}
+			}
+		} catch {
+			// Ignore storage errors
+		}
+
 		if (audioElement) {
 			playerStore.initialize(audioElement);
 
-			// Initialize audio effects chain (connects Web Audio API to the audio element)
-			await audioEffects.initialize(audioElement);
-
 			// Check if this is a radio file
 			if (filePath.endsWith('.radio')) {
+				// Don't initialize audio effects for radio streams (CORS restrictions)
 				playerStore.loadRadio(filePath);
 			} else {
+				// Initialize audio effects chain (connects Web Audio API to the audio element)
+				await audioEffects.initialize(audioElement);
 				playerStore.loadFile(filePath);
 				loadBookmarks();
 			}
@@ -135,6 +150,11 @@
 		// Sync position on page unload and visibility change
 		window.addEventListener('beforeunload', handleBeforeUnload);
 		document.addEventListener('visibilitychange', handleVisibilityChange);
+
+		// Focus play button after render
+		requestAnimationFrame(() => {
+			playButtonRef?.focus();
+		});
 	});
 
 	onDestroy(() => {
@@ -147,8 +167,13 @@
 		audioEffects.destroy();
 	});
 
-	function handleBack() {
-		playerStore.savePosition();
+	// Save position before any client-side navigation
+	beforeNavigate(async () => {
+		await playerStore.savePositionForNavigation();
+	});
+
+	async function handleBack() {
+		await playerStore.savePositionForNavigation();
 		const pathParts = filePath.split('/');
 		const fileName = pathParts.pop();
 		const parentPath = pathParts.join('/');
@@ -163,7 +188,7 @@
 
 	function handleKeydown(e: KeyboardEvent) {
 		// Skip if in input field or dialog is open
-		if (e.target instanceof HTMLInputElement || showGoToTime) return;
+		if (e.target instanceof HTMLInputElement || showGoToTime || showEffects) return;
 
 		switch (e.code) {
 			case 'Escape':
@@ -176,34 +201,39 @@
 				playerStore.togglePlayPause();
 				break;
 
-			// Arrow keys: seek with current unit
+			// Arrow keys: seek with current unit (not for radio)
 			case 'ArrowLeft':
+				if (isRadio) return;
 				e.preventDefault();
 				playerStore.seekRelative(-seekUnit);
-				playerStore.savePosition();
 				break;
 			case 'ArrowRight':
+				if (isRadio) return;
 				e.preventDefault();
 				playerStore.seekRelative(seekUnit);
-				playerStore.savePosition();
 				break;
 
-			// Up/Down: change seek unit
+			// Up/Down: change seek unit (not for radio)
 			case 'ArrowUp':
+				if (isRadio) return;
 				e.preventDefault();
 				if (seekUnitIndex < SEEK_UNITS.length - 1) {
 					seekUnitIndex++;
+					announceSeekUnit();
 				}
 				break;
 			case 'ArrowDown':
+				if (isRadio) return;
 				e.preventDefault();
 				if (seekUnitIndex > 0) {
 					seekUnitIndex--;
+					announceSeekUnit();
 				}
 				break;
 
-			// J: Jump to time dialog
+			// J: Jump to time dialog (not for radio)
 			case 'KeyJ':
+				if (isRadio) return;
 				e.preventDefault();
 				showGoToTime = true;
 				break;
@@ -225,18 +255,16 @@
 				playerStore.setVolume(Math.max(0, playerStore.volume - 0.1));
 				break;
 
-			// B: Add bookmark
+			// B: Add bookmark (not for radio)
 			case 'KeyB':
+				if (isRadio) return;
 				e.preventDefault();
 				addBookmark();
 				break;
 
-			// Number keys: 1=beginning, 2-9=20%-90%, 0=end
+			// Number keys: 0=beginning, 1-9=10%-90% (not for radio)
+			case 'Digit0':
 			case 'Digit1':
-				e.preventDefault();
-				playerStore.seek(0);
-				playerStore.savePosition();
-				break;
 			case 'Digit2':
 			case 'Digit3':
 			case 'Digit4':
@@ -245,24 +273,47 @@
 			case 'Digit7':
 			case 'Digit8':
 			case 'Digit9':
+				if (isRadio) return;
 				e.preventDefault();
-				const percent = parseInt(e.code.slice(-1), 10) * 10;
-				playerStore.seekToPercent(percent);
-				playerStore.savePosition();
-				break;
-			case 'Digit0':
-				e.preventDefault();
-				playerStore.seek(playerStore.duration);
-				playerStore.savePosition();
+				if (e.code === 'Digit0') {
+					playerStore.seek(0);
+				} else {
+					const percent = parseInt(e.code.slice(-1), 10) * 10;
+					playerStore.seekToPercent(percent);
+				}
+				// seek() already saves
 				break;
 		}
 	}
 
 	function formatSeekUnit(seconds: number): string {
 		if (seconds >= 60) {
-			return `${seconds / 60}m`;
+			const minutes = seconds / 60;
+			return `${minutes}m`;
 		}
 		return `${seconds}s`;
+	}
+
+	function formatSeekUnitLong(seconds: number): string {
+		if (seconds >= 60) {
+			const minutes = seconds / 60;
+			return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+		}
+		return seconds === 1 ? '1 second' : `${seconds} seconds`;
+	}
+
+	function announceSeekUnit() {
+		seekUnitAnnouncement = `Seek unit: ${formatSeekUnitLong(seekUnit)}`;
+		// Clear after a moment so repeat announcements work
+		setTimeout(() => {
+			seekUnitAnnouncement = '';
+		}, 100);
+		// Save to localStorage
+		try {
+			localStorage.setItem('ecobox-seek-unit-index', seekUnitIndex.toString());
+		} catch {
+			// Ignore storage errors
+		}
 	}
 
 	// Sleep timer functions
@@ -379,13 +430,15 @@
 		<div class="mb-6">
 			<PlaybackControls
 				isPlaying={playerStore.isPlaying}
-				seekInterval={playerStore.seekInterval}
+				seekInterval={seekUnit}
 				longSeekInterval={playerStore.longSeekInterval}
 				ontoggle={() => playerStore.togglePlayPause()}
-				onseekback={() => playerStore.seekRelative(-playerStore.seekInterval)}
-				onseekforward={() => playerStore.seekRelative(playerStore.seekInterval)}
+				onseekback={() => playerStore.seekRelative(-seekUnit)}
+				onseekforward={() => playerStore.seekRelative(seekUnit)}
 				onlongseekback={() => playerStore.seekRelative(-playerStore.longSeekInterval)}
 				onlongseekforward={() => playerStore.seekRelative(playerStore.longSeekInterval)}
+				bind:playButtonRef
+				{isRadio}
 			/>
 		</div>
 
@@ -480,17 +533,19 @@
 				{/if}
 			</button>
 
-			<button
-				type="button"
-				class="btn-secondary"
-				onclick={() => showEffects = true}
-				aria-label="Audio effects"
-				aria-expanded={showEffects}
-				aria-haspopup="dialog"
-			>
-				<Icon name="settings" size={20} class="mr-2" />
-				Effects
-			</button>
+			{#if !isRadio}
+				<button
+					type="button"
+					class="btn-secondary"
+					onclick={() => showEffects = true}
+					aria-label="Audio effects"
+					aria-expanded={showEffects}
+					aria-haspopup="dialog"
+				>
+					<Icon name="settings" size={20} class="mr-2" />
+					Effects
+				</button>
+			{/if}
 		</div>
 	</footer>
 </div>
@@ -540,6 +595,11 @@
 {#if showEffects}
 	<EffectsPanel onclose={() => showEffects = false} />
 {/if}
+
+<!-- Live region for announcements -->
+<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+	{seekUnitAnnouncement}
+</div>
 
 <style>
 	.pt-safe-top {

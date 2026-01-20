@@ -16,7 +16,7 @@
 	let effects = $state(DEFAULT_AUDIO_EFFECTS);
 	let activeTab = $state<'boost' | 'eq' | 'compressor' | 'reverb'>('boost');
 	let dialogElement: HTMLDivElement | null = $state(null);
-	let firstControlRef: HTMLInputElement | null = $state(null);
+	let allEffectsToggleRef: HTMLButtonElement | null = $state(null);
 
 	const presets: { value: EffectPreset; label: string }[] = [
 		{ value: 'flat', label: 'Flat' },
@@ -32,9 +32,9 @@
 		isEnabled = audioEffects.isEnabled();
 		effects = audioEffects.getEffects();
 
-		// Focus the first control when dialog opens
+		// Focus the All Effects toggle when dialog opens
 		requestAnimationFrame(() => {
-			firstControlRef?.focus();
+			allEffectsToggleRef?.focus();
 		});
 	});
 
@@ -93,10 +93,42 @@
 		effects = audioEffects.getEffects();
 	}
 
+	const tabs = ['boost', 'eq', 'compressor', 'reverb'] as const;
+	let tabRefs: Record<string, HTMLButtonElement | null> = $state({
+		boost: null,
+		eq: null,
+		compressor: null,
+		reverb: null
+	});
+
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			onclose();
+		}
+	}
+
+	function handleTabKeydown(e: KeyboardEvent) {
+		const currentIndex = tabs.indexOf(activeTab);
+		let newIndex = currentIndex;
+
+		if (e.key === 'ArrowRight') {
+			e.preventDefault();
+			newIndex = currentIndex < tabs.length - 1 ? currentIndex + 1 : 0;
+		} else if (e.key === 'ArrowLeft') {
+			e.preventDefault();
+			newIndex = currentIndex > 0 ? currentIndex - 1 : tabs.length - 1;
+		} else if (e.key === 'Home') {
+			e.preventDefault();
+			newIndex = 0;
+		} else if (e.key === 'End') {
+			e.preventDefault();
+			newIndex = tabs.length - 1;
+		}
+
+		if (newIndex !== currentIndex) {
+			activeTab = tabs[newIndex];
+			tabRefs[tabs[newIndex]]?.focus();
 		}
 	}
 </script>
@@ -120,14 +152,23 @@
 
 	<div class="relative bg-white dark:bg-gray-800 w-full sm:max-w-lg sm:rounded-xl shadow-xl max-h-[90vh] overflow-hidden flex flex-col">
 		<header class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-			<div class="flex items-center gap-3">
-				<h2 id="effects-panel-title" class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-					Audio Effects
-				</h2>
+			<h2 id="effects-panel-title" class="text-lg font-semibold text-gray-900 dark:text-gray-100">
+				Audio Effects
+			</h2>
+			<div class="flex items-center gap-2">
 				<button
 					type="button"
+					onclick={onclose}
+					class="btn-icon p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+					aria-label="Close"
+				>
+					<Icon name="x" size={24} />
+				</button>
+				<button
+					bind:this={allEffectsToggleRef}
+					type="button"
 					onclick={toggleEffects}
-					class="px-3 py-1 text-sm rounded-full transition-colors"
+					class="px-3 py-1.5 text-sm rounded-full transition-colors"
 					class:bg-primary-500={isEnabled}
 					class:text-white={isEnabled}
 					class:bg-gray-200={!isEnabled}
@@ -136,78 +177,82 @@
 					class:dark:text-gray-300={!isEnabled}
 					aria-pressed={isEnabled}
 				>
-					{isEnabled ? 'On' : 'Off'}
+					All Effects
 				</button>
 			</div>
-			<button
-				type="button"
-				onclick={onclose}
-				class="btn-icon p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-				aria-label="Close"
-			>
-				<Icon name="x" size={24} />
-			</button>
 		</header>
 
 		<!-- Tabs -->
 		<div class="flex border-b border-gray-200 dark:border-gray-700" role="tablist" aria-label="Audio effect categories">
 			<button
+				bind:this={tabRefs.boost}
 				type="button"
 				role="tab"
 				id="tab-boost"
 				aria-selected={activeTab === 'boost'}
 				aria-controls="tabpanel-boost"
+				tabindex={activeTab === 'boost' ? 0 : -1}
 				class="flex-1 py-3 text-sm font-medium transition-colors"
 				class:text-primary-600={activeTab === 'boost'}
 				class:border-b-2={activeTab === 'boost'}
 				class:border-primary-600={activeTab === 'boost'}
 				class:text-gray-500={activeTab !== 'boost'}
 				onclick={() => activeTab = 'boost'}
+				onkeydown={handleTabKeydown}
 			>
 				Boost
 			</button>
 			<button
+				bind:this={tabRefs.eq}
 				type="button"
 				role="tab"
 				id="tab-eq"
 				aria-selected={activeTab === 'eq'}
 				aria-controls="tabpanel-eq"
+				tabindex={activeTab === 'eq' ? 0 : -1}
 				class="flex-1 py-3 text-sm font-medium transition-colors"
 				class:text-primary-600={activeTab === 'eq'}
 				class:border-b-2={activeTab === 'eq'}
 				class:border-primary-600={activeTab === 'eq'}
 				class:text-gray-500={activeTab !== 'eq'}
 				onclick={() => activeTab = 'eq'}
+				onkeydown={handleTabKeydown}
 			>
 				Equalizer
 			</button>
 			<button
+				bind:this={tabRefs.compressor}
 				type="button"
 				role="tab"
 				id="tab-compressor"
 				aria-selected={activeTab === 'compressor'}
 				aria-controls="tabpanel-compressor"
+				tabindex={activeTab === 'compressor' ? 0 : -1}
 				class="flex-1 py-3 text-sm font-medium transition-colors"
 				class:text-primary-600={activeTab === 'compressor'}
 				class:border-b-2={activeTab === 'compressor'}
 				class:border-primary-600={activeTab === 'compressor'}
 				class:text-gray-500={activeTab !== 'compressor'}
 				onclick={() => activeTab = 'compressor'}
+				onkeydown={handleTabKeydown}
 			>
 				Compressor
 			</button>
 			<button
+				bind:this={tabRefs.reverb}
 				type="button"
 				role="tab"
 				id="tab-reverb"
 				aria-selected={activeTab === 'reverb'}
 				aria-controls="tabpanel-reverb"
+				tabindex={activeTab === 'reverb' ? 0 : -1}
 				class="flex-1 py-3 text-sm font-medium transition-colors"
 				class:text-primary-600={activeTab === 'reverb'}
 				class:border-b-2={activeTab === 'reverb'}
 				class:border-primary-600={activeTab === 'reverb'}
 				class:text-gray-500={activeTab !== 'reverb'}
 				onclick={() => activeTab = 'reverb'}
+				onkeydown={handleTabKeydown}
 			>
 				Reverb
 			</button>
@@ -243,7 +288,6 @@
 							<span class="text-sm text-gray-500">+{effects.volumeBoost.gain.toFixed(0)} dB</span>
 						</div>
 						<input
-							bind:this={firstControlRef}
 							type="range"
 							min="0"
 							max="12"

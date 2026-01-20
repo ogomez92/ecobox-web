@@ -108,19 +108,15 @@
 		const files = filesStore.sortedFiles;
 		if (files.length === 0) return;
 
-		// Arrow navigation
+		// Arrow navigation (no wrap at boundaries)
 		if (e.key === 'ArrowDown') {
 			e.preventDefault();
 			if (focusedIndex < files.length - 1) {
 				focusedIndex = focusedIndex + 1;
-			} else {
-				focusedIndex = 0;
 			}
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			if (focusedIndex <= 0) {
-				focusedIndex = files.length - 1;
-			} else {
+			if (focusedIndex > 0) {
 				focusedIndex = focusedIndex - 1;
 			}
 		}

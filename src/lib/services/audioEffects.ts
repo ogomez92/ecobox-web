@@ -1,3 +1,4 @@
+import { browser } from '$app/environment';
 import type { AudioEffects, EffectPreset } from '$lib/types';
 
 const PRESET_EQ: Record<EffectPreset, number[]> = {
@@ -7,6 +8,8 @@ const PRESET_EQ: Record<EffectPreset, number[]> = {
 	treble: [0, 0, 0, 2, 4, 6],    // Boost high frequencies
 	custom: [0, 0, 0, 0, 0, 0]
 };
+
+const STORAGE_KEY = 'ecobox-audio-effects';
 
 export class AudioEffectsChain {
 	private audioContext: AudioContext | null = null;
@@ -56,11 +59,56 @@ export class AudioEffectsChain {
 		preset: 'flat'
 	};
 
+	private saveToStorage(): void {
+		if (!browser) return;
+		try {
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(this.effects));
+		} catch {
+			// Ignore storage errors
+		}
+	}
+
+	private loadFromStorage(): void {
+		if (!browser) return;
+		try {
+			const saved = localStorage.getItem(STORAGE_KEY);
+			if (saved) {
+				const parsed = JSON.parse(saved) as Partial<AudioEffects>;
+				// Merge with defaults to handle new properties
+				if (parsed.enabled !== undefined) this.effects.enabled = parsed.enabled;
+				if (parsed.eq?.bands) this.effects.eq.bands = parsed.eq.bands;
+				if (parsed.compressor) this.effects.compressor = { ...this.effects.compressor, ...parsed.compressor };
+				if (parsed.reverb) this.effects.reverb = { ...this.effects.reverb, ...parsed.reverb };
+				if (parsed.highPass) this.effects.highPass = { ...this.effects.highPass, ...parsed.highPass };
+				if (parsed.volumeBoost) this.effects.volumeBoost = { ...this.effects.volumeBoost, ...parsed.volumeBoost };
+				if (parsed.preset) this.effects.preset = parsed.preset;
+			}
+		} catch {
+			// Ignore parse errors, use defaults
+		}
+	}
+
 	async initialize(audioElement: HTMLAudioElement): Promise<void> {
 		if (this.isInitialized) return;
 
+		// Load saved settings before creating nodes
+		this.loadFromStorage();
+		const shouldEnable = this.effects.enabled;
+		this.effects.enabled = false; // Reset so enable() will work
+
 		this.audioElement = audioElement;
 		this.audioContext = new AudioContext();
+
+		// Resume AudioContext on user interaction (required by browsers)
+		if (this.audioContext.state === 'suspended') {
+			const resumeContext = async () => {
+				await this.audioContext?.resume();
+				document.removeEventListener('click', resumeContext);
+				document.removeEventListener('keydown', resumeContext);
+			};
+			document.addEventListener('click', resumeContext, { once: true });
+			document.addEventListener('keydown', resumeContext, { once: true });
+		}
 
 		// Create source node from audio element
 		this.sourceNode = this.audioContext.createMediaElementSource(audioElement);
@@ -108,6 +156,11 @@ export class AudioEffectsChain {
 		this.sourceNode.connect(this.audioContext.destination);
 		this.isConnected = false;
 		this.isInitialized = true;
+
+		// Enable effects if they were saved as enabled
+		if (shouldEnable) {
+			this.enable();
+		}
 	}
 
 	private async loadReverbImpulse(): Promise<void> {
@@ -136,29 +189,34 @@ export class AudioEffectsChain {
 		// Disconnect bypass
 		this.sourceNode.disconnect();
 
-		// Build effect chain
+		// Build effect chain - all effects always connected
+		// Individual effects are bypassed via their parameters
 		let currentNode: AudioNode = this.sourceNode;
 
-		// High-pass filter (if enabled)
-		if (this.effects.highPass.enabled && this.highPassNode) {
+		// High-pass filter (always connected, bypassed via low frequency when disabled)
+		if (this.highPassNode) {
 			currentNode.connect(this.highPassNode);
 			currentNode = this.highPassNode;
+			// Set to 1Hz (effectively bypass) if disabled, or actual frequency if enabled
+			this.highPassNode.frequency.value = this.effects.highPass.enabled
+				? this.effects.highPass.frequency
+				: 1;
 		}
 
-		// EQ chain
+		// EQ chain (always connected)
 		for (const eqNode of this.eqNodes) {
 			currentNode.connect(eqNode);
 			currentNode = eqNode;
 		}
 
-		// Compressor
+		// Compressor (always connected)
 		if (this.compressorNode) {
 			currentNode.connect(this.compressorNode);
 			currentNode = this.compressorNode;
 		}
 
-		// Reverb (parallel wet/dry)
-		if (this.effects.reverb.enabled && this.convolverNode && this.wetGainNode && this.dryGainNode && this.outputNode) {
+		// Reverb (always connected as parallel wet/dry, bypassed via wet=0 when disabled)
+		if (this.convolverNode && this.wetGainNode && this.dryGainNode && this.outputNode) {
 			// Dry path
 			currentNode.connect(this.dryGainNode);
 			this.dryGainNode.connect(this.outputNode);
@@ -168,18 +226,22 @@ export class AudioEffectsChain {
 			this.convolverNode.connect(this.wetGainNode);
 			this.wetGainNode.connect(this.outputNode);
 
-			currentNode = this.outputNode;
-		} else if (this.outputNode) {
-			currentNode.connect(this.outputNode);
+			// Set wet/dry mix based on enabled state
+			if (this.effects.reverb.enabled) {
+				this.wetGainNode.gain.value = this.effects.reverb.wetDry;
+				this.dryGainNode.gain.value = 1 - this.effects.reverb.wetDry;
+			} else {
+				this.wetGainNode.gain.value = 0;
+				this.dryGainNode.gain.value = 1;
+			}
+
 			currentNode = this.outputNode;
 		}
 
-		// Volume boost (final stage before destination)
+		// Volume boost (always connected, final stage)
 		if (this.volumeBoostNode) {
 			currentNode.connect(this.volumeBoostNode);
 			this.volumeBoostNode.connect(this.audioContext.destination);
-		} else {
-			currentNode.connect(this.audioContext.destination);
 		}
 
 		this.effects.enabled = true;
@@ -213,6 +275,7 @@ export class AudioEffectsChain {
 		} else {
 			this.enable();
 		}
+		this.saveToStorage();
 	}
 
 	setEQBand(index: number, gain: number): void {
@@ -220,6 +283,7 @@ export class AudioEffectsChain {
 			this.effects.eq.bands[index].gain = gain;
 			this.eqNodes[index].gain.value = gain;
 			this.effects.preset = 'custom';
+			this.saveToStorage();
 		}
 	}
 
@@ -232,6 +296,7 @@ export class AudioEffectsChain {
 			}
 		});
 		this.effects.preset = preset;
+		this.saveToStorage();
 	}
 
 	private updateCompressor(): void {
@@ -249,6 +314,7 @@ export class AudioEffectsChain {
 		if (this.compressorNode) {
 			this.compressorNode.threshold.value = value;
 		}
+		this.saveToStorage();
 	}
 
 	setCompressorRatio(value: number): void {
@@ -256,38 +322,48 @@ export class AudioEffectsChain {
 		if (this.compressorNode) {
 			this.compressorNode.ratio.value = value;
 		}
+		this.saveToStorage();
 	}
 
 	setReverbEnabled(enabled: boolean): void {
 		this.effects.reverb.enabled = enabled;
-		if (this.effects.enabled) {
-			// Reconnect chain to apply changes
-			this.disable();
-			this.enable();
+		// Update wet/dry mix instead of rebuilding chain
+		if (this.wetGainNode && this.dryGainNode) {
+			if (enabled) {
+				this.wetGainNode.gain.value = this.effects.reverb.wetDry;
+				this.dryGainNode.gain.value = 1 - this.effects.reverb.wetDry;
+			} else {
+				this.wetGainNode.gain.value = 0;
+				this.dryGainNode.gain.value = 1;
+			}
 		}
+		this.saveToStorage();
 	}
 
 	setReverbWetDry(value: number): void {
 		this.effects.reverb.wetDry = value;
-		if (this.wetGainNode && this.dryGainNode) {
+		if (this.wetGainNode && this.dryGainNode && this.effects.reverb.enabled) {
 			this.wetGainNode.gain.value = value;
 			this.dryGainNode.gain.value = 1 - value;
 		}
+		this.saveToStorage();
 	}
 
 	setHighPassEnabled(enabled: boolean): void {
 		this.effects.highPass.enabled = enabled;
-		if (this.effects.enabled) {
-			this.disable();
-			this.enable();
+		// Update frequency instead of rebuilding chain (1Hz = effectively bypassed)
+		if (this.highPassNode) {
+			this.highPassNode.frequency.value = enabled ? this.effects.highPass.frequency : 1;
 		}
+		this.saveToStorage();
 	}
 
 	setHighPassFrequency(frequency: number): void {
 		this.effects.highPass.frequency = frequency;
-		if (this.highPassNode) {
+		if (this.highPassNode && this.effects.highPass.enabled) {
 			this.highPassNode.frequency.value = frequency;
 		}
+		this.saveToStorage();
 	}
 
 	private updateVolumeBoost(): void {
@@ -300,12 +376,14 @@ export class AudioEffectsChain {
 	setVolumeBoostEnabled(enabled: boolean): void {
 		this.effects.volumeBoost.enabled = enabled;
 		this.updateVolumeBoost();
+		this.saveToStorage();
 	}
 
 	setVolumeBoostGain(gain: number): void {
 		// Clamp gain to 0-12 dB range
 		this.effects.volumeBoost.gain = Math.max(0, Math.min(12, gain));
 		this.updateVolumeBoost();
+		this.saveToStorage();
 	}
 
 	getEffects(): AudioEffects {
@@ -318,6 +396,12 @@ export class AudioEffectsChain {
 
 	isEnabled(): boolean {
 		return this.effects.enabled;
+	}
+
+	async resumeContext(): Promise<void> {
+		if (this.audioContext?.state === 'suspended') {
+			await this.audioContext.resume();
+		}
 	}
 
 	destroy(): void {

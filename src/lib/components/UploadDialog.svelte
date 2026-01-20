@@ -255,6 +255,20 @@
 			handleClose();
 		}
 	}
+
+	function handleTabKeydown(e: KeyboardEvent) {
+		if (isUploading || isCreatingRadio) return;
+
+		if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+			e.preventDefault();
+			activeTab = activeTab === 'upload' ? 'radio' : 'upload';
+			// Focus the newly selected tab
+			requestAnimationFrame(() => {
+				const selectedTab = document.querySelector('[role="tab"][aria-selected="true"]') as HTMLElement;
+				selectedTab?.focus();
+			});
+		}
+	}
 </script>
 
 {#if isOpen}
@@ -291,7 +305,7 @@
 						<Icon name="x" size={24} />
 					</button>
 				</div>
-				<div class="flex px-4" role="tablist">
+				<div class="flex px-4" role="tablist" onkeydown={handleTabKeydown}>
 					<button
 						type="button"
 						role="tab"
