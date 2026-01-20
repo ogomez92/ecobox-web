@@ -138,8 +138,10 @@
 	});
 
 	onDestroy(() => {
-		window.removeEventListener('beforeunload', handleBeforeUnload);
-		document.removeEventListener('visibilitychange', handleVisibilityChange);
+		if (typeof window !== 'undefined') {
+			window.removeEventListener('beforeunload', handleBeforeUnload);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+		}
 		cancelSleepTimer();
 		playerStore.destroy();
 		audioEffects.destroy();

@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { browser } from '$app/environment';
 	import Icon from './Icon.svelte';
 	import { audioEffects } from '$lib/services/audioEffects';
-	import type { EffectPreset } from '$lib/types';
+	import { DEFAULT_AUDIO_EFFECTS, type EffectPreset } from '$lib/types';
 
 	interface Props {
 		onclose: () => void;
@@ -10,8 +11,9 @@
 
 	let { onclose }: Props = $props();
 
-	let isEnabled = $state(audioEffects.isEnabled());
-	let effects = $state(audioEffects.getEffects());
+	// Initialize with defaults during SSR, update on mount
+	let isEnabled = $state(false);
+	let effects = $state(DEFAULT_AUDIO_EFFECTS);
 	let activeTab = $state<'boost' | 'eq' | 'compressor' | 'reverb'>('boost');
 	let dialogElement: HTMLDivElement | null = $state(null);
 	let firstControlRef: HTMLInputElement | null = $state(null);
@@ -26,6 +28,10 @@
 	const eqLabels = ['60Hz', '230Hz', '910Hz', '3.6kHz', '8kHz', '14kHz'];
 
 	onMount(() => {
+		// Load current effects state on mount (client-side only)
+		isEnabled = audioEffects.isEnabled();
+		effects = audioEffects.getEffects();
+
 		// Focus the first control when dialog opens
 		requestAnimationFrame(() => {
 			firstControlRef?.focus();
