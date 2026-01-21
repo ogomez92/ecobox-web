@@ -74,11 +74,18 @@ class PlayerStore {
 		this.audio.addEventListener('play', () => {
 			this.isPlaying = true;
 			this.startPositionSaving();
+			if ('mediaSession' in navigator) {
+				navigator.mediaSession.playbackState = 'playing';
+			}
+			this.updateMediaSessionPosition();
 		});
 
 		this.audio.addEventListener('pause', () => {
 			this.isPlaying = false;
 			this.stopPositionSaving();
+			if ('mediaSession' in navigator) {
+				navigator.mediaSession.playbackState = 'paused';
+			}
 			// Don't save if we're navigating away or audio is being destroyed
 			if (!this.positionSavedForNavigation && this.audio && this.currentTime > 0) {
 				this.savePosition();
@@ -131,6 +138,20 @@ class PlayerStore {
 			artist: 'Ecobox',
 			album: this.currentTitle
 		});
+	}
+
+	private updateMediaSessionPosition() {
+		if (!('mediaSession' in navigator) || !this.duration || this.isRadioStream) return;
+
+		try {
+			navigator.mediaSession.setPositionState({
+				duration: this.duration,
+				playbackRate: this.playbackRate,
+				position: Math.min(this.currentTime, this.duration)
+			});
+		} catch {
+			// Ignore errors (can happen if duration is invalid)
+		}
 	}
 
 	async loadFile(filePath: string, startPosition: number = 0) {
@@ -262,6 +283,7 @@ class PlayerStore {
 		if (this.audio) {
 			this.audio.currentTime = Math.max(0, Math.min(time, this.duration));
 			this.savePosition();
+			this.updateMediaSessionPosition();
 		}
 	}
 
@@ -282,6 +304,7 @@ class PlayerStore {
 	setPlaybackRate(rate: number) {
 		if (this.audio) {
 			this.audio.playbackRate = Math.max(0.5, Math.min(2, rate));
+			this.updateMediaSessionPosition();
 		}
 	}
 
