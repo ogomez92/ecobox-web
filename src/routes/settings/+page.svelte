@@ -13,7 +13,7 @@
 </script>
 
 <svelte:head>
-	<title>Settings - Ecobox</title>
+	<title>Ecobox</title>
 </svelte:head>
 
 <div class="min-h-screen bg-gray-50 dark:bg-gray-900">

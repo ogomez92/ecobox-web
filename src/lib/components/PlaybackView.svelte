@@ -43,6 +43,7 @@
 	let seekUnitIndex = $state(1); // Default to 5 seconds
 	const seekUnit = $derived(SEEK_UNITS[seekUnitIndex]);
 	let seekUnitAnnouncement = $state('');
+	let timeInfoAnnouncement = $state('');
 
 	const title = $derived(playerStore.currentTitle);
 	const chapterTitle = $derived(playerStore.currentChapter?.title);
@@ -262,6 +263,13 @@
 				addBookmark();
 				break;
 
+			// T: Announce time info (percentage and remaining)
+			case 'KeyT':
+				if (isRadio) return;
+				e.preventDefault();
+				announceTimeInfo();
+				break;
+
 			// Number keys: 0=beginning, 1-9=10%-90% (not for radio)
 			case 'Digit0':
 			case 'Digit1':
@@ -316,6 +324,22 @@
 		}
 	}
 
+	function announceTimeInfo() {
+		const duration = playerStore.duration;
+		const currentTime = playerStore.currentTime;
+		if (duration <= 0) {
+			timeInfoAnnouncement = 'Duration not available';
+		} else {
+			const percent = Math.round((currentTime / duration) * 100);
+			const remaining = duration - currentTime;
+			timeInfoAnnouncement = `${percent}%, ${formatDuration(remaining)} remaining`;
+		}
+		// Clear after a moment so repeat announcements work
+		setTimeout(() => {
+			timeInfoAnnouncement = '';
+		}, 100);
+	}
+
 	// Sleep timer functions
 	function startSleepTimer(minutes: number) {
 		// Clear any existing timer
@@ -356,10 +380,11 @@
 			<button
 				type="button"
 				onclick={handleBack}
-				class="btn-ghost p-2"
-				aria-label="Go back"
+				class="btn-ghost p-2 flex items-center gap-1"
+				aria-label="Go back (Escape)"
 			>
 				<Icon name="chevron-down" size={24} />
+				<span class="text-xs text-gray-500 dark:text-gray-400">Esc</span>
 			</button>
 
 			<div class="flex-1 text-center px-4">
@@ -430,15 +455,25 @@
 		<div class="mb-6">
 			<PlaybackControls
 				isPlaying={playerStore.isPlaying}
+				playbackRate={playerStore.playbackRate}
 				seekInterval={seekUnit}
 				longSeekInterval={playerStore.longSeekInterval}
 				ontoggle={() => playerStore.togglePlayPause()}
+				onratechange={(rate) => playerStore.setPlaybackRate(rate)}
 				onseekback={() => playerStore.seekRelative(-seekUnit)}
 				onseekforward={() => playerStore.seekRelative(seekUnit)}
 				onlongseekback={() => playerStore.seekRelative(-playerStore.longSeekInterval)}
 				onlongseekforward={() => playerStore.seekRelative(playerStore.longSeekInterval)}
 				bind:playButtonRef
 				{isRadio}
+			/>
+		</div>
+
+		<!-- Volume control -->
+		<div class="mb-6 max-w-xs mx-auto w-full">
+			<VolumeControl
+				volume={playerStore.volume}
+				onchange={(v) => playerStore.setVolume(v)}
 			/>
 		</div>
 
@@ -459,11 +494,6 @@
 		<!-- Settings panel -->
 		{#if showSettings}
 			<div class="card p-4 space-y-6 mb-6">
-				<VolumeControl
-					volume={playerStore.volume}
-					onchange={(v) => playerStore.setVolume(v)}
-				/>
-
 				<SpeedControl
 					speed={playerStore.playbackRate}
 					onchange={(s) => playerStore.setPlaybackRate(s)}
@@ -516,6 +546,16 @@
 				>
 					<Icon name="clock" size={20} class="mr-2" />
 					Jump
+				</button>
+
+				<button
+					type="button"
+					class="btn-secondary"
+					onclick={announceTimeInfo}
+					aria-label="Announce time remaining (T)"
+				>
+					<Icon name="clock" size={20} class="mr-2" />
+					Time
 				</button>
 			{/if}
 
@@ -599,6 +639,9 @@
 <!-- Live region for announcements -->
 <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 	{seekUnitAnnouncement}
+</div>
+<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+	{timeInfoAnnouncement}
 </div>
 
 <style>

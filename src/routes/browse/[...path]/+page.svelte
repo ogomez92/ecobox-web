@@ -7,7 +7,7 @@
 </script>
 
 <svelte:head>
-	<title>{path.split('/').pop() || 'Browse'} - Ecobox</title>
+	<title>Ecobox</title>
 </svelte:head>
 
 <FileExplorer initialPath={path} {focusFile} />

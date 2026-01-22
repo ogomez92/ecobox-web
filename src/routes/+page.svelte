@@ -6,7 +6,7 @@
 </script>
 
 <svelte:head>
-	<title>Ecobox - Audio Player</title>
+	<title>Ecobox</title>
 </svelte:head>
 
 <FileExplorer initialPath="" {focusFile} />

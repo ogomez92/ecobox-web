@@ -1,11 +1,15 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
 
+	const SPEED_OPTIONS = [0.5, 1, 1.25, 1.5, 2] as const;
+
 	interface Props {
 		isPlaying: boolean;
+		playbackRate: number;
 		seekInterval: number;
 		longSeekInterval: number;
 		ontoggle: () => void;
+		onratechange: (rate: number) => void;
 		onseekback: () => void;
 		onseekforward: () => void;
 		onlongseekback: () => void;
@@ -16,9 +20,11 @@
 
 	let {
 		isPlaying,
+		playbackRate,
 		seekInterval,
 		longSeekInterval,
 		ontoggle,
+		onratechange,
 		onseekback,
 		onseekforward,
 		onlongseekback,
@@ -26,6 +32,16 @@
 		playButtonRef = $bindable(null),
 		isRadio = false
 	}: Props = $props();
+
+	function cycleSpeed() {
+		const currentIndex = SPEED_OPTIONS.indexOf(playbackRate as typeof SPEED_OPTIONS[number]);
+		const nextIndex = currentIndex === -1 ? 1 : (currentIndex + 1) % SPEED_OPTIONS.length;
+		onratechange(SPEED_OPTIONS[nextIndex]);
+	}
+
+	function formatSpeed(rate: number): string {
+		return rate === 1 ? '1x' : `${rate}x`;
+	}
 </script>
 
 <div class="flex items-center justify-center gap-2 sm:gap-4">
@@ -63,6 +79,15 @@
 		aria-label={isPlaying ? 'Pause' : 'Play'}
 	>
 		<Icon name={isPlaying ? 'pause' : 'play'} size={32} />
+	</button>
+
+	<button
+		type="button"
+		onclick={cycleSpeed}
+		class="btn-ghost px-2 py-1 min-w-[3rem] text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 rounded-lg"
+		aria-label="Playback speed {formatSpeed(playbackRate)}"
+	>
+		{formatSpeed(playbackRate)}
 	</button>
 
 	{#if !isRadio}
