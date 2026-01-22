@@ -397,7 +397,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<audio bind:this={audioElement} class="hidden" preload="metadata"></audio>
+<audio bind:this={audioElement} class="hidden" preload="metadata" playsinline></audio>
 
 <div class="min-h-screen flex flex-col bg-gradient-to-b from-gray-100 to-gray-200 dark:from-gray-900 dark:to-gray-800">
 	<!-- Header -->

@@ -17,6 +17,8 @@
 	let activeTab = $state<'boost' | 'eq' | 'compressor' | 'reverb'>('boost');
 	let dialogElement: HTMLDivElement | null = $state(null);
 	let allEffectsToggleRef: HTMLButtonElement | null = $state(null);
+	let isIOS = $state(false);
+	let showIOSWarning = $state(false);
 
 	const presets: { value: EffectPreset; label: string }[] = [
 		{ value: 'flat', label: 'Flat' },
@@ -31,6 +33,9 @@
 		// Load current effects state on mount (client-side only)
 		isEnabled = audioEffects.isEnabled();
 		effects = audioEffects.getEffects();
+		isIOS = audioEffects.isIOS();
+		// Show iOS warning if on iOS and effects not yet connected to Web Audio
+		showIOSWarning = isIOS && !audioEffects.isWebAudioConnected();
 
 		// Focus the All Effects toggle when dialog opens
 		requestAnimationFrame(() => {
@@ -38,9 +43,15 @@
 		});
 	});
 
-	function toggleEffects() {
-		audioEffects.toggle();
+	async function toggleEffects() {
+		// On iOS, if enabling for first time, this will connect Web Audio
+		// which breaks background playback - warning is shown in UI
+		await audioEffects.toggle();
 		isEnabled = audioEffects.isEnabled();
+		// Once enabled on iOS, warning no longer needed (already committed)
+		if (isIOS && audioEffects.isWebAudioConnected()) {
+			showIOSWarning = false;
+		}
 	}
 
 	function setPreset(preset: EffectPreset) {
@@ -181,6 +192,15 @@
 				</button>
 			</div>
 		</header>
+
+		<!-- iOS Warning Banner -->
+		{#if showIOSWarning}
+			<div class="px-4 py-3 bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-700">
+				<p class="text-sm text-amber-800 dark:text-amber-200">
+					<strong>iOS Notice:</strong> Enabling audio effects will stop playback when the screen is locked or app is in background. This is an iOS limitation.
+				</p>
+			</div>
+		{/if}
 
 		<!-- Tabs -->
 		<div class="flex border-b border-gray-200 dark:border-gray-700" role="tablist" aria-label="Audio effect categories">

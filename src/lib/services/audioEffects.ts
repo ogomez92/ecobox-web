@@ -26,6 +26,7 @@ export class AudioEffectsChain {
 	private isConnected = false;
 	private audioElement: HTMLAudioElement | null = null;
 	private isInitialized = false;
+	private webAudioConnected = false; // Track if we've connected to Web Audio API
 
 	private effects: AudioEffects = {
 		enabled: false,
@@ -88,6 +89,21 @@ export class AudioEffectsChain {
 		}
 	}
 
+	// Detect iOS (iPhone, iPad, iPod)
+	isIOS(): boolean {
+		if (!browser) return false;
+		// Check userAgent for iOS devices
+		if (/iPad|iPhone|iPod/.test(navigator.userAgent)) return true;
+		// iPad on iOS 13+ reports as Mac, detect via touch support
+		if (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) return true;
+		return false;
+	}
+
+	// Check if Web Audio has been connected (effects have been enabled at least once)
+	isWebAudioConnected(): boolean {
+		return this.webAudioConnected;
+	}
+
 	async initialize(audioElement: HTMLAudioElement): Promise<void> {
 		if (this.isInitialized) return;
 
@@ -97,6 +113,27 @@ export class AudioEffectsChain {
 		this.effects.enabled = false; // Reset so enable() will work
 
 		this.audioElement = audioElement;
+		this.isInitialized = true;
+
+		// On iOS, don't auto-enable effects to preserve background playback
+		// User must explicitly enable effects (with warning shown in UI)
+		if (this.isIOS()) {
+			// Don't connect to Web Audio API yet - audio plays directly
+			return;
+		}
+
+		// On non-iOS, enable effects if they were saved as enabled
+		if (shouldEnable) {
+			await this.connectWebAudio();
+			this.enable();
+		}
+	}
+
+	// Create Web Audio nodes and connect the audio element
+	// Once called, audio is permanently routed through Web Audio API
+	private async connectWebAudio(): Promise<void> {
+		if (this.webAudioConnected || !this.audioElement) return;
+
 		this.audioContext = new AudioContext();
 
 		// Resume AudioContext on user interaction (required by browsers)
@@ -111,7 +148,8 @@ export class AudioEffectsChain {
 		}
 
 		// Create source node from audio element
-		this.sourceNode = this.audioContext.createMediaElementSource(audioElement);
+		// WARNING: Once connected, audio element is permanently routed through AudioContext
+		this.sourceNode = this.audioContext.createMediaElementSource(this.audioElement);
 
 		// Create gain nodes
 		this.gainNode = this.audioContext.createGain();
@@ -155,12 +193,7 @@ export class AudioEffectsChain {
 		// Connect bypass chain (when effects disabled)
 		this.sourceNode.connect(this.audioContext.destination);
 		this.isConnected = false;
-		this.isInitialized = true;
-
-		// Enable effects if they were saved as enabled
-		if (shouldEnable) {
-			this.enable();
-		}
+		this.webAudioConnected = true;
 	}
 
 	private async loadReverbImpulse(): Promise<void> {
@@ -183,8 +216,15 @@ export class AudioEffectsChain {
 		this.convolverNode.buffer = impulse;
 	}
 
-	enable(): void {
-		if (!this.audioContext || !this.sourceNode || this.effects.enabled) return;
+	async enable(): Promise<void> {
+		if (this.effects.enabled) return;
+
+		// Connect to Web Audio API if not already connected
+		if (!this.webAudioConnected) {
+			await this.connectWebAudio();
+		}
+
+		if (!this.audioContext || !this.sourceNode) return;
 
 		// Disconnect bypass
 		this.sourceNode.disconnect();
@@ -269,11 +309,11 @@ export class AudioEffectsChain {
 		this.isConnected = false;
 	}
 
-	toggle(): void {
+	async toggle(): Promise<void> {
 		if (this.effects.enabled) {
 			this.disable();
 		} else {
-			this.enable();
+			await this.enable();
 		}
 		this.saveToStorage();
 	}
