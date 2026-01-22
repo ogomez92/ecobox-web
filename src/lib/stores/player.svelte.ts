@@ -35,10 +35,10 @@ class PlayerStore {
 
 	// Audio element reference
 	private audio: HTMLAudioElement | null = null;
-	private savePositionInterval: number | null = null;
 	private mediaSessionSetup = false;
 	private positionSavedForNavigation = false;
 	private switchingFiles = false; // Flag to prevent save during file switch
+	private lastPositionSaveTime = 0; // Track last save time for throttling
 
 	get currentChapter(): Chapter | null {
 		if (this.currentChapterIndex >= 0 && this.currentChapterIndex < this.chapters.length) {
@@ -81,7 +81,6 @@ class PlayerStore {
 
 		this.audio.addEventListener('play', () => {
 			this.isPlaying = true;
-			this.startPositionSaving();
 			if ('mediaSession' in navigator) {
 				navigator.mediaSession.playbackState = 'playing';
 			}
@@ -90,11 +89,10 @@ class PlayerStore {
 
 		this.audio.addEventListener('pause', () => {
 			this.isPlaying = false;
-			this.stopPositionSaving();
 			if ('mediaSession' in navigator) {
 				navigator.mediaSession.playbackState = 'paused';
 			}
-			// Don't save if we're navigating away or audio is being destroyed
+			// Always save position on pause (works on iOS background/lock screen)
 			if (!this.positionSavedForNavigation && this.audio && this.currentTime > 0) {
 				this.savePosition();
 			}
@@ -102,13 +100,15 @@ class PlayerStore {
 
 		this.audio.addEventListener('ended', () => {
 			this.isPlaying = false;
-			this.stopPositionSaving();
 			this.handleEnded();
 		});
 
 		this.audio.addEventListener('timeupdate', () => {
 			this.currentTime = this.audio?.currentTime || 0;
 			this.updateCurrentChapter();
+			// Save position every 5 seconds during playback
+			// Using timeupdate instead of setInterval because it works on iOS in background
+			this.throttledSavePosition();
 		});
 
 		this.audio.addEventListener('error', () => {
@@ -134,6 +134,12 @@ class PlayerStore {
 		navigator.mediaSession.setActionHandler('seekforward', () => this.seekRelative(this.seekInterval));
 		navigator.mediaSession.setActionHandler('previoustrack', () => this.previousChapter());
 		navigator.mediaSession.setActionHandler('nexttrack', () => this.nextChapter());
+		navigator.mediaSession.setActionHandler('seekto', (details) => {
+			// Only seek if we have a valid time and audio is loaded
+			if (details.seekTime !== undefined && details.seekTime >= 0 && this.duration > 0) {
+				this.seek(details.seekTime); // seek() saves position
+			}
+		});
 
 		this.mediaSessionSetup = true;
 	}
@@ -164,6 +170,9 @@ class PlayerStore {
 
 	async loadFile(filePath: string, startPosition: number = 0) {
 		if (!this.audio) return;
+
+		// Reset navigation save flag for new file
+		this.positionSavedForNavigation = false;
 
 		this.currentFile = filePath;
 		this.currentTitle = filePath.split('/').pop() || 'Unknown';
@@ -227,6 +236,9 @@ class PlayerStore {
 
 	async loadChapteredFolder(folderPath: string) {
 		if (!this.audio) return;
+
+		// Reset navigation save flag for new file
+		this.positionSavedForNavigation = false;
 
 		this.isChapteredPlayback = true;
 		this.chapteredFolderPath = folderPath;
@@ -427,7 +439,11 @@ class PlayerStore {
 
 	seek(time: number) {
 		if (this.audio) {
-			this.audio.currentTime = Math.max(0, Math.min(time, this.duration));
+			// Only clamp to duration if duration is known (> 0)
+			const clampedTime = this.duration > 0
+				? Math.max(0, Math.min(time, this.duration))
+				: Math.max(0, time);
+			this.audio.currentTime = clampedTime;
 			this.savePosition();
 			this.updateMediaSessionPosition();
 		}
@@ -617,30 +633,33 @@ class PlayerStore {
 		}
 	}
 
-	private startPositionSaving() {
-		this.stopPositionSaving();
-		// Save position every 5 seconds
-		this.savePositionInterval = window.setInterval(() => {
-			// Don't save if we're navigating away
-			if (!this.positionSavedForNavigation) {
-				this.savePosition();
-			}
-		}, 5000);
-	}
+	// Throttled position save - called on every timeupdate but only saves every 5 seconds
+	// Using timeupdate instead of setInterval because it works on iOS in background
+	private throttledSavePosition() {
+		if (this.positionSavedForNavigation || !this.isPlaying) return;
 
-	private stopPositionSaving() {
-		if (this.savePositionInterval) {
-			clearInterval(this.savePositionInterval);
-			this.savePositionInterval = null;
+		const now = Date.now();
+		if (now - this.lastPositionSaveTime >= 5000) {
+			this.lastPositionSaveTime = now;
+			this.savePosition();
 		}
 	}
 
-	private async doSavePosition() {
-		if (!this.currentFile || this.isRadioStream || this.switchingFiles) return;
+	private async doSavePosition(
+		capturedTime?: number,
+		capturedFile?: string | null,
+		capturedDuration?: number
+	) {
+		// Use captured values if provided, otherwise use current state
+		const time = capturedTime ?? this.currentTime;
+		const file = capturedFile ?? this.currentFile;
+		const duration = capturedDuration ?? this.duration;
+
+		if (!file || this.isRadioStream || this.switchingFiles) return;
 
 		// For chaptered playback, save folder-level position
 		if (this.isChapteredPlayback && this.chapteredFolderPath) {
-			await this.saveChapteredPosition();
+			await this.saveChapteredPosition(capturedTime);
 			return;
 		}
 
@@ -650,9 +669,9 @@ class PlayerStore {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					path: this.currentFile,
-					lastPlayedPosition: this.currentTime,
-					duration: this.duration
+					path: file,
+					lastPlayedPosition: time,
+					duration: duration
 				})
 			});
 		} catch {
@@ -660,8 +679,10 @@ class PlayerStore {
 		}
 	}
 
-	async saveChapteredPosition() {
+	async saveChapteredPosition(capturedTime?: number) {
 		if (!this.chapteredFolderPath || !this.currentFile || this.switchingFiles) return;
+
+		const time = capturedTime ?? this.currentTime;
 
 		try {
 			await fetch('/api/chaptered/metadata', {
@@ -670,7 +691,7 @@ class PlayerStore {
 				body: JSON.stringify({
 					folderPath: this.chapteredFolderPath,
 					currentFilePath: this.currentFile,
-					currentFilePosition: this.currentTime,
+					currentFilePosition: time,
 					totalDuration: this.chapteredTotalDuration
 				})
 			});
@@ -687,20 +708,35 @@ class PlayerStore {
 
 	// Save position and mark as saved for navigation (prevents other saves)
 	async savePositionForNavigation() {
+		// Don't save again if already saved for this navigation
+		if (this.positionSavedForNavigation) return;
+
+		// Capture position immediately before any async operations
+		// (timeupdate events during cleanup can reset currentTime to 0)
+		const capturedTime = this.currentTime;
+		const capturedFile = this.currentFile;
+		const capturedDuration = this.duration;
+
 		// Set flag FIRST to block any concurrent saves (like pause events)
 		this.positionSavedForNavigation = true;
-		await this.doSavePosition();
+		await this.doSavePosition(capturedTime, capturedFile, capturedDuration);
 	}
 
 	destroy() {
-		this.stopPositionSaving();
-		// Set audio to null first to prevent pause event from saving
-		const shouldSave = !this.positionSavedForNavigation;
+		// Block any further saves from queued events
+		const wasSavedForNavigation = this.positionSavedForNavigation;
+		this.positionSavedForNavigation = true; // Keep it true to block queued events
+
+		// Set audio to null to prevent event handlers from accessing it
 		this.audio = null;
-		if (shouldSave) {
+		this.isPlaying = false; // Stop throttled saves from firing
+
+		// Only save if we haven't already saved for navigation
+		if (!wasSavedForNavigation) {
 			this.savePosition();
 		}
-		this.positionSavedForNavigation = false;
+
+		this.lastPositionSaveTime = 0;
 
 		// Reset chaptered state
 		this.isChapteredPlayback = false;
