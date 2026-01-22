@@ -18,6 +18,13 @@ class PlayerStore {
 	chapters = $state<Chapter[]>([]);
 	currentChapterIndex = $state(-1);
 
+	// Chaptered folder / DAISY state
+	isChapteredPlayback = $state(false);
+	chapteredFolderPath = $state<string | null>(null);
+	chapteredFiles = $state<string[]>([]); // Ordered list of audio files
+	currentFileIndex = $state(-1);
+	chapteredTotalDuration = $state(0);
+
 	// Radio stream state
 	isRadioStream = $state(false);
 	radioStreamUrl = $state<string | null>(null);
@@ -31,6 +38,7 @@ class PlayerStore {
 	private savePositionInterval: number | null = null;
 	private mediaSessionSetup = false;
 	private positionSavedForNavigation = false;
+	private switchingFiles = false; // Flag to prevent save during file switch
 
 	get currentChapter(): Chapter | null {
 		if (this.currentChapterIndex >= 0 && this.currentChapterIndex < this.chapters.length) {
@@ -217,6 +225,144 @@ class PlayerStore {
 		}
 	}
 
+	async loadChapteredFolder(folderPath: string) {
+		if (!this.audio) return;
+
+		this.isChapteredPlayback = true;
+		this.chapteredFolderPath = folderPath;
+		this.currentTitle = folderPath.split('/').pop() || 'Unknown';
+		this.chapters = [];
+		this.currentChapterIndex = -1;
+		this.error = null;
+		this.isRadioStream = false;
+		this.radioStreamUrl = null;
+
+		let startFilePath: string | null = null;
+		let startPosition = 0;
+
+		// Load saved chaptered metadata (folder-level position)
+		try {
+			const response = await fetch(`/api/chaptered/metadata?path=${encodeURIComponent(folderPath)}`);
+			if (response.ok) {
+				const metadata = await response.json();
+				if (metadata.currentFilePath) {
+					startFilePath = metadata.currentFilePath;
+					startPosition = metadata.currentFilePosition || 0;
+				}
+				if (metadata.totalDuration) {
+					this.chapteredTotalDuration = metadata.totalDuration;
+				}
+			}
+		} catch {
+			// Ignore metadata loading errors
+		}
+
+		// Load chapters (this also returns file list for DAISY)
+		try {
+			const response = await fetch(`/api/media/chapters?path=${encodeURIComponent(folderPath)}`);
+			if (response.ok) {
+				const data = await response.json();
+				if (data.chapters && data.chapters.length > 0) {
+					this.chapters = data.chapters;
+
+					// Extract unique file paths from chapters
+					const files = data.chapters
+						.filter((ch: Chapter) => ch.filePath)
+						.map((ch: Chapter) => ch.filePath as string);
+					this.chapteredFiles = [...new Set(files)] as string[];
+
+					if (data.totalDuration) {
+						this.chapteredTotalDuration = data.totalDuration;
+					}
+					if (data.title) {
+						this.currentTitle = data.title;
+					}
+				}
+			}
+		} catch {
+			// Ignore chapter loading errors
+		}
+
+		// If no chapters with files, try to get audio files directly
+		if (this.chapteredFiles.length === 0) {
+			try {
+				const response = await fetch(`/api/files?path=${encodeURIComponent(folderPath)}`);
+				if (response.ok) {
+					const data = await response.json();
+					const audioExtensions = ['.mp3', '.m4a', '.m4b', '.wav', '.aac', '.flac'];
+					this.chapteredFiles = data.files
+						.filter((f: { name: string; isDirectory: boolean }) =>
+							!f.isDirectory && audioExtensions.some(ext => f.name.toLowerCase().endsWith(ext)))
+						.map((f: { path: string }) => f.path)
+						.sort((a: string, b: string) => a.localeCompare(b, undefined, { numeric: true }));
+				}
+			} catch {
+				// Ignore errors
+			}
+		}
+
+		if (this.chapteredFiles.length === 0) {
+			this.error = 'No audio files found';
+			return;
+		}
+
+		// Determine which file to start with
+		if (!startFilePath || !this.chapteredFiles.includes(startFilePath)) {
+			startFilePath = this.chapteredFiles[0];
+			startPosition = 0;
+		}
+
+		this.currentFileIndex = this.chapteredFiles.indexOf(startFilePath);
+
+		// Load the starting file
+		await this.loadFileInternal(startFilePath, startPosition);
+		this.updateCurrentChapter();
+		this.updateMediaSessionMetadata();
+	}
+
+	// Internal method to load a file without resetting chaptered state
+	private async loadFileInternal(filePath: string, startPosition: number = 0) {
+		if (!this.audio) return;
+
+		this.currentFile = filePath;
+		this.error = null;
+
+		// Set the audio source using the path relative to media root
+		const relativePath = this.getRelativePath(filePath);
+		this.audio.src = `/api/media/${encodeURIComponent(relativePath)}`;
+
+		// Wait for metadata to load, then seek and optionally play
+		const audio = this.audio;
+		return new Promise<void>((resolve) => {
+			const onLoadedMetadata = () => {
+				if (audio) {
+					this.duration = audio.duration || 0;
+					if (startPosition > 0 && startPosition < this.duration) {
+						audio.currentTime = startPosition;
+					}
+					if (settingsStore.autoplay && !this.switchingFiles) {
+						audio.play().catch(() => {
+							// Silently ignore - user will need to click play manually
+						});
+					} else if (this.switchingFiles && this.isPlaying) {
+						// Continue playing after file switch
+						audio.play().catch(() => {});
+					}
+				}
+				resolve();
+			};
+			audio.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+		});
+	}
+
+	// Get path relative to media root (for chaptered files which may have absolute paths)
+	private getRelativePath(filePath: string): string {
+		// If the path starts with the chaptered folder path, extract relative part
+		// For DAISY, chapters already have full paths from the server
+		// The API expects paths relative to MEDIA_ROOT
+		return filePath;
+	}
+
 	async loadRadio(filePath: string) {
 		if (!this.audio) return;
 
@@ -319,8 +465,25 @@ class PlayerStore {
 			return;
 		}
 
+		// For chaptered playback, calculate absolute time across all files
+		let absoluteTime = this.currentTime;
+		if (this.isChapteredPlayback && this.currentFile) {
+			const fileStartTime = this.getFileStartTime(this.currentFile);
+			absoluteTime = fileStartTime + this.currentTime;
+		}
+
 		for (let i = this.chapters.length - 1; i >= 0; i--) {
-			if (this.currentTime >= this.chapters[i].startTime) {
+			const chapter = this.chapters[i];
+			// For chaptered playback, also check if we're in the right file
+			if (this.isChapteredPlayback && chapter.filePath && chapter.filePath !== this.currentFile) {
+				// Check if this chapter is in an earlier file
+				const chapterFileIndex = this.chapteredFiles.indexOf(chapter.filePath);
+				if (chapterFileIndex > this.currentFileIndex) {
+					continue; // Chapter is in a later file, skip
+				}
+			}
+
+			if (absoluteTime >= chapter.startTime) {
 				if (this.currentChapterIndex !== i) {
 					this.currentChapterIndex = i;
 					this.updateMediaSessionMetadata();
@@ -331,22 +494,91 @@ class PlayerStore {
 		this.currentChapterIndex = 0;
 	}
 
-	seekToChapter(index: number) {
-		if (index >= 0 && index < this.chapters.length) {
-			this.seek(this.chapters[index].startTime);
+	async seekToChapter(index: number) {
+		if (index < 0 || index >= this.chapters.length) return;
+
+		const chapter = this.chapters[index];
+
+		// Check if this chapter is in a different file (DAISY/chaptered playback)
+		if (this.isChapteredPlayback && chapter.filePath) {
+			const currentFilePath = this.currentFile;
+
+			// Need to switch files?
+			if (chapter.filePath !== currentFilePath) {
+				// Save position first
+				await this.saveChapteredPosition();
+
+				// Calculate position within the target file
+				// For DAISY, startTime is absolute across all files, we need file-relative time
+				const fileStartTime = this.getFileStartTime(chapter.filePath);
+				const positionInFile = chapter.startTime - fileStartTime;
+
+				// Update file index
+				this.currentFileIndex = this.chapteredFiles.indexOf(chapter.filePath);
+
+				// Switch files
+				this.switchingFiles = true;
+				await this.loadFileInternal(chapter.filePath, Math.max(0, positionInFile));
+				this.switchingFiles = false;
+
+				this.currentChapterIndex = index;
+				this.updateMediaSessionMetadata();
+				return;
+			}
 		}
+
+		// Same file - just seek
+		// For chaptered playback, convert absolute time to file-relative time
+		let seekTime = chapter.startTime;
+		if (this.isChapteredPlayback && chapter.filePath) {
+			const fileStartTime = this.getFileStartTime(chapter.filePath);
+			seekTime = chapter.startTime - fileStartTime;
+		}
+
+		this.seek(Math.max(0, seekTime));
+	}
+
+	// Get the cumulative start time of a file in the chaptered sequence
+	private getFileStartTime(filePath: string): number {
+		// Find the first chapter of this file to get its start time offset
+		for (const chapter of this.chapters) {
+			if (chapter.filePath === filePath) {
+				// Look for the minimum startTime for this file
+				const fileChapters = this.chapters.filter(ch => ch.filePath === filePath);
+				if (fileChapters.length > 0) {
+					return Math.min(...fileChapters.map(ch => ch.startTime));
+				}
+			}
+		}
+		return 0;
 	}
 
 	previousChapter() {
 		// If we're more than 3 seconds into the chapter, restart it
 		// Otherwise, go to the previous chapter
 		const chapter = this.currentChapter;
-		if (chapter && this.currentTime - chapter.startTime > 3) {
-			this.seek(chapter.startTime);
-		} else if (this.currentChapterIndex > 0) {
-			this.seekToChapter(this.currentChapterIndex - 1);
+
+		if (this.isChapteredPlayback && chapter) {
+			// For chaptered playback, calculate time into current chapter
+			const fileStartTime = this.currentFile ? this.getFileStartTime(this.currentFile) : 0;
+			const absoluteTime = fileStartTime + this.currentTime;
+			const timeIntoChapter = absoluteTime - chapter.startTime;
+
+			if (timeIntoChapter > 3) {
+				this.seekToChapter(this.currentChapterIndex);
+			} else if (this.currentChapterIndex > 0) {
+				this.seekToChapter(this.currentChapterIndex - 1);
+			} else {
+				this.seekToChapter(0);
+			}
 		} else {
-			this.seek(0);
+			if (chapter && this.currentTime - chapter.startTime > 3) {
+				this.seek(chapter.startTime);
+			} else if (this.currentChapterIndex > 0) {
+				this.seekToChapter(this.currentChapterIndex - 1);
+			} else {
+				this.seek(0);
+			}
 		}
 	}
 
@@ -356,12 +588,33 @@ class PlayerStore {
 		}
 	}
 
-	private handleEnded() {
+	private async handleEnded() {
 		// Don't save if we're navigating away (position already saved)
 		if (!this.positionSavedForNavigation) {
 			this.savePosition();
 		}
-		// Could implement auto-advance to next file here
+
+		// Auto-advance to next file in chaptered playback
+		if (this.isChapteredPlayback && this.chapteredFiles.length > 0) {
+			const nextIndex = this.currentFileIndex + 1;
+			if (nextIndex < this.chapteredFiles.length) {
+				// Switch to next file
+				this.currentFileIndex = nextIndex;
+				const nextFile = this.chapteredFiles[nextIndex];
+
+				this.switchingFiles = true;
+				// Start from beginning of next file but keep playing
+				await this.loadFileInternal(nextFile, 0);
+				this.switchingFiles = false;
+
+				// Continue playing
+				this.audio?.play().catch(() => {});
+
+				// Update chapter index to first chapter of new file
+				this.updateCurrentChapter();
+				this.updateMediaSessionMetadata();
+			}
+		}
 	}
 
 	private startPositionSaving() {
@@ -383,8 +636,15 @@ class PlayerStore {
 	}
 
 	private async doSavePosition() {
-		if (!this.currentFile || this.isRadioStream) return;
+		if (!this.currentFile || this.isRadioStream || this.switchingFiles) return;
 
+		// For chaptered playback, save folder-level position
+		if (this.isChapteredPlayback && this.chapteredFolderPath) {
+			await this.saveChapteredPosition();
+			return;
+		}
+
+		// Regular single-file position save
 		try {
 			await fetch('/api/media/metadata', {
 				method: 'PUT',
@@ -393,6 +653,25 @@ class PlayerStore {
 					path: this.currentFile,
 					lastPlayedPosition: this.currentTime,
 					duration: this.duration
+				})
+			});
+		} catch {
+			// Ignore save errors
+		}
+	}
+
+	async saveChapteredPosition() {
+		if (!this.chapteredFolderPath || !this.currentFile || this.switchingFiles) return;
+
+		try {
+			await fetch('/api/chaptered/metadata', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					folderPath: this.chapteredFolderPath,
+					currentFilePath: this.currentFile,
+					currentFilePosition: this.currentTime,
+					totalDuration: this.chapteredTotalDuration
 				})
 			});
 		} catch {
@@ -422,6 +701,14 @@ class PlayerStore {
 			this.savePosition();
 		}
 		this.positionSavedForNavigation = false;
+
+		// Reset chaptered state
+		this.isChapteredPlayback = false;
+		this.chapteredFolderPath = null;
+		this.chapteredFiles = [];
+		this.currentFileIndex = -1;
+		this.chapteredTotalDuration = 0;
+		this.switchingFiles = false;
 	}
 }
 

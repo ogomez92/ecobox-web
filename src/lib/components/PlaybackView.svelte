@@ -143,7 +143,14 @@
 			} else {
 				// Initialize audio effects chain (connects Web Audio API to the audio element)
 				await audioEffects.initialize(audioElement);
-				playerStore.loadFile(filePath);
+
+				// Check if this is a folder (DAISY/chaptered) by querying the chapters API
+				const isFolder = await checkIfChapteredFolder(filePath);
+				if (isFolder) {
+					playerStore.loadChapteredFolder(filePath);
+				} else {
+					playerStore.loadFile(filePath);
+				}
 				loadBookmarks();
 			}
 		}
@@ -157,6 +164,19 @@
 			playButtonRef?.focus();
 		});
 	});
+
+	async function checkIfChapteredFolder(path: string): Promise<boolean> {
+		try {
+			const response = await fetch(`/api/media/chapters?path=${encodeURIComponent(path)}`);
+			if (response.ok) {
+				const data = await response.json();
+				return data.type === 'daisy' || data.type === 'chaptered';
+			}
+		} catch {
+			// Ignore errors
+		}
+		return false;
+	}
 
 	onDestroy(() => {
 		if (typeof window !== 'undefined') {
@@ -175,10 +195,16 @@
 
 	async function handleBack() {
 		await playerStore.savePositionForNavigation();
-		const pathParts = filePath.split('/');
-		const fileName = pathParts.pop();
+
+		// For chaptered playback, use the folder path for navigation
+		const pathToUse = playerStore.isChapteredPlayback && playerStore.chapteredFolderPath
+			? playerStore.chapteredFolderPath
+			: filePath;
+
+		const pathParts = pathToUse.split('/');
+		const itemName = pathParts.pop();
 		const parentPath = pathParts.join('/');
-		const focusParam = fileName ? `?focus=${encodeURIComponent(fileName)}` : '';
+		const focusParam = itemName ? `?focus=${encodeURIComponent(itemName)}` : '';
 
 		if (parentPath) {
 			goto(`/browse/${parentPath}${focusParam}`);

@@ -2,10 +2,17 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import type { Chapter, DaisyBook, DaisyVolume } from '$lib/types';
+import { getMediaRoot } from './files';
 
 const DAISY_MARKERS = ['ncc.html', 'ncc.xml', 'Navigation.xml'];
 const AUDIO_EXTENSIONS = ['.mp3', '.m4a', '.m4b', '.wav', '.aac', '.flac'];
 const VOLUME_PATTERN = /^(\d+)\s+of\s+(\d+)$/i;
+
+// Convert absolute path to path relative to MEDIA_ROOT
+function toRelativePath(absolutePath: string): string {
+	const mediaRoot = getMediaRoot();
+	return path.relative(mediaRoot, absolutePath);
+}
 
 export async function isDaisyBook(folderPath: string): Promise<boolean> {
 	try {
@@ -224,7 +231,8 @@ function extractAudioFromSmil(smilRef: string, basePath: string): { filePath: st
 			const audioPath = path.join(basePath, audioFile);
 			if (fsSync.existsSync(audioPath)) {
 				return {
-					filePath: audioPath,
+					// Return path relative to MEDIA_ROOT for use with the media API
+					filePath: toRelativePath(audioPath),
 					startTime: parseNptTime(clipBegin || '0s'),
 					endTime: clipEnd ? parseNptTime(clipEnd) : undefined
 				};
@@ -261,10 +269,11 @@ async function getAudioFilesAsChapters(folderPath: string): Promise<Chapter[]> {
 			.sort((a, b) => path.basename(a).localeCompare(path.basename(b), undefined, { numeric: true }));
 
 		// Create chapters from audio files (we don't know durations without parsing)
-		return audioFiles.map((filePath, index) => ({
+		// Return paths relative to MEDIA_ROOT
+		return audioFiles.map((filePath) => ({
 			title: path.basename(filePath, path.extname(filePath)),
 			startTime: 0, // Would need to calculate cumulative duration
-			filePath
+			filePath: toRelativePath(filePath)
 		}));
 	} catch {
 		return [];
@@ -286,7 +295,7 @@ export async function getChapteredFolderFiles(folderPath: string): Promise<strin
 	if (await isDaisyBook(folderPath)) {
 		const book = await parseDaisyBook(folderPath);
 		if (book) {
-			// Extract unique file paths from chapters
+			// Extract unique file paths from chapters (already relative to MEDIA_ROOT)
 			const files = book.chapters
 				.filter(ch => ch.filePath)
 				.map(ch => ch.filePath as string);
@@ -295,11 +304,12 @@ export async function getChapteredFolderFiles(folderPath: string): Promise<strin
 	}
 
 	// Regular chaptered folder - return audio files alphabetically
+	// Return paths relative to MEDIA_ROOT
 	try {
 		const entries = await fs.readdir(folderPath, { withFileTypes: true });
 		return entries
 			.filter(e => !e.isDirectory() && AUDIO_EXTENSIONS.includes(path.extname(e.name).toLowerCase()))
-			.map(e => path.join(folderPath, e.name))
+			.map(e => toRelativePath(path.join(folderPath, e.name)))
 			.sort((a, b) => path.basename(a).localeCompare(path.basename(b), undefined, { numeric: true }));
 	} catch {
 		return [];

@@ -28,6 +28,10 @@
 
 	function getHref(): string {
 		if (file.isDirectory) {
+			// DAISY books and chaptered folders go to player, not browser
+			if (file.isDaisyBook || file.isChapteredFolder) {
+				return `/play/${file.path}`;
+			}
 			return `/browse/${file.path}`;
 		}
 		return `/play/${file.path}`;
