@@ -5,8 +5,4 @@
 	const filePath = $derived($page.params.path || '');
 </script>
 
-<svelte:head>
-	<title>Ecobox</title>
-</svelte:head>
-
 <PlaybackView {filePath} />

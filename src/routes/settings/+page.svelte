@@ -1,20 +1,11 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { goto } from '$app/navigation';
 
 	const seekIntervalOptions = [1, 2, 3, 5, 10, 15, 30];
 	const longSeekIntervalOptions = [10, 15, 30, 45, 60, 90, 120];
-
-	onMount(() => {
-		settingsStore.load();
-	});
 </script>
-
-<svelte:head>
-	<title>Ecobox</title>
-</svelte:head>
 
 <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
 	<header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 sticky top-0 z-10">
@@ -163,6 +154,24 @@
 					{/each}
 				</div>
 			</fieldset>
+
+			<div class="mt-4">
+				<label for="mask-title" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+					Mask Title
+				</label>
+				<input
+					id="mask-title"
+					type="text"
+					value={settingsStore.maskTitle}
+					oninput={(e) => settingsStore.setMaskTitle((e.target as HTMLInputElement).value)}
+					placeholder="Leave empty to show &quot;Ecobox&quot;"
+					aria-describedby="mask-title-desc"
+					class="input"
+				/>
+				<p id="mask-title-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+					Replace the browser tab title with custom text to hide what you're listening to
+				</p>
+			</div>
 		</section>
 
 		<!-- Keyboard Shortcuts -->

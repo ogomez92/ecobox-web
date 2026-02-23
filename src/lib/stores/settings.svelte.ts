@@ -7,7 +7,8 @@ const defaultSettings: Settings = {
 	audioEffectsEnabled: false,
 	radioResumeBehavior: 'ask',
 	theme: 'system',
-	autoplay: true
+	autoplay: true,
+	maskTitle: ''
 };
 
 class SettingsStore {
@@ -18,6 +19,7 @@ class SettingsStore {
 	radioResumeBehavior = $state<'always' | 'never' | 'ask'>(defaultSettings.radioResumeBehavior);
 	theme = $state<'light' | 'dark' | 'system'>(defaultSettings.theme);
 	autoplay = $state(defaultSettings.autoplay);
+	maskTitle = $state(defaultSettings.maskTitle);
 
 	private isLoaded = false;
 
@@ -45,6 +47,7 @@ class SettingsStore {
 		if (settings.radioResumeBehavior !== undefined) this.radioResumeBehavior = settings.radioResumeBehavior;
 		if (settings.theme !== undefined) this.theme = settings.theme;
 		if (settings.autoplay !== undefined) this.autoplay = settings.autoplay;
+		if (settings.maskTitle !== undefined) this.maskTitle = settings.maskTitle;
 	}
 
 	async save() {
@@ -55,7 +58,8 @@ class SettingsStore {
 			audioEffectsEnabled: this.audioEffectsEnabled,
 			radioResumeBehavior: this.radioResumeBehavior,
 			theme: this.theme,
-			autoplay: this.autoplay
+			autoplay: this.autoplay,
+			maskTitle: this.maskTitle
 		};
 
 		try {
@@ -102,6 +106,11 @@ class SettingsStore {
 
 	setAutoplay(value: boolean) {
 		this.autoplay = value;
+		this.save();
+	}
+
+	setMaskTitle(value: string) {
+		this.maskTitle = value;
 		this.save();
 	}
 

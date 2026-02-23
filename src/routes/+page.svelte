@@ -5,8 +5,4 @@
 	const focusFile = $derived($page.url.searchParams.get('focus') || undefined);
 </script>
 
-<svelte:head>
-	<title>Ecobox</title>
-</svelte:head>
-
 <FileExplorer initialPath="" {focusFile} />

@@ -129,6 +129,7 @@ export interface Settings {
 	radioResumeBehavior: 'always' | 'never' | 'ask';
 	theme: 'light' | 'dark' | 'system';
 	autoplay: boolean;
+	maskTitle: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -138,7 +139,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	audioEffectsEnabled: false,
 	radioResumeBehavior: 'ask',
 	theme: 'system',
-	autoplay: true
+	autoplay: true,
+	maskTitle: ''
 };
 
 export const DEFAULT_EQ_BANDS: EQBand[] = [

@@ -1,7 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { db, schema } from '$server/db';
-import { eq } from 'drizzle-orm';
 import type { Settings } from '$lib/types';
 
 export const GET: RequestHandler = async () => {
@@ -22,6 +21,7 @@ export const GET: RequestHandler = async () => {
 		if (settings.audioEffectsEnabled) parsed.audioEffectsEnabled = settings.audioEffectsEnabled === 'true';
 		if (settings.radioResumeBehavior) parsed.radioResumeBehavior = settings.radioResumeBehavior as 'always' | 'never' | 'ask';
 		if (settings.theme) parsed.theme = settings.theme as 'light' | 'dark' | 'system';
+		if (settings.maskTitle !== undefined) parsed.maskTitle = settings.maskTitle;
 
 		return json(parsed);
 	} catch (err) {
@@ -54,6 +54,9 @@ export const PUT: RequestHandler = async ({ request }) => {
 		}
 		if (body.theme !== undefined) {
 			entries.push({ key: 'theme', value: body.theme });
+		}
+		if (body.maskTitle !== undefined) {
+			entries.push({ key: 'maskTitle', value: body.maskTitle });
 		}
 
 		// Upsert each setting
