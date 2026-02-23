@@ -305,7 +305,7 @@
 						<Icon name="x" size={24} />
 					</button>
 				</div>
-				<div class="flex px-4" role="tablist" onkeydown={handleTabKeydown}>
+				<div class="flex px-4" role="tablist" tabindex="-1" onkeydown={handleTabKeydown}>
 					<button
 						type="button"
 						role="tab"

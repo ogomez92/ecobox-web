@@ -14,7 +14,6 @@ const STORAGE_KEY = 'ecobox-audio-effects';
 export class AudioEffectsChain {
 	private audioContext: AudioContext | null = null;
 	private sourceNode: MediaElementAudioSourceNode | null = null;
-	private gainNode: GainNode | null = null;
 	private volumeBoostNode: GainNode | null = null;
 	private eqNodes: BiquadFilterNode[] = [];
 	private compressorNode: DynamicsCompressorNode | null = null;
@@ -23,7 +22,6 @@ export class AudioEffectsChain {
 	private wetGainNode: GainNode | null = null;
 	private dryGainNode: GainNode | null = null;
 	private outputNode: GainNode | null = null;
-	private isConnected = false;
 	private audioElement: HTMLAudioElement | null = null;
 	private isInitialized = false;
 	private webAudioConnected = false; // Track if we've connected to Web Audio API
@@ -152,7 +150,6 @@ export class AudioEffectsChain {
 		this.sourceNode = this.audioContext.createMediaElementSource(this.audioElement);
 
 		// Create gain nodes
-		this.gainNode = this.audioContext.createGain();
 		this.outputNode = this.audioContext.createGain();
 		this.wetGainNode = this.audioContext.createGain();
 		this.dryGainNode = this.audioContext.createGain();
@@ -192,7 +189,7 @@ export class AudioEffectsChain {
 
 		// Connect bypass chain (when effects disabled)
 		this.sourceNode.connect(this.audioContext.destination);
-		this.isConnected = false;
+
 		this.webAudioConnected = true;
 	}
 
@@ -285,7 +282,7 @@ export class AudioEffectsChain {
 		}
 
 		this.effects.enabled = true;
-		this.isConnected = true;
+
 	}
 
 	disable(): void {
@@ -306,7 +303,7 @@ export class AudioEffectsChain {
 		this.sourceNode.connect(this.audioContext.destination);
 
 		this.effects.enabled = false;
-		this.isConnected = false;
+
 	}
 
 	async toggle(): Promise<void> {
@@ -449,7 +446,17 @@ export class AudioEffectsChain {
 		this.audioContext?.close();
 		this.audioContext = null;
 		this.sourceNode = null;
+		this.volumeBoostNode = null;
+		this.eqNodes = [];
+		this.compressorNode = null;
+		this.highPassNode = null;
+		this.convolverNode = null;
+		this.wetGainNode = null;
+		this.dryGainNode = null;
+		this.outputNode = null;
+		this.audioElement = null;
 		this.isInitialized = false;
+		this.webAudioConnected = false;
 	}
 }
 
