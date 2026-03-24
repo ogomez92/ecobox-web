@@ -37,9 +37,9 @@
 		// Show iOS warning if on iOS and effects not yet connected to Web Audio
 		showIOSWarning = isIOS && !audioEffects.isWebAudioConnected();
 
-		// Focus the All Effects toggle when dialog opens
+		// Focus the active tab when dialog opens
 		requestAnimationFrame(() => {
-			allEffectsToggleRef?.focus();
+			tabRefs[activeTab]?.focus();
 		});
 	});
 

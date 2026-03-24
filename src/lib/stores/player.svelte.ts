@@ -1,3 +1,4 @@
+import { browser } from '$app/environment';
 import type { Chapter } from '$lib/types';
 import { settingsStore } from './settings.svelte';
 import { audioEffects } from '$lib/services/audioEffects';
@@ -85,6 +86,8 @@ class PlayerStore {
 				navigator.mediaSession.playbackState = 'playing';
 			}
 			this.updateMediaSessionPosition();
+			// Resume AudioContext if needed (e.g. after iOS background resume)
+			audioEffects.resumeContext().catch(() => {});
 		});
 
 		this.audio.addEventListener('pause', () => {
@@ -125,11 +128,24 @@ class PlayerStore {
 		});
 	}
 
+	private isIOS(): boolean {
+		if (!browser) return false;
+		if (/iPad|iPhone|iPod/.test(navigator.userAgent)) return true;
+		if (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) return true;
+		return false;
+	}
+
 	private setupMediaSession() {
 		if (this.mediaSessionSetup || !('mediaSession' in navigator)) return;
 
-		navigator.mediaSession.setActionHandler('play', () => this.play());
-		navigator.mediaSession.setActionHandler('pause', () => this.pause());
+		// On iOS, don't set play/pause handlers — let the browser handle them natively.
+		// Custom handlers require waking up suspended JS when backgrounded, which iOS
+		// doesn't reliably do. Without custom handlers, iOS resumes/pauses the audio
+		// element directly. Our play/pause event listeners still update state.
+		if (!this.isIOS()) {
+			navigator.mediaSession.setActionHandler('play', () => this.play());
+			navigator.mediaSession.setActionHandler('pause', () => this.pause());
+		}
 		navigator.mediaSession.setActionHandler('seekbackward', () => this.seekRelative(-this.seekInterval));
 		navigator.mediaSession.setActionHandler('seekforward', () => this.seekRelative(this.seekInterval));
 		navigator.mediaSession.setActionHandler('previoustrack', () => this.previousChapter());
@@ -414,10 +430,16 @@ class PlayerStore {
 	}
 
 	async play() {
-		// Resume AudioContext if suspended (required by browsers after page load)
-		await audioEffects.resumeContext();
+		// Call play() synchronously first — on iOS, awaiting anything before play()
+		// loses the user-gesture context from Media Session handlers (control center),
+		// causing play to fail when the app is backgrounded.
+		const playPromise = this.audio?.play();
 
-		this.audio?.play().catch((err) => {
+		// Resume AudioContext after starting playback (non-critical for iOS where
+		// Web Audio is typically not connected)
+		audioEffects.resumeContext().catch(() => {});
+
+		playPromise?.catch((err) => {
 			// Only ignore NotAllowedError (autoplay policy), log others
 			if (err.name !== 'NotAllowedError') {
 				console.error('Play error:', err);

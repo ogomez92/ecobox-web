@@ -43,13 +43,19 @@ export async function listDirectory(relativePath: string = ''): Promise<FileEntr
 			}
 
 			const entryPath = path.join(dirPath, entry.name);
-			const stats = await fs.stat(entryPath);
+			let stats;
+			try {
+				stats = await fs.stat(entryPath);
+			} catch {
+				// Skip broken symlinks or inaccessible entries
+				continue;
+			}
 			const fileRelPath = path.join(relativePath, entry.name);
 
 			const fileEntry: FileEntry = {
 				name: entry.name,
 				path: fileRelPath,
-				isDirectory: entry.isDirectory(),
+				isDirectory: stats.isDirectory(),
 				size: stats.size,
 				modifiedAt: stats.mtime
 			};

@@ -215,7 +215,16 @@
 
 	function handleKeydown(e: KeyboardEvent) {
 		// Skip if in input field or dialog is open
-		if (e.target instanceof HTMLInputElement || showGoToTime || showEffects) return;
+		if (e.target instanceof HTMLInputElement || showGoToTime) return;
+
+		// F key toggles effects panel even when it's open
+		if (e.code === 'KeyF' && !isRadio) {
+			e.preventDefault();
+			toggleEffectsPanel();
+			return;
+		}
+
+		if (showEffects) return;
 
 		switch (e.code) {
 			case 'Escape':
@@ -350,6 +359,18 @@
 		}
 	}
 
+	function toggleEffectsPanel() {
+		showEffects = !showEffects;
+		if (!showEffects) {
+			requestAnimationFrame(() => playButtonRef?.focus());
+		}
+	}
+
+	function closeEffectsPanel() {
+		showEffects = false;
+		requestAnimationFrame(() => playButtonRef?.focus());
+	}
+
 	function announceTimeInfo() {
 		const duration = playerStore.duration;
 		const currentTime = playerStore.currentTime;
@@ -458,11 +479,31 @@
 				</p>
 			{/if}
 
-			<!-- Seek unit indicator (keyboard hint) - hide for radio -->
+			<!-- Seek unit selector - hide for radio -->
 			{#if !isRadio}
-				<div class="mt-4 px-3 py-1.5 bg-gray-100 dark:bg-gray-700 rounded-full text-sm text-gray-600 dark:text-gray-400">
-					Seek: ±{formatSeekUnit(seekUnit)} (← →)
-				</div>
+				<fieldset class="mt-4">
+					<legend class="sr-only">Seek unit</legend>
+					<div class="flex flex-wrap justify-center gap-1.5">
+						{#each SEEK_UNITS as unit, i}
+							<label class="cursor-pointer">
+								<input
+									type="radio"
+									name="seek-unit"
+									value={i}
+									checked={seekUnitIndex === i}
+									onchange={() => { seekUnitIndex = i; announceSeekUnit(); }}
+									class="sr-only peer"
+								/>
+								<span class="inline-block px-2.5 py-1 rounded-full text-sm transition-colors
+									peer-checked:bg-blue-600 peer-checked:text-white
+									bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400
+									hover:bg-gray-200 dark:hover:bg-gray-600">
+									{formatSeekUnit(unit)}
+								</span>
+							</label>
+						{/each}
+					</div>
+				</fieldset>
 			{/if}
 		</div>
 
@@ -603,8 +644,8 @@
 				<button
 					type="button"
 					class="btn-secondary"
-					onclick={() => showEffects = true}
-					aria-label="Audio effects"
+					onclick={toggleEffectsPanel}
+					aria-label="Audio effects (F)"
 					aria-expanded={showEffects}
 					aria-haspopup="dialog"
 				>
@@ -659,7 +700,7 @@
 
 <!-- Effects panel modal -->
 {#if showEffects}
-	<EffectsPanel onclose={() => showEffects = false} />
+	<EffectsPanel onclose={closeEffectsPanel} />
 {/if}
 
 <!-- Live region for announcements -->
