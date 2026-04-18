@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import Icon from './Icon.svelte';
 	import { audioEffects } from '$lib/services/audioEffects';
+	import { isIOS as detectIOS } from '$lib/utils/platform';
 	import { DEFAULT_AUDIO_EFFECTS, type EffectPreset } from '$lib/types';
 
 	interface Props {
@@ -33,7 +34,7 @@
 		// Load current effects state on mount (client-side only)
 		isEnabled = audioEffects.isEnabled();
 		effects = audioEffects.getEffects();
-		isIOS = audioEffects.isIOS();
+		isIOS = detectIOS();
 		// Show iOS warning if on iOS and effects not yet connected to Web Audio
 		showIOSWarning = isIOS && !audioEffects.isWebAudioConnected();
 

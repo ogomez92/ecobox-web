@@ -1,4 +1,3 @@
-import { browser } from '$app/environment';
 import type { Chapter } from '$lib/types';
 import { settingsStore } from './settings.svelte';
 import { audioEffects } from '$lib/services/audioEffects';
@@ -128,24 +127,11 @@ class PlayerStore {
 		});
 	}
 
-	private isIOS(): boolean {
-		if (!browser) return false;
-		if (/iPad|iPhone|iPod/.test(navigator.userAgent)) return true;
-		if (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) return true;
-		return false;
-	}
-
 	private setupMediaSession() {
 		if (this.mediaSessionSetup || !('mediaSession' in navigator)) return;
 
-		// On iOS, don't set play/pause handlers — let the browser handle them natively.
-		// Custom handlers require waking up suspended JS when backgrounded, which iOS
-		// doesn't reliably do. Without custom handlers, iOS resumes/pauses the audio
-		// element directly. Our play/pause event listeners still update state.
-		if (!this.isIOS()) {
-			navigator.mediaSession.setActionHandler('play', () => this.play());
-			navigator.mediaSession.setActionHandler('pause', () => this.pause());
-		}
+		navigator.mediaSession.setActionHandler('play', () => this.play());
+		navigator.mediaSession.setActionHandler('pause', () => this.pause());
 		navigator.mediaSession.setActionHandler('seekbackward', () => this.seekRelative(-this.seekInterval));
 		navigator.mediaSession.setActionHandler('seekforward', () => this.seekRelative(this.seekInterval));
 		navigator.mediaSession.setActionHandler('previoustrack', () => this.previousChapter());

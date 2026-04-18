@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { isIOS } from '$lib/utils/platform';
 import type { AudioEffects, EffectPreset } from '$lib/types';
 
 const PRESET_EQ: Record<EffectPreset, number[]> = {
@@ -87,16 +88,6 @@ export class AudioEffectsChain {
 		}
 	}
 
-	// Detect iOS (iPhone, iPad, iPod)
-	isIOS(): boolean {
-		if (!browser) return false;
-		// Check userAgent for iOS devices
-		if (/iPad|iPhone|iPod/.test(navigator.userAgent)) return true;
-		// iPad on iOS 13+ reports as Mac, detect via touch support
-		if (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) return true;
-		return false;
-	}
-
 	// Check if Web Audio has been connected (effects have been enabled at least once)
 	isWebAudioConnected(): boolean {
 		return this.webAudioConnected;
@@ -115,7 +106,7 @@ export class AudioEffectsChain {
 
 		// On iOS, don't auto-enable effects to preserve background playback
 		// User must explicitly enable effects (with warning shown in UI)
-		if (this.isIOS()) {
+		if (isIOS()) {
 			// Don't connect to Web Audio API yet - audio plays directly
 			return;
 		}
