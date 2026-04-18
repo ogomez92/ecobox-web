@@ -432,6 +432,14 @@ export class AudioEffectsChain {
 		}
 	}
 
+	async suspendContext(): Promise<void> {
+		// Only suspend if Web Audio is actually connected — otherwise we'd create
+		// and immediately suspend a context we didn't need.
+		if (this.webAudioConnected && this.audioContext?.state === 'running') {
+			await this.audioContext.suspend();
+		}
+	}
+
 	destroy(): void {
 		this.disable();
 		this.audioContext?.close();

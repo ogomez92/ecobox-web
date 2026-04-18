@@ -94,6 +94,9 @@ class PlayerStore {
 			if ('mediaSession' in navigator) {
 				navigator.mediaSession.playbackState = 'paused';
 			}
+			// Suspend AudioContext so the OS audio session is released — keeps
+			// paused Web Audio from ducking or crackling other apps' playback.
+			audioEffects.suspendContext().catch(() => {});
 			// Always save position on pause (works on iOS background/lock screen)
 			if (!this.positionSavedForNavigation && this.audio && this.currentTime > 0) {
 				this.savePosition();
