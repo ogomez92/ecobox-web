@@ -5,6 +5,7 @@
 	import FileRow from './FileRow.svelte';
 	import StorageFooter from './StorageFooter.svelte';
 	import UploadDialog from './UploadDialog.svelte';
+	import ActionsMenu from './ActionsMenu.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { filesStore } from '$lib/stores/files.svelte';
 	import { goto } from '$app/navigation';
@@ -18,11 +19,14 @@
 	let { initialPath = '', focusFile }: Props = $props();
 
 	let showUploadDialog = $state(false);
+	let uploadInitialTab = $state<'upload' | 'radio'>('upload');
+	let uploadInitialPicker = $state<'file' | 'folder' | null>(null);
 	let deleteTarget = $state<FileEntry | null>(null);
 	let focusedIndex = $state(-1);
 	let hasAppliedFocus = $state(false);
 	let atRootAnnouncement = $state('');
 	let emptyFolderUploadButton: HTMLButtonElement | undefined = $state();
+	let actionsMenuOpen = $state(false);
 
 	const isAtRoot = $derived(initialPath === '');
 	const parentPath = $derived(() => {
@@ -100,6 +104,23 @@
 		filesStore.loadStorage();
 	}
 
+	function openUpload(picker: 'file' | 'folder' | null, tab: 'upload' | 'radio' = 'upload') {
+		uploadInitialPicker = picker;
+		uploadInitialTab = tab;
+		showUploadDialog = true;
+	}
+
+	function handleGlobalKeydown(e: KeyboardEvent) {
+		// Alt+N opens the actions menu. Ignore when inside form fields or modal dialogs.
+		if (!(e.altKey && (e.key === 'n' || e.key === 'N'))) return;
+		if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+		const target = e.target as HTMLElement | null;
+		if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+		if (showUploadDialog || deleteTarget) return;
+		e.preventDefault();
+		actionsMenuOpen = true;
+	}
+
 	function getSortIcon(field: 'name' | 'size' | 'modifiedAt'): 'chevron-up' | 'chevron-down' {
 		if (filesStore.sortField === field) {
 			return filesStore.sortDirection === 'asc' ? 'chevron-up' : 'chevron-down';
@@ -170,6 +191,8 @@
 	}
 </script>
 
+<svelte:window onkeydown={handleGlobalKeydown} />
+
 <div class="flex flex-col h-screen">
 	<!-- Live region for announcements -->
 	<div class="sr-only" aria-live="assertive" aria-atomic="true">
@@ -184,15 +207,12 @@
 					Ecobox
 				</a>
 				<div class="flex items-center gap-2">
-					<button
-						type="button"
-						onclick={() => showUploadDialog = true}
-						class="btn-primary"
-						aria-label="Upload files"
-					>
-						<Icon name="upload" size={20} />
-						<span class="ml-2 hidden sm:inline">Upload</span>
-					</button>
+					<ActionsMenu
+						bind:isOpen={actionsMenuOpen}
+						onuploadfiles={() => openUpload('file')}
+						onuploadfolder={() => openUpload('folder')}
+						onaddradio={() => openUpload(null, 'radio')}
+					/>
 					<a
 						href="/settings"
 						class="btn-ghost"
@@ -245,7 +265,7 @@
 						<button
 							bind:this={emptyFolderUploadButton}
 							type="button"
-							onclick={() => showUploadDialog = true}
+							onclick={() => openUpload('file')}
 							class="btn-primary mt-4"
 						>
 							<Icon name="upload" size={20} class="mr-2" />
@@ -339,6 +359,8 @@
 	<UploadDialog
 		isOpen={showUploadDialog}
 		currentPath={filesStore.currentPath}
+		initialTab={uploadInitialTab}
+		initialPicker={uploadInitialPicker}
 		onclose={() => showUploadDialog = false}
 		oncomplete={handleUploadComplete}
 	/>

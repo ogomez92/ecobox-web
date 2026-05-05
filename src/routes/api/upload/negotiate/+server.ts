@@ -23,6 +23,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const toUpload: string[] = [];
 		const toDelete: string[] = [];
+		const newFiles: string[] = [];
+		const conflicts: string[] = [];
+		const identical: string[] = [];
 
 		// Get existing files in destination
 		let existingFiles: Map<string, number> = new Map();
@@ -43,33 +46,45 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			if (existingSize === undefined) {
 				// File doesn't exist, upload it
+				newFiles.push(file.path);
 				toUpload.push(file.path);
 			} else if (existingSize === 0 && file.size > 0) {
 				// Existing file is 0 bytes (likely failed upload), re-upload it
+				conflicts.push(file.path);
 				toUpload.push(file.path);
-			} else if (mode === 'sync' && existingSize !== file.size) {
-				// File exists but different size, upload it in sync mode
-				toUpload.push(file.path);
+			} else if (existingSize !== file.size) {
+				// File exists but different size — conflict
+				conflicts.push(file.path);
+				if (mode === 'sync') {
+					toUpload.push(file.path);
+				}
+			} else {
+				// Same size — treat as identical and skip
+				identical.push(file.path);
 			}
-			// In copy mode, skip existing files with matching or non-zero size
 
 			// Remove from existing files map (for sync deletion tracking)
 			existingFiles.delete(file.path);
 		}
 
-		// In sync mode, delete files that weren't in the upload list
-		if (mode === 'sync') {
-			for (const [existingPath] of existingFiles) {
-				// Don't delete .CHAPTERED marker files
-				if (!existingPath.endsWith('.CHAPTERED')) {
-					toDelete.push(path.join(basePath, existingPath));
-				}
+		// Remaining items in existingFiles are extras (in destination, not in upload)
+		const extras: string[] = [];
+		for (const [existingPath] of existingFiles) {
+			// Don't delete/track .CHAPTERED marker files as extras
+			if (existingPath.endsWith('.CHAPTERED')) continue;
+			extras.push(existingPath);
+			if (mode === 'sync') {
+				toDelete.push(path.join(basePath, existingPath));
 			}
 		}
 
 		const response: UploadNegotiateResponse = {
 			toUpload,
-			toDelete: mode === 'sync' ? toDelete : undefined
+			toDelete: mode === 'sync' ? toDelete : undefined,
+			newFiles,
+			conflicts,
+			identical,
+			extras
 		};
 
 		return json(response);

@@ -68,6 +68,10 @@ export interface UploadNegotiateRequest {
 export interface UploadNegotiateResponse {
 	toUpload: string[];
 	toDelete?: string[];
+	newFiles: string[];
+	conflicts: string[];
+	identical: string[];
+	extras: string[];
 }
 
 export interface StorageInfo {

@@ -1,18 +1,28 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { formatBytes } from '$lib/utils/format';
 	import type { UploadNegotiateRequest, UploadNegotiateResponse } from '$lib/types';
 
 	interface Props {
 		isOpen: boolean;
 		currentPath: string;
+		initialTab?: 'upload' | 'radio';
+		initialPicker?: 'file' | 'folder' | null;
 		onclose: () => void;
 		oncomplete: () => void;
 	}
 
-	let { isOpen, currentPath, onclose, oncomplete }: Props = $props();
+	let {
+		isOpen,
+		currentPath,
+		initialTab = 'upload',
+		initialPicker = null,
+		onclose,
+		oncomplete
+	}: Props = $props();
 
-	// Tab state
+	// Tab state — synced from initialTab when the dialog opens
 	let activeTab = $state<'upload' | 'radio'>('upload');
 
 	let fileInput: HTMLInputElement | null = $state(null);
@@ -27,17 +37,36 @@
 	let radioNameInput: HTMLInputElement | null = $state(null);
 	let isCreatingRadio = $state(false);
 
+	let lastOpenState = $state(false);
 	$effect(() => {
-		if (isOpen) {
-			if (activeTab === 'upload' && addFilesButton) {
-				addFilesButton.focus();
-			} else if (activeTab === 'radio' && radioNameInput) {
+		// Detect transition from closed -> open
+		if (isOpen && !lastOpenState) {
+			lastOpenState = true;
+			activeTab = initialTab;
+
+			if (activeTab === 'radio' && radioNameInput) {
 				radioNameInput.focus();
+			} else if (initialPicker === 'file' && fileInput) {
+				// Auto-trigger file picker on next tick so the dialog mounts first
+				queueMicrotask(() => fileInput?.click());
+				addFilesButton?.focus();
+			} else if (initialPicker === 'folder' && folderInput) {
+				queueMicrotask(() => folderInput?.click());
+				addFilesButton?.focus();
+			} else if (addFilesButton) {
+				addFilesButton.focus();
 			}
+		} else if (!isOpen) {
+			lastOpenState = false;
 		}
 	});
+
 	let selectedFiles = $state<File[]>([]);
 	let mode = $state<'copy' | 'sync'>('copy');
+	let preflight = $state<UploadNegotiateResponse | null>(null);
+	let preflightLoading = $state(false);
+	let preflightError = $state<string | null>(null);
+	let confirmSyncDelete = $state(false);
 	let isUploading = $state(false);
 	let uploadProgress = $state(0);
 	let currentFileIndex = $state(0);
@@ -47,6 +76,27 @@
 	let progressAnnouncement = $state('');
 
 	const totalSize = $derived(selectedFiles.reduce((sum, f) => sum + f.size, 0));
+
+	const newCount = $derived(preflight?.newFiles.length ?? 0);
+	const conflictCount = $derived(preflight?.conflicts.length ?? 0);
+	const identicalCount = $derived(preflight?.identical.length ?? 0);
+	const extrasCount = $derived(preflight?.extras.length ?? 0);
+
+	// What will actually happen given current mode
+	const willUploadCount = $derived(
+		mode === 'sync' ? newCount + conflictCount : newCount
+	);
+	const willSkipCount = $derived(
+		mode === 'sync' ? identicalCount : identicalCount + conflictCount
+	);
+	const willDeleteCount = $derived(mode === 'sync' ? extrasCount : 0);
+
+	// Live announcement of the plan for screen readers
+	const planAnnouncement = $derived(
+		preflight
+			? `Plan: upload ${willUploadCount}, skip ${willSkipCount}${willDeleteCount > 0 ? `, delete ${willDeleteCount}` : ''}.`
+			: ''
+	);
 
 	function handleFileSelect(e: Event) {
 		const input = e.target as HTMLInputElement;
@@ -58,6 +108,8 @@
 
 	function clearFiles() {
 		selectedFiles = [];
+		preflight = null;
+		preflightError = null;
 		error = null;
 	}
 
@@ -68,6 +120,61 @@
 		radioPassword = '';
 		error = null;
 	}
+
+	// Run preflight when files or mode change
+	$effect(() => {
+		// Track dependencies
+		const files = selectedFiles;
+		const m = mode;
+		if (files.length === 0) {
+			preflight = null;
+			preflightError = null;
+			return;
+		}
+
+		let cancelled = false;
+		preflightLoading = true;
+		preflightError = null;
+
+		const fileList = files.map(f => ({
+			path: f.webkitRelativePath || f.name,
+			size: f.size
+		}));
+
+		const req: UploadNegotiateRequest = {
+			basePath: currentPath,
+			mode: m,
+			files: fileList
+		};
+
+		fetch('/api/upload/negotiate', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(req)
+		})
+			.then(async (res) => {
+				if (cancelled) return;
+				if (!res.ok) {
+					preflightError = 'Could not check destination folder';
+					preflight = null;
+				} else {
+					preflight = await res.json();
+				}
+			})
+			.catch(() => {
+				if (!cancelled) {
+					preflightError = 'Could not check destination folder';
+					preflight = null;
+				}
+			})
+			.finally(() => {
+				if (!cancelled) preflightLoading = false;
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	});
 
 	async function handleCreateRadio() {
 		if (!radioName.trim() || !radioUrl.trim()) {
@@ -115,15 +222,12 @@
 
 			xhr.upload.addEventListener('progress', (e) => {
 				if (e.lengthComputable && totalFiles > 0) {
-					// Calculate progress for current file
 					const fileProgress = e.loaded / e.total;
-					// Overall progress: completed files + current file progress
 					const overallProgress = Math.round(
 						((currentFileIndex + fileProgress) / totalFiles) * 100
 					);
-					uploadProgress = Math.min(overallProgress, 99); // Cap at 99 until fully done
+					uploadProgress = Math.min(overallProgress, 99);
 
-					// Announce every 5%
 					const progressToAnnounce = Math.floor(uploadProgress / 5) * 5;
 					if (progressToAnnounce > lastAnnouncedProgress && progressToAnnounce > 0) {
 						lastAnnouncedProgress = progressToAnnounce;
@@ -153,8 +257,17 @@
 		});
 	}
 
-	async function handleUpload() {
-		if (selectedFiles.length === 0) return;
+	function startUpload() {
+		// If sync mode would delete files, require explicit confirmation
+		if (mode === 'sync' && willDeleteCount > 0) {
+			confirmSyncDelete = true;
+			return;
+		}
+		void runUpload();
+	}
+
+	async function runUpload() {
+		if (selectedFiles.length === 0 || !preflight) return;
 
 		isUploading = true;
 		uploadProgress = 0;
@@ -164,30 +277,7 @@
 		error = null;
 
 		try {
-			// Prepare file list for negotiation
-			const fileList = selectedFiles.map(f => ({
-				path: f.webkitRelativePath || f.name,
-				size: f.size
-			}));
-
-			// Negotiate upload
-			const negotiateReq: UploadNegotiateRequest = {
-				basePath: currentPath,
-				mode,
-				files: fileList
-			};
-
-			const negotiateRes = await fetch('/api/upload/negotiate', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(negotiateReq)
-			});
-
-			if (!negotiateRes.ok) {
-				throw new Error('Failed to negotiate upload');
-			}
-
-			const { toUpload, toDelete }: UploadNegotiateResponse = await negotiateRes.json();
+			const { toUpload, toDelete } = preflight;
 
 			// Delete files if in sync mode
 			if (toDelete && toDelete.length > 0) {
@@ -206,7 +296,6 @@
 			totalFiles = filesToUpload.length;
 
 			if (totalFiles === 0) {
-				// Nothing to upload (all files already exist)
 				uploadProgress = 100;
 				progressAnnouncement = 'Upload complete, no new files to upload';
 			} else {
@@ -229,7 +318,6 @@
 
 			oncomplete();
 
-			// Small delay to let user see 100% before closing
 			await new Promise(resolve => setTimeout(resolve, 500));
 
 			clearFiles();
@@ -239,6 +327,11 @@
 		} finally {
 			isUploading = false;
 		}
+	}
+
+	function handleConfirmSyncDelete() {
+		confirmSyncDelete = false;
+		void runUpload();
 	}
 
 	function handleClose() {
@@ -251,7 +344,7 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && !isUploading) {
+		if (e.key === 'Escape' && !isUploading && !confirmSyncDelete) {
 			handleClose();
 		}
 	}
@@ -262,7 +355,6 @@
 		if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
 			e.preventDefault();
 			activeTab = activeTab === 'upload' ? 'radio' : 'upload';
-			// Focus the newly selected tab
 			requestAnimationFrame(() => {
 				const selectedTab = document.querySelector('[role="tab"][aria-selected="true"]') as HTMLElement;
 				selectedTab?.focus();
@@ -403,31 +495,116 @@
 								<p class="text-sm text-gray-600 dark:text-gray-400">file{selectedFiles.length !== 1 ? 's' : ''} selected ({formatBytes(totalSize)})</p>
 							</div>
 
+							<!-- Preflight summary -->
+							{#if preflightLoading}
+								<div class="text-sm text-gray-600 dark:text-gray-400" aria-live="polite">
+									Checking destination folder...
+								</div>
+							{:else if preflightError}
+								<div class="p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 rounded-lg text-sm" role="alert">
+									{preflightError}
+								</div>
+							{:else if preflight}
+								<section aria-labelledby="upload-summary-heading" class="space-y-2">
+									<h3 id="upload-summary-heading" class="text-sm font-medium text-gray-700 dark:text-gray-300">
+										What will happen
+									</h3>
+									<ul class="text-sm space-y-1">
+										<li class="flex items-center justify-between text-gray-700 dark:text-gray-300">
+											<span class="flex items-center gap-2">
+												<Icon name="check" size={14} class="text-green-600 dark:text-green-400" />
+												New files (will upload)
+											</span>
+											<span class="font-medium tabular-nums">{newCount}</span>
+										</li>
+										<li class="flex items-center justify-between text-gray-700 dark:text-gray-300">
+											<span class="flex items-center gap-2">
+												<Icon name="more-vertical" size={14} class="text-amber-600 dark:text-amber-400" />
+												Conflicts (different size)
+											</span>
+											<span class="font-medium tabular-nums">
+												{conflictCount}
+												{#if conflictCount > 0}
+													<span class="text-xs ml-1 text-gray-500 dark:text-gray-400">
+														{mode === 'sync' ? '— will replace' : '— will skip'}
+													</span>
+												{/if}
+											</span>
+										</li>
+										<li class="flex items-center justify-between text-gray-700 dark:text-gray-300">
+											<span class="flex items-center gap-2">
+												<Icon name="check" size={14} class="text-gray-400" />
+												Already there (same size)
+											</span>
+											<span class="font-medium tabular-nums">{identicalCount}</span>
+										</li>
+										{#if mode === 'sync' && extrasCount > 0}
+											<li class="flex items-center justify-between text-red-700 dark:text-red-400">
+												<span class="flex items-center gap-2">
+													<Icon name="trash" size={14} />
+													Extra files in folder (will be DELETED)
+												</span>
+												<span class="font-medium tabular-nums">{extrasCount}</span>
+											</li>
+										{:else if extrasCount > 0}
+											<li class="flex items-center justify-between text-gray-500 dark:text-gray-400">
+												<span class="flex items-center gap-2">
+													<Icon name="folder" size={14} />
+													Other files in folder (kept)
+												</span>
+												<span class="font-medium tabular-nums">{extrasCount}</span>
+											</li>
+										{/if}
+									</ul>
+
+									{#if mode === 'sync' && willDeleteCount > 0}
+										<div class="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 rounded-lg text-sm" role="alert">
+											<strong>Warning:</strong> Sync mode will permanently delete {willDeleteCount} file{willDeleteCount !== 1 ? 's' : ''} that {willDeleteCount !== 1 ? 'are' : 'is'} in the destination but not in your selection.
+										</div>
+									{/if}
+								</section>
+							{/if}
+
 							<fieldset class="space-y-2">
-								<legend class="text-sm font-medium text-gray-700 dark:text-gray-300">Upload Mode</legend>
-								<div class="flex gap-4">
-									<label class="flex items-center gap-2 cursor-pointer">
+								<legend class="text-sm font-medium text-gray-700 dark:text-gray-300">If a file already exists</legend>
+								<div class="space-y-2">
+									<label class="flex items-start gap-2 cursor-pointer">
 										<input
 											type="radio"
 											bind:group={mode}
 											value="copy"
 											tabindex={mode === 'copy' ? 0 : -1}
-											class="w-4 h-4 text-primary-600"
+											class="w-4 h-4 mt-0.5 text-primary-600"
 										/>
-										<span class="text-sm">Copy (keep existing)</span>
+										<span class="text-sm">
+											<span class="block text-gray-900 dark:text-gray-100">Merge — keep existing files</span>
+											<span class="block text-xs text-gray-500 dark:text-gray-400">
+												Add new files only. Conflicts and extras stay untouched.
+											</span>
+										</span>
 									</label>
-									<label class="flex items-center gap-2 cursor-pointer">
+									<label class="flex items-start gap-2 cursor-pointer">
 										<input
 											type="radio"
 											bind:group={mode}
 											value="sync"
 											tabindex={mode === 'sync' ? 0 : -1}
-											class="w-4 h-4 text-primary-600"
+											class="w-4 h-4 mt-0.5 text-primary-600"
 										/>
-										<span class="text-sm">Sync (replace)</span>
+										<span class="text-sm">
+											<span class="block text-gray-900 dark:text-gray-100">Sync — mirror selection</span>
+											<span class="block text-xs text-gray-500 dark:text-gray-400">
+												Replace conflicting files and delete anything else in this folder.
+											</span>
+										</span>
 									</label>
 								</div>
 							</fieldset>
+
+							<!-- Plan summary for screen readers -->
+							<div class="sr-only" aria-live="polite" aria-atomic="true">
+								{planAnnouncement}
+							</div>
 						{/if}
 					{/if}
 				{/if}
@@ -554,12 +731,16 @@
 				{#if activeTab === 'upload'}
 					<button
 						type="button"
-						onclick={handleUpload}
-						disabled={isUploading || selectedFiles.length === 0}
+						onclick={startUpload}
+						disabled={isUploading || selectedFiles.length === 0 || preflightLoading || !preflight}
 						class="btn-primary flex-1"
 					>
 						{#if isUploading}
 							Uploading...
+						{:else if preflightLoading}
+							Checking...
+						{:else if willUploadCount === 0 && willDeleteCount === 0}
+							Nothing to do
 						{:else}
 							Upload
 						{/if}
@@ -582,3 +763,14 @@
 		</div>
 	</div>
 {/if}
+
+<ConfirmDialog
+	isOpen={confirmSyncDelete}
+	title="Confirm sync"
+	message="This will permanently delete {willDeleteCount} file{willDeleteCount !== 1 ? 's' : ''} from the destination folder, and replace {conflictCount} existing file{conflictCount !== 1 ? 's' : ''}. Continue?"
+	confirmText="Sync and delete"
+	cancelText="Cancel"
+	destructive={true}
+	onconfirm={handleConfirmSyncDelete}
+	oncancel={() => confirmSyncDelete = false}
+/>
