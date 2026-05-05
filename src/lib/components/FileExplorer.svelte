@@ -77,11 +77,14 @@
 			setTimeout(() => atRootAnnouncement = '', 1000);
 			return;
 		}
+		const parts = initialPath.split('/').filter(Boolean);
+		const leftFolder = parts[parts.length - 1];
 		const parent = parentPath();
+		const focusQuery = leftFolder ? `?focus=${encodeURIComponent(leftFolder)}` : '';
 		if (parent === '') {
-			goto('/');
+			goto(`/${focusQuery}`);
 		} else {
-			goto(`/browse/${parent}`);
+			goto(`/browse/${parent}${focusQuery}`);
 		}
 	}
 
