@@ -122,7 +122,7 @@ class PlayerStore {
 		});
 
 		this.audio.addEventListener('volumechange', () => {
-			this.volume = this.audio?.volume || 1;
+			this.volume = this.audio?.volume ?? 1;
 		});
 
 		this.audio.addEventListener('ratechange', () => {
