@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
+	import { t } from '$lib/i18n/index.svelte';
 
 	interface Props {
 		isOpen: boolean;
@@ -16,8 +17,8 @@
 		isOpen,
 		title,
 		message,
-		confirmText = 'Confirm',
-		cancelText = 'Cancel',
+		confirmText,
+		cancelText,
 		destructive = false,
 		onconfirm,
 		oncancel
@@ -53,7 +54,7 @@
 			type="button"
 			class="absolute inset-0 bg-black/50"
 			onclick={oncancel}
-			aria-label="Close dialog"
+			aria-label={t('common.closeDialog')}
 		></button>
 
 		<div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-sm p-6">
@@ -76,7 +77,7 @@
 					onclick={oncancel}
 					class="btn-secondary flex-1"
 				>
-					{cancelText}
+					{cancelText ?? t('common.cancel')}
 				</button>
 				<button
 					bind:this={confirmButton}
@@ -88,7 +89,7 @@
 					class:text-white={destructive}
 					class:btn-primary={!destructive}
 				>
-					{confirmText}
+					{confirmText ?? t('common.confirm')}
 				</button>
 			</div>
 		</div>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
+	import { t } from '$lib/i18n/index.svelte';
 
 	interface Props {
 		volume: number;
@@ -35,13 +36,13 @@
 		type="button"
 		onclick={toggleMute}
 		class="btn-ghost p-2"
-		aria-label={isMuted || volume === 0 ? 'Unmute' : 'Mute'}
+		aria-label={isMuted || volume === 0 ? t('volume.unmute') : t('volume.mute')}
 	>
 		<Icon name={isMuted || volume === 0 ? 'volume-off' : 'volume'} size={20} />
 	</button>
 
 	<label class="flex-1 flex items-center gap-2">
-		<span class="sr-only">Volume: {Math.round(volume * 100)}%</span>
+		<span class="sr-only">{t('volume.label', { pct: Math.round(volume * 100) })}</span>
 		<input
 			type="range"
 			min="0"
@@ -50,7 +51,7 @@
 			value={volume}
 			oninput={handleInput}
 			class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full appearance-none cursor-pointer accent-primary-500"
-			aria-label="Volume"
+			aria-label={t('volume.aria')}
 		/>
 	</label>
 

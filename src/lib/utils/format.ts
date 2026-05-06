@@ -1,3 +1,5 @@
+import { i18n } from '../i18n/index.svelte';
+
 export function formatBytes(bytes: number): string {
 	if (bytes === 0) return '0 B';
 
@@ -22,23 +24,33 @@ export function formatDuration(seconds: number): string {
 }
 
 export function formatDurationAccessible(seconds: number): string {
-	if (!seconds || !isFinite(seconds)) return 'Unknown duration';
+	if (!seconds || !isFinite(seconds)) return i18n.t('player.durationUnknown');
 
 	const hours = Math.floor(seconds / 3600);
 	const minutes = Math.floor((seconds % 3600) / 60);
 	const secs = Math.floor(seconds % 60);
 
 	const parts: string[] = [];
-	if (hours > 0) parts.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
-	if (minutes > 0) parts.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`);
-	if (secs > 0 && hours === 0) parts.push(`${secs} second${secs !== 1 ? 's' : ''}`);
+	if (hours > 0) {
+		parts.push(i18n.t(hours === 1 ? 'player.hour' : 'player.hours', { n: hours }));
+	}
+	if (minutes > 0) {
+		parts.push(i18n.t(minutes === 1 ? 'player.minute' : 'player.minutes', { n: minutes }));
+	}
+	if (secs > 0 && hours === 0) {
+		parts.push(i18n.t(secs === 1 ? 'player.second' : 'player.seconds', { n: secs }));
+	}
 
-	return parts.join(', ') || '0 seconds';
+	return parts.join(', ') || i18n.t('player.seconds', { n: 0 });
+}
+
+function localeTag(): string {
+	return i18n.locale;
 }
 
 export function formatDate(date: Date | string): string {
 	const d = new Date(date);
-	return d.toLocaleDateString(undefined, {
+	return d.toLocaleDateString(localeTag(), {
 		year: 'numeric',
 		month: 'short',
 		day: 'numeric'
@@ -47,7 +59,7 @@ export function formatDate(date: Date | string): string {
 
 export function formatDateAccessible(date: Date | string): string {
 	const d = new Date(date);
-	return d.toLocaleDateString(undefined, {
+	return d.toLocaleDateString(localeTag(), {
 		weekday: 'long',
 		year: 'numeric',
 		month: 'long',

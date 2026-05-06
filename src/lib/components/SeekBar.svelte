@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { formatDuration, formatDurationAccessible } from '$lib/utils/format';
+	import { t } from '$lib/i18n/index.svelte';
 
 	interface Props {
 		currentTime: number;
@@ -81,11 +82,11 @@
 		class="relative h-10 flex items-center cursor-pointer touch-manipulation"
 		role="slider"
 		tabindex="0"
-		aria-label="Seek slider"
+		aria-label={t('seekbar.aria')}
 		aria-valuemin={0}
 		aria-valuemax={Math.round(duration)}
 		aria-valuenow={Math.round(currentTime)}
-		aria-valuetext="{formatDurationAccessible(currentTime)} of {formatDurationAccessible(duration)}"
+		aria-valuetext={t('seekbar.valueText', { current: formatDurationAccessible(currentTime), total: formatDurationAccessible(duration) })}
 		onmousedown={handleMouseDown}
 		ontouchstart={handleTouchStart}
 		ontouchmove={handleTouchMove}

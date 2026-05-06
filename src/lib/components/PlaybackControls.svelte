@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
+	import { t } from '$lib/i18n/index.svelte';
 
 	const SPEED_OPTIONS = [0.5, 1, 1.25, 1.5, 2] as const;
 
@@ -50,7 +51,7 @@
 			type="button"
 			onclick={onlongseekback}
 			class="btn-ghost p-3 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-			aria-label="Skip back {longSeekInterval} seconds"
+			aria-label={t('player.skipBack', { n: longSeekInterval })}
 		>
 			<span class="relative">
 				<Icon name="skip-back" size={24} />
@@ -62,7 +63,7 @@
 			type="button"
 			onclick={onseekback}
 			class="btn-ghost p-3 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
-			aria-label="Skip back {seekInterval} seconds"
+			aria-label={t('player.skipBack', { n: seekInterval })}
 		>
 			<span class="relative">
 				<Icon name="skip-back" size={28} />
@@ -76,7 +77,7 @@
 		type="button"
 		onclick={ontoggle}
 		class="btn-primary w-16 h-16 sm:w-20 sm:h-20 rounded-full shadow-lg"
-		aria-label={isPlaying ? 'Pause' : 'Play'}
+		aria-label={isPlaying ? t('player.pause') : t('player.play')}
 	>
 		<Icon name={isPlaying ? 'pause' : 'play'} size={32} />
 	</button>
@@ -85,7 +86,7 @@
 		type="button"
 		onclick={cycleSpeed}
 		class="btn-ghost px-2 py-1 min-w-[3rem] text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 rounded-lg"
-		aria-label="Playback speed {formatSpeed(playbackRate)}"
+		aria-label={t('player.playbackSpeed', { speed: formatSpeed(playbackRate) })}
 	>
 		{formatSpeed(playbackRate)}
 	</button>
@@ -95,7 +96,7 @@
 			type="button"
 			onclick={onseekforward}
 			class="btn-ghost p-3 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
-			aria-label="Skip forward {seekInterval} seconds"
+			aria-label={t('player.skipForward', { n: seekInterval })}
 		>
 			<span class="relative">
 				<Icon name="skip-forward" size={28} />
@@ -107,7 +108,7 @@
 			type="button"
 			onclick={onlongseekforward}
 			class="btn-ghost p-3 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-			aria-label="Skip forward {longSeekInterval} seconds"
+			aria-label={t('player.skipForward', { n: longSeekInterval })}
 		>
 			<span class="relative">
 				<Icon name="skip-forward" size={24} />

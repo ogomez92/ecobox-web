@@ -1,6 +1,7 @@
 import type { Chapter } from '$lib/types';
 import { settingsStore } from './settings.svelte';
 import { audioEffects } from '$lib/services/audioEffects';
+import { t } from '$lib/i18n/index.svelte';
 
 class PlayerStore {
 	// Playback state
@@ -118,7 +119,7 @@ class PlayerStore {
 
 		this.audio.addEventListener('error', () => {
 			this.isLoading = false;
-			this.error = 'Failed to load audio';
+			this.error = t('player.loadFailed');
 		});
 
 		this.audio.addEventListener('volumechange', () => {
@@ -319,7 +320,7 @@ class PlayerStore {
 		}
 
 		if (this.chapteredFiles.length === 0) {
-			this.error = 'No audio files found';
+			this.error = t('player.noFiles');
 			return;
 		}
 
@@ -411,10 +412,10 @@ class PlayerStore {
 
 				this.updateMediaSessionMetadata();
 			} else {
-				this.error = 'Failed to load radio station';
+				this.error = t('player.radioFailed');
 			}
 		} catch {
-			this.error = 'Failed to load radio station';
+			this.error = t('player.radioFailed');
 		}
 	}
 

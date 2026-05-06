@@ -2,6 +2,7 @@
 	import Icon from './Icon.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { formatBytes } from '$lib/utils/format';
+	import { t } from '$lib/i18n/index.svelte';
 	import type { UploadNegotiateRequest, UploadNegotiateResponse } from '$lib/types';
 
 	interface Props {
@@ -94,7 +95,9 @@
 	// Live announcement of the plan for screen readers
 	const planAnnouncement = $derived(
 		preflight
-			? `Plan: upload ${willUploadCount}, skip ${willSkipCount}${willDeleteCount > 0 ? `, delete ${willDeleteCount}` : ''}.`
+			? willDeleteCount > 0
+				? t('upload.planAnnounceWithDelete', { up: willUploadCount, skip: willSkipCount, del: willDeleteCount })
+				: t('upload.planAnnounce', { up: willUploadCount, skip: willSkipCount })
 			: ''
 	);
 
@@ -155,7 +158,7 @@
 			.then(async (res) => {
 				if (cancelled) return;
 				if (!res.ok) {
-					preflightError = 'Could not check destination folder';
+					preflightError = t('upload.checkError');
 					preflight = null;
 				} else {
 					preflight = await res.json();
@@ -163,7 +166,7 @@
 			})
 			.catch(() => {
 				if (!cancelled) {
-					preflightError = 'Could not check destination folder';
+					preflightError = t('upload.checkError');
 					preflight = null;
 				}
 			})
@@ -178,7 +181,7 @@
 
 	async function handleCreateRadio() {
 		if (!radioName.trim() || !radioUrl.trim()) {
-			error = 'Station name and URL are required';
+			error = t('radio.requiredError');
 			return;
 		}
 
@@ -203,7 +206,7 @@
 			});
 
 			if (!response.ok) {
-				throw new Error('Failed to create radio station');
+				throw new Error(t('radio.createFailed'));
 			}
 
 			oncomplete();
@@ -231,7 +234,7 @@
 					const progressToAnnounce = Math.floor(uploadProgress / 5) * 5;
 					if (progressToAnnounce > lastAnnouncedProgress && progressToAnnounce > 0) {
 						lastAnnouncedProgress = progressToAnnounce;
-						progressAnnouncement = `Uploading, ${progressToAnnounce}%, file ${currentFileIndex + 1} of ${totalFiles}`;
+						progressAnnouncement = t('upload.uploadingProgress', { pct: progressToAnnounce, n: currentFileIndex + 1, total: totalFiles });
 					}
 				}
 			});
@@ -240,16 +243,16 @@
 				if (xhr.status >= 200 && xhr.status < 300) {
 					resolve();
 				} else {
-					reject(new Error(`Failed to upload ${file.name}`));
+					reject(new Error(t('upload.failedFile', { name: file.name })));
 				}
 			});
 
 			xhr.addEventListener('error', () => {
-				reject(new Error(`Failed to upload ${file.name}`));
+				reject(new Error(t('upload.failedFile', { name: file.name })));
 			});
 
 			xhr.addEventListener('abort', () => {
-				reject(new Error('Upload cancelled'));
+				reject(new Error(t('upload.cancelled')));
 			});
 
 			xhr.open('POST', `/api/upload/stream?path=${encodeURIComponent(filePath)}`);
@@ -297,9 +300,9 @@
 
 			if (totalFiles === 0) {
 				uploadProgress = 100;
-				progressAnnouncement = 'Upload complete, no new files to upload';
+				progressAnnouncement = t('upload.completeNoFiles');
 			} else {
-				progressAnnouncement = `Starting upload of ${totalFiles} file${totalFiles !== 1 ? 's' : ''}`;
+				progressAnnouncement = t(totalFiles === 1 ? 'upload.startingOne' : 'upload.startingOther', { n: totalFiles });
 
 				for (let i = 0; i < filesToUpload.length; i++) {
 					currentFileIndex = i;
@@ -313,7 +316,7 @@
 				}
 
 				uploadProgress = 100;
-				progressAnnouncement = `Upload complete, ${totalFiles} file${totalFiles !== 1 ? 's' : ''} uploaded`;
+				progressAnnouncement = t(totalFiles === 1 ? 'upload.completeOne' : 'upload.completeOther', { n: totalFiles });
 			}
 
 			oncomplete();
@@ -377,7 +380,7 @@
 			type="button"
 			class="absolute inset-0 bg-black/50"
 			onclick={handleClose}
-			aria-label="Close dialog"
+			aria-label={t('common.closeDialog')}
 			disabled={isUploading}
 		></button>
 
@@ -385,14 +388,14 @@
 			<header class="border-b border-gray-200 dark:border-gray-700">
 				<div class="flex items-center justify-between px-4 py-3">
 					<h2 id="upload-dialog-title" class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-						{activeTab === 'upload' ? 'Upload Files' : 'Create Radio Station'}
+						{activeTab === 'upload' ? t('upload.title') : t('upload.createRadioTitle')}
 					</h2>
 					<button
 						type="button"
 						onclick={handleClose}
 						disabled={isUploading || isCreatingRadio}
 						class="btn-icon p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-						aria-label="Close"
+						aria-label={t('common.close')}
 					>
 						<Icon name="x" size={24} />
 					</button>
@@ -416,7 +419,7 @@
 						disabled={isUploading || isCreatingRadio}
 					>
 						<Icon name="upload" size={16} class="inline-block mr-1.5 align-text-bottom" />
-						Upload
+						{t('upload.uploadTab')}
 					</button>
 					<button
 						type="button"
@@ -436,7 +439,7 @@
 						disabled={isUploading || isCreatingRadio}
 					>
 						<Icon name="radio" size={16} class="inline-block mr-1.5 align-text-bottom" />
-						Radio
+						{t('upload.radioTab')}
 					</button>
 				</div>
 			</header>
@@ -459,7 +462,7 @@
 								accept="audio/*,.radio"
 								onchange={handleFileSelect}
 								class="hidden"
-								aria-label="Select files"
+								aria-label={t('upload.selectFiles')}
 							/>
 							<input
 								bind:this={folderInput}
@@ -467,7 +470,7 @@
 								webkitdirectory
 								onchange={handleFileSelect}
 								class="hidden"
-								aria-label="Select folder"
+								aria-label={t('upload.selectFolder')}
 							/>
 
 							<button
@@ -477,7 +480,7 @@
 								class="btn-secondary flex-1"
 							>
 								<Icon name="file" size={20} class="mr-2" />
-								Add Files
+								{t('upload.addFiles')}
 							</button>
 							<button
 								type="button"
@@ -485,20 +488,20 @@
 								class="btn-secondary flex-1"
 							>
 								<Icon name="folder" size={20} class="mr-2" />
-								Add Folder
+								{t('upload.addFolder')}
 							</button>
 						</div>
 
 						{#if selectedFiles.length > 0}
 							<div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg text-center">
 								<p class="text-2xl font-semibold text-gray-900 dark:text-gray-100">{selectedFiles.length}</p>
-								<p class="text-sm text-gray-600 dark:text-gray-400">file{selectedFiles.length !== 1 ? 's' : ''} selected ({formatBytes(totalSize)})</p>
+								<p class="text-sm text-gray-600 dark:text-gray-400">{t(selectedFiles.length === 1 ? 'upload.fileSelected' : 'upload.filesSelected', { count: selectedFiles.length, size: formatBytes(totalSize) })}</p>
 							</div>
 
 							<!-- Preflight summary -->
 							{#if preflightLoading}
 								<div class="text-sm text-gray-600 dark:text-gray-400" aria-live="polite">
-									Checking destination folder...
+									{t('upload.checking')}
 								</div>
 							{:else if preflightError}
 								<div class="p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 rounded-lg text-sm" role="alert">
@@ -507,26 +510,26 @@
 							{:else if preflight}
 								<section aria-labelledby="upload-summary-heading" class="space-y-2">
 									<h3 id="upload-summary-heading" class="text-sm font-medium text-gray-700 dark:text-gray-300">
-										What will happen
+										{t('upload.summaryHeading')}
 									</h3>
 									<ul class="text-sm space-y-1">
 										<li class="flex items-center justify-between text-gray-700 dark:text-gray-300">
 											<span class="flex items-center gap-2">
 												<Icon name="check" size={14} class="text-green-600 dark:text-green-400" />
-												New files (will upload)
+												{t('upload.newFiles')}
 											</span>
 											<span class="font-medium tabular-nums">{newCount}</span>
 										</li>
 										<li class="flex items-center justify-between text-gray-700 dark:text-gray-300">
 											<span class="flex items-center gap-2">
 												<Icon name="more-vertical" size={14} class="text-amber-600 dark:text-amber-400" />
-												Conflicts (different size)
+												{t('upload.conflicts')}
 											</span>
 											<span class="font-medium tabular-nums">
 												{conflictCount}
 												{#if conflictCount > 0}
 													<span class="text-xs ml-1 text-gray-500 dark:text-gray-400">
-														{mode === 'sync' ? '— will replace' : '— will skip'}
+														{mode === 'sync' ? t('upload.willReplace') : t('upload.willSkip')}
 													</span>
 												{/if}
 											</span>
@@ -534,7 +537,7 @@
 										<li class="flex items-center justify-between text-gray-700 dark:text-gray-300">
 											<span class="flex items-center gap-2">
 												<Icon name="check" size={14} class="text-gray-400" />
-												Already there (same size)
+												{t('upload.identical')}
 											</span>
 											<span class="font-medium tabular-nums">{identicalCount}</span>
 										</li>
@@ -542,7 +545,7 @@
 											<li class="flex items-center justify-between text-red-700 dark:text-red-400">
 												<span class="flex items-center gap-2">
 													<Icon name="trash" size={14} />
-													Extra files in folder (will be DELETED)
+													{t('upload.extras')}
 												</span>
 												<span class="font-medium tabular-nums">{extrasCount}</span>
 											</li>
@@ -550,7 +553,7 @@
 											<li class="flex items-center justify-between text-gray-500 dark:text-gray-400">
 												<span class="flex items-center gap-2">
 													<Icon name="folder" size={14} />
-													Other files in folder (kept)
+													{t('upload.kept')}
 												</span>
 												<span class="font-medium tabular-nums">{extrasCount}</span>
 											</li>
@@ -559,14 +562,14 @@
 
 									{#if mode === 'sync' && willDeleteCount > 0}
 										<div class="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 rounded-lg text-sm" role="alert">
-											<strong>Warning:</strong> Sync mode will permanently delete {willDeleteCount} file{willDeleteCount !== 1 ? 's' : ''} that {willDeleteCount !== 1 ? 'are' : 'is'} in the destination but not in your selection.
+											<strong>{t('upload.warning')}</strong> {t(willDeleteCount === 1 ? 'upload.syncWarningOne' : 'upload.syncWarningOther', { n: willDeleteCount })}
 										</div>
 									{/if}
 								</section>
 							{/if}
 
 							<fieldset class="space-y-2">
-								<legend class="text-sm font-medium text-gray-700 dark:text-gray-300">If a file already exists</legend>
+								<legend class="text-sm font-medium text-gray-700 dark:text-gray-300">{t('upload.ifExists')}</legend>
 								<div class="space-y-2">
 									<label class="flex items-start gap-2 cursor-pointer">
 										<input
@@ -577,9 +580,9 @@
 											class="w-4 h-4 mt-0.5 text-primary-600"
 										/>
 										<span class="text-sm">
-											<span class="block text-gray-900 dark:text-gray-100">Merge — keep existing files</span>
+											<span class="block text-gray-900 dark:text-gray-100">{t('upload.modeMerge')}</span>
 											<span class="block text-xs text-gray-500 dark:text-gray-400">
-												Add new files only. Conflicts and extras stay untouched.
+												{t('upload.modeMergeDesc')}
 											</span>
 										</span>
 									</label>
@@ -592,9 +595,9 @@
 											class="w-4 h-4 mt-0.5 text-primary-600"
 										/>
 										<span class="text-sm">
-											<span class="block text-gray-900 dark:text-gray-100">Sync — mirror selection</span>
+											<span class="block text-gray-900 dark:text-gray-100">{t('upload.modeSync')}</span>
 											<span class="block text-xs text-gray-500 dark:text-gray-400">
-												Replace conflicting files and delete anything else in this folder.
+												{t('upload.modeSyncDesc')}
 											</span>
 										</span>
 									</label>
@@ -614,31 +617,31 @@
 					<div class="space-y-4" role="tabpanel">
 						<div>
 							<label for="radio-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-								Station Name <span class="text-red-500">*</span>
+								{t('radio.stationName')} <span class="text-red-500">*</span>
 							</label>
 							<input
 								bind:this={radioNameInput}
 								id="radio-name"
 								type="text"
 								bind:value={radioName}
-								placeholder="My Radio Station"
+								placeholder={t('radio.placeholderName')}
 								class="input w-full"
 								disabled={isCreatingRadio}
 							/>
 							<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-								File will be saved as "{radioName.trim() || 'name'}.radio"
+								{t('radio.fileSavedAs', { name: radioName.trim() || t('radio.placeholderFallback') })}
 							</p>
 						</div>
 
 						<div>
 							<label for="radio-url" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-								Stream URL <span class="text-red-500">*</span>
+								{t('radio.streamUrl')} <span class="text-red-500">*</span>
 							</label>
 							<input
 								id="radio-url"
 								type="url"
 								bind:value={radioUrl}
-								placeholder="https://stream.example.com/live"
+								placeholder={t('radio.placeholderUrl')}
 								class="input w-full"
 								disabled={isCreatingRadio}
 							/>
@@ -646,31 +649,31 @@
 
 						<details class="group">
 							<summary class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none">
-								Authentication (optional)
+								{t('radio.auth')}
 							</summary>
 							<div class="mt-3 space-y-3 pl-1">
 								<div>
 									<label for="radio-username" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-										Username
+										{t('radio.username')}
 									</label>
 									<input
 										id="radio-username"
 										type="text"
 										bind:value={radioUsername}
-										placeholder="Optional"
+										placeholder={t('radio.optional')}
 										class="input w-full"
 										disabled={isCreatingRadio}
 									/>
 								</div>
 								<div>
 									<label for="radio-password" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-										Password
+										{t('radio.password')}
 									</label>
 									<input
 										id="radio-password"
 										type="password"
 										bind:value={radioPassword}
-										placeholder="Optional"
+										placeholder={t('radio.optional')}
 										class="input w-full"
 										disabled={isCreatingRadio}
 									/>
@@ -688,9 +691,9 @@
 							</p>
 							<p class="text-sm text-gray-600 dark:text-gray-400">
 								{#if totalFiles > 0}
-									File {Math.min(currentFileIndex + 1, totalFiles)} of {totalFiles}
+									{t('upload.fileOf', { n: Math.min(currentFileIndex + 1, totalFiles), total: totalFiles })}
 								{:else}
-									Preparing...
+									{t('upload.preparing')}
 								{/if}
 							</p>
 						</div>
@@ -700,7 +703,7 @@
 							aria-valuenow={uploadProgress}
 							aria-valuemin={0}
 							aria-valuemax={100}
-							aria-label="Upload progress"
+							aria-label={t('upload.progressAria')}
 						>
 							<div
 								class="h-full bg-primary-500 transition-all duration-150"
@@ -726,7 +729,7 @@
 					disabled={isUploading || isCreatingRadio}
 					class="btn-secondary flex-1"
 				>
-					Cancel
+					{t('common.cancel')}
 				</button>
 				{#if activeTab === 'upload'}
 					<button
@@ -736,13 +739,13 @@
 						class="btn-primary flex-1"
 					>
 						{#if isUploading}
-							Uploading...
+							{t('upload.uploading')}
 						{:else if preflightLoading}
-							Checking...
+							{t('upload.checkingShort')}
 						{:else if willUploadCount === 0 && willDeleteCount === 0}
-							Nothing to do
+							{t('upload.nothingToDo')}
 						{:else}
-							Upload
+							{t('upload.upload')}
 						{/if}
 					</button>
 				{:else}
@@ -753,9 +756,9 @@
 						class="btn-primary flex-1"
 					>
 						{#if isCreatingRadio}
-							Creating...
+							{t('radio.creating')}
 						{:else}
-							Create Station
+							{t('radio.createStation')}
 						{/if}
 					</button>
 				{/if}
@@ -766,10 +769,10 @@
 
 <ConfirmDialog
 	isOpen={confirmSyncDelete}
-	title="Confirm sync"
-	message="This will permanently delete {willDeleteCount} file{willDeleteCount !== 1 ? 's' : ''} from the destination folder, and replace {conflictCount} existing file{conflictCount !== 1 ? 's' : ''}. Continue?"
-	confirmText="Sync and delete"
-	cancelText="Cancel"
+	title={t('upload.confirmSync')}
+	message={t(willDeleteCount === 1 ? 'upload.confirmSyncMessageOne' : 'upload.confirmSyncMessageOther', { del: willDeleteCount, conflict: conflictCount })}
+	confirmText={t('upload.syncAndDelete')}
+	cancelText={t('common.cancel')}
 	destructive={true}
 	onconfirm={handleConfirmSyncDelete}
 	oncancel={() => confirmSyncDelete = false}

@@ -8,6 +8,7 @@
 	import ActionsMenu from './ActionsMenu.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { filesStore } from '$lib/stores/files.svelte';
+	import { t } from '$lib/i18n/index.svelte';
 	import { goto } from '$app/navigation';
 	import type { FileEntry } from '$lib/types';
 
@@ -77,7 +78,7 @@
 
 	function goToParent() {
 		if (isAtRoot) {
-			atRootAnnouncement = 'Already at root directory';
+			atRootAnnouncement = t('explorer.atRootAnnouncement');
 			setTimeout(() => atRootAnnouncement = '', 1000);
 			return;
 		}
@@ -126,6 +127,13 @@
 			return filesStore.sortDirection === 'asc' ? 'chevron-up' : 'chevron-down';
 		}
 		return 'chevron-down';
+	}
+
+	function sortStateLabel(field: 'name' | 'size' | 'modifiedAt'): string {
+		if (filesStore.sortField !== field) return '';
+		return filesStore.sortDirection === 'asc'
+			? `, ${t('explorer.sortStateAsc')}`
+			: `, ${t('explorer.sortStateDesc')}`;
 	}
 
 	function handleTableKeydown(e: KeyboardEvent) {
@@ -204,7 +212,7 @@
 			<div class="flex items-center justify-between py-3">
 				<a href="/" class="text-xl font-bold text-gray-900 dark:text-gray-100 hover:text-primary-600 dark:hover:text-primary-400">
 					<Icon name="home" size={20} class="inline-block mr-1 align-text-bottom" />
-					Ecobox
+					{t('app.title')}
 				</a>
 				<div class="flex items-center gap-2">
 					<ActionsMenu
@@ -216,7 +224,7 @@
 					<a
 						href="/settings"
 						class="btn-ghost"
-						aria-label="Settings"
+						aria-label={t('common.settings')}
 					>
 						<Icon name="settings" size={20} />
 					</a>
@@ -236,12 +244,12 @@
 		</div>
 	</header>
 
-	<main class="flex-1 overflow-y-auto pb-20" aria-label="File list">
+	<main class="flex-1 overflow-y-auto pb-20" aria-label={t('explorer.fileList')}>
 		<div class="max-w-4xl mx-auto">
 			{#if filesStore.isLoading}
 				<div class="flex items-center justify-center py-12" aria-live="polite">
 					<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
-					<span class="sr-only">Loading files...</span>
+					<span class="sr-only">{t('explorer.loading')}</span>
 				</div>
 			{:else if filesStore.error}
 				<div class="text-center py-12" role="alert">
@@ -252,14 +260,14 @@
 						onclick={() => filesStore.loadFiles(filesStore.currentPath)}
 						class="btn-secondary mt-4"
 					>
-						Try Again
+						{t('common.tryAgain')}
 					</button>
 				</div>
 			{:else if filesStore.sortedFiles.length === 0}
 				<div class="text-center py-12">
 					<Icon name="folder" size={48} class="mx-auto text-gray-400 mb-4" />
 					<p class="text-gray-600 dark:text-gray-400">
-						{filesStore.searchQuery ? 'No matching files found' : 'This folder is empty'}
+						{filesStore.searchQuery ? t('explorer.noMatches') : t('explorer.empty')}
 					</p>
 					{#if !filesStore.searchQuery}
 						<button
@@ -269,7 +277,7 @@
 							class="btn-primary mt-4"
 						>
 							<Icon name="upload" size={20} class="mr-2" />
-							Upload Files
+							{t('explorer.uploadFiles')}
 						</button>
 					{/if}
 				</div>
@@ -281,16 +289,16 @@
 						class="flex items-center gap-2 px-4 py-3 text-primary-600 dark:text-primary-400 hover:bg-gray-50 dark:hover:bg-gray-750 border-b border-gray-200 dark:border-gray-700 sm:hidden"
 					>
 						<Icon name="chevron-up" size={20} />
-						<span>Parent directory</span>
+						<span>{t('explorer.parentDirectory')}</span>
 					</a>
 				{:else}
 					<div class="flex items-center gap-2 px-4 py-3 text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700 sm:hidden" aria-disabled="true">
 						<Icon name="chevron-up" size={20} />
-						<span>At root directory</span>
+						<span>{t('explorer.atRootDirectory')}</span>
 					</div>
 				{/if}
 
-				<table class="w-full" role="grid" aria-label="File list">
+				<table class="w-full" role="grid" aria-label={t('explorer.fileList')}>
 					<thead class="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
 						<tr>
 							<th class="text-left py-2 px-4">
@@ -298,9 +306,9 @@
 									type="button"
 									onclick={() => filesStore.setSort('name')}
 									class="flex items-center gap-1 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
-									aria-label="Sort by name{filesStore.sortField === 'name' ? `, currently ${filesStore.sortDirection === 'asc' ? 'ascending' : 'descending'}` : ''}"
+									aria-label={`${t('explorer.sortByName')}${sortStateLabel('name')}`}
 								>
-									Name
+									{t('explorer.colName')}
 									{#if filesStore.sortField === 'name'}
 										<Icon name={getSortIcon('name')} size={14} />
 									{/if}
@@ -311,9 +319,9 @@
 									type="button"
 									onclick={() => filesStore.setSort('size')}
 									class="flex items-center gap-1 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
-									aria-label="Sort by size{filesStore.sortField === 'size' ? `, currently ${filesStore.sortDirection === 'asc' ? 'ascending' : 'descending'}` : ''}"
+									aria-label={`${t('explorer.sortBySize')}${sortStateLabel('size')}`}
 								>
-									Size
+									{t('explorer.colSize')}
 									{#if filesStore.sortField === 'size'}
 										<Icon name={getSortIcon('size')} size={14} />
 									{/if}
@@ -324,16 +332,16 @@
 									type="button"
 									onclick={() => filesStore.setSort('modifiedAt')}
 									class="flex items-center gap-1 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
-									aria-label="Sort by date{filesStore.sortField === 'modifiedAt' ? `, currently ${filesStore.sortDirection === 'asc' ? 'ascending' : 'descending'}` : ''}"
+									aria-label={`${t('explorer.sortByDate')}${sortStateLabel('modifiedAt')}`}
 								>
-									Date
+									{t('explorer.colDate')}
 									{#if filesStore.sortField === 'modifiedAt'}
 										<Icon name={getSortIcon('modifiedAt')} size={14} />
 									{/if}
 								</button>
 							</th>
 							<th class="py-2 px-4">
-								<span class="sr-only">Actions</span>
+								<span class="sr-only">{t('explorer.colActions')}</span>
 							</th>
 						</tr>
 					</thead>
@@ -367,9 +375,9 @@
 
 	<ConfirmDialog
 		isOpen={deleteTarget !== null}
-		title="Delete {deleteTarget?.isDirectory ? 'Folder' : 'File'}"
-		message="Are you sure you want to delete '{deleteTarget?.name}'? This action cannot be undone."
-		confirmText="Delete"
+		title={deleteTarget?.isDirectory ? t('dialog.deleteFolder') : t('dialog.deleteFile')}
+		message={t('dialog.deleteConfirm', { name: deleteTarget?.name ?? '' })}
+		confirmText={t('common.delete')}
 		destructive={true}
 		onconfirm={handleDeleteConfirm}
 		oncancel={() => deleteTarget = null}

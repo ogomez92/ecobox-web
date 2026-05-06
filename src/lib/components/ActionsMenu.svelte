@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
+	import { t } from '$lib/i18n/index.svelte';
 
 	interface Props {
 		isOpen?: boolean;
@@ -119,10 +120,10 @@
 		class="btn-primary"
 		aria-haspopup="menu"
 		aria-expanded={isOpen}
-		aria-label="Actions menu, press Alt+N to open"
+		aria-label={t('actions.menuAria')}
 	>
 		<Icon name="upload" size={20} />
-		<span class="ml-2 hidden sm:inline">Actions</span>
+		<span class="ml-2 hidden sm:inline">{t('actions.label')}</span>
 		<Icon name="chevron-down" size={16} class="ml-1" />
 	</button>
 
@@ -132,7 +133,7 @@
 			bind:this={menuEl}
 			role="menu"
 			tabindex="-1"
-			aria-label="Actions"
+			aria-label={t('actions.label')}
 			class="absolute right-0 mt-1 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-30"
 			onkeydown={handleMenuKeydown}
 		>
@@ -143,7 +144,7 @@
 				class="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus:bg-gray-100 dark:focus:bg-gray-700 focus:outline-none transition-colors"
 			>
 				<Icon name="file" size={16} />
-				Upload files
+				{t('actions.uploadFiles')}
 			</button>
 			<button
 				type="button"
@@ -152,7 +153,7 @@
 				class="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus:bg-gray-100 dark:focus:bg-gray-700 focus:outline-none transition-colors"
 			>
 				<Icon name="folder" size={16} />
-				Upload folder
+				{t('actions.uploadFolder')}
 			</button>
 			{#if onaddradio}
 				<button
@@ -162,7 +163,7 @@
 					class="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus:bg-gray-100 dark:focus:bg-gray-700 focus:outline-none transition-colors"
 				>
 					<Icon name="radio" size={16} />
-					Add radio station
+					{t('actions.addRadio')}
 				</button>
 			{/if}
 		</div>

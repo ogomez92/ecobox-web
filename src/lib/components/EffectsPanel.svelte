@@ -4,6 +4,7 @@
 	import Icon from './Icon.svelte';
 	import { audioEffects } from '$lib/services/audioEffects';
 	import { isIOS as detectIOS } from '$lib/utils/platform';
+	import { t } from '$lib/i18n/index.svelte';
 	import { DEFAULT_AUDIO_EFFECTS, type EffectPreset } from '$lib/types';
 
 	interface Props {
@@ -21,12 +22,12 @@
 	let isIOS = $state(false);
 	let showIOSWarning = $state(false);
 
-	const presets: { value: EffectPreset; label: string }[] = [
-		{ value: 'flat', label: 'Flat' },
-		{ value: 'dialog', label: 'Dialog' },
-		{ value: 'bass', label: 'Bass' },
-		{ value: 'treble', label: 'Treble' }
-	];
+	const presets: { value: EffectPreset; label: string }[] = $derived([
+		{ value: 'flat', label: t('effects.presetFlat') },
+		{ value: 'dialog', label: t('effects.presetDialog') },
+		{ value: 'bass', label: t('effects.presetBass') },
+		{ value: 'treble', label: t('effects.presetTreble') }
+	]);
 
 	const eqLabels = ['60Hz', '230Hz', '910Hz', '3.6kHz', '8kHz', '14kHz'];
 
@@ -159,20 +160,20 @@
 		type="button"
 		class="absolute inset-0 bg-black/50"
 		onclick={onclose}
-		aria-label="Close effects panel"
+		aria-label={t('effects.close')}
 	></button>
 
 	<div class="relative bg-white dark:bg-gray-800 w-full sm:max-w-lg sm:rounded-xl shadow-xl max-h-[90vh] overflow-hidden flex flex-col">
 		<header class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
 			<h2 id="effects-panel-title" class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-				Audio Effects
+				{t('effects.title')}
 			</h2>
 			<div class="flex items-center gap-2">
 				<button
 					type="button"
 					onclick={onclose}
 					class="btn-icon p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-					aria-label="Close"
+					aria-label={t('common.close')}
 				>
 					<Icon name="x" size={24} />
 				</button>
@@ -189,7 +190,7 @@
 					class:dark:text-gray-300={!isEnabled}
 					aria-pressed={isEnabled}
 				>
-					All Effects
+					{t('effects.allEffects')}
 				</button>
 			</div>
 		</header>
@@ -198,13 +199,13 @@
 		{#if showIOSWarning}
 			<div class="px-4 py-3 bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-700">
 				<p class="text-sm text-amber-800 dark:text-amber-200">
-					<strong>iOS Notice:</strong> Enabling audio effects will stop playback when the screen is locked or app is in background. This is an iOS limitation.
+					<strong>{t('effects.iosNotice')}</strong> {t('effects.iosWarning')}
 				</p>
 			</div>
 		{/if}
 
 		<!-- Tabs -->
-		<div class="flex border-b border-gray-200 dark:border-gray-700" role="tablist" aria-label="Audio effect categories">
+		<div class="flex border-b border-gray-200 dark:border-gray-700" role="tablist" aria-label={t('effects.categories')}>
 			<button
 				bind:this={tabRefs.boost}
 				type="button"
@@ -221,7 +222,7 @@
 				onclick={() => activeTab = 'boost'}
 				onkeydown={handleTabKeydown}
 			>
-				Boost
+				{t('effects.tabBoost')}
 			</button>
 			<button
 				bind:this={tabRefs.eq}
@@ -239,7 +240,7 @@
 				onclick={() => activeTab = 'eq'}
 				onkeydown={handleTabKeydown}
 			>
-				Equalizer
+				{t('effects.tabEq')}
 			</button>
 			<button
 				bind:this={tabRefs.compressor}
@@ -257,7 +258,7 @@
 				onclick={() => activeTab = 'compressor'}
 				onkeydown={handleTabKeydown}
 			>
-				Compressor
+				{t('effects.tabComp')}
 			</button>
 			<button
 				bind:this={tabRefs.reverb}
@@ -275,7 +276,7 @@
 				onclick={() => activeTab = 'reverb'}
 				onkeydown={handleTabKeydown}
 			>
-				Reverb
+				{t('effects.tabReverb')}
 			</button>
 		</div>
 
@@ -284,7 +285,7 @@
 				<div id="tabpanel-boost" role="tabpanel" aria-labelledby="tab-boost" class="space-y-6">
 					<div>
 						<label class="flex items-center justify-between mb-4">
-							<span class="text-sm font-medium text-gray-700 dark:text-gray-300">Enable Volume Boost</span>
+							<span class="text-sm font-medium text-gray-700 dark:text-gray-300">{t('effects.enableBoost')}</span>
 							<button
 								type="button"
 								onclick={toggleVolumeBoost}
@@ -294,7 +295,7 @@
 								class:dark:bg-gray-600={!effects.volumeBoost.enabled}
 								role="switch"
 								aria-checked={effects.volumeBoost.enabled}
-								aria-label="Toggle volume boost"
+								aria-label={t('effects.toggleBoost')}
 							>
 								<span
 									class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
@@ -305,7 +306,7 @@
 						</label>
 
 						<div class="flex justify-between mb-2">
-							<span class="text-sm font-medium text-gray-700 dark:text-gray-300">Boost Amount</span>
+							<span class="text-sm font-medium text-gray-700 dark:text-gray-300">{t('effects.boostAmount')}</span>
 							<span class="text-sm text-gray-500">+{effects.volumeBoost.gain.toFixed(0)} dB</span>
 						</div>
 						<input
@@ -316,7 +317,7 @@
 							value={effects.volumeBoost.gain}
 							oninput={(e) => setVolumeBoostGain(parseFloat((e.target as HTMLInputElement).value))}
 							class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full appearance-none cursor-pointer"
-							aria-label="Volume boost amount in decibels"
+							aria-label={t('effects.boostAria')}
 							aria-valuemin={0}
 							aria-valuemax={12}
 							aria-valuenow={effects.volumeBoost.gain}
@@ -330,13 +331,13 @@
 
 					<div class="p-3 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-lg">
 						<p class="text-sm text-amber-800 dark:text-amber-200">
-							Volume boost amplifies the audio signal beyond normal levels. Use with caution to avoid distortion or hearing damage at high volumes.
+							{t('effects.boostWarning')}
 						</p>
 					</div>
 
 					<div class="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
 						<p class="text-sm text-gray-600 dark:text-gray-400">
-							Useful for quiet recordings or when you need extra loudness. Enable effects (On button above) for boost to take effect.
+							{t('effects.boostHint')}
 						</p>
 					</div>
 				</div>
@@ -344,8 +345,8 @@
 				<div id="tabpanel-eq" role="tabpanel" aria-labelledby="tab-eq">
 					<!-- Presets -->
 					<div class="mb-6">
-						<p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Presets</p>
-						<div class="flex gap-2" role="group" aria-label="EQ presets">
+						<p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('effects.presets')}</p>
+						<div class="flex gap-2" role="group" aria-label={t('effects.presetsGroup')}>
 							{#each presets as preset}
 								<button
 									type="button"
@@ -369,7 +370,7 @@
 
 					<!-- EQ Bands -->
 					<div class="space-y-4">
-						<p class="text-sm font-medium text-gray-700 dark:text-gray-300">Bands</p>
+						<p class="text-sm font-medium text-gray-700 dark:text-gray-300">{t('effects.bands')}</p>
 						<div class="grid grid-cols-6 gap-2">
 							{#each effects.eq.bands as band, index}
 								<div class="flex flex-col items-center gap-2">
@@ -382,7 +383,7 @@
 										oninput={(e) => setEQBand(index, parseFloat((e.target as HTMLInputElement).value))}
 										class="h-24 appearance-none bg-gray-200 dark:bg-gray-700 rounded-full"
 										style="writing-mode: vertical-lr; direction: rtl;"
-										aria-label="{eqLabels[index]} gain"
+										aria-label={t('effects.bandGain', { label: eqLabels[index] })}
 									/>
 									<span class="text-xs text-gray-500 dark:text-gray-400">
 										{band.gain > 0 ? '+' : ''}{band.gain.toFixed(0)}
@@ -397,7 +398,7 @@
 				<div id="tabpanel-compressor" role="tabpanel" aria-labelledby="tab-compressor" class="space-y-6">
 					<div>
 						<div class="flex justify-between mb-2">
-							<span class="text-sm font-medium text-gray-700 dark:text-gray-300">Threshold</span>
+							<span class="text-sm font-medium text-gray-700 dark:text-gray-300">{t('effects.threshold')}</span>
 							<span class="text-sm text-gray-500">{effects.compressor.threshold} dB</span>
 						</div>
 						<input
@@ -408,13 +409,13 @@
 							value={effects.compressor.threshold}
 							oninput={(e) => setCompressorThreshold(parseFloat((e.target as HTMLInputElement).value))}
 							class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full appearance-none cursor-pointer"
-							aria-label="Compressor threshold"
+							aria-label={t('effects.thresholdAria')}
 						/>
 					</div>
 
 					<div>
 						<div class="flex justify-between mb-2">
-							<span class="text-sm font-medium text-gray-700 dark:text-gray-300">Ratio</span>
+							<span class="text-sm font-medium text-gray-700 dark:text-gray-300">{t('effects.ratio')}</span>
 							<span class="text-sm text-gray-500">{effects.compressor.ratio}:1</span>
 						</div>
 						<input
@@ -425,21 +426,20 @@
 							value={effects.compressor.ratio}
 							oninput={(e) => setCompressorRatio(parseFloat((e.target as HTMLInputElement).value))}
 							class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full appearance-none cursor-pointer"
-							aria-label="Compressor ratio"
+							aria-label={t('effects.ratioAria')}
 						/>
 					</div>
 
 					<div class="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
 						<p class="text-sm text-gray-600 dark:text-gray-400">
-							The compressor reduces dynamic range, making quiet parts louder and loud parts quieter.
-							Useful for spoken word content.
+							{t('effects.compHint')}
 						</p>
 					</div>
 				</div>
 			{:else if activeTab === 'reverb'}
 				<div id="tabpanel-reverb" role="tabpanel" aria-labelledby="tab-reverb" class="space-y-6">
 					<label class="flex items-center justify-between">
-						<span class="text-sm font-medium text-gray-700 dark:text-gray-300">Enable Reverb</span>
+						<span class="text-sm font-medium text-gray-700 dark:text-gray-300">{t('effects.enableReverb')}</span>
 						<button
 							type="button"
 							onclick={toggleReverb}
@@ -449,7 +449,7 @@
 							class:dark:bg-gray-600={!effects.reverb.enabled}
 							role="switch"
 							aria-checked={effects.reverb.enabled}
-							aria-label="Toggle reverb"
+							aria-label={t('effects.toggleReverb')}
 						>
 							<span
 								class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
@@ -462,7 +462,7 @@
 					{#if effects.reverb.enabled}
 						<div>
 							<div class="flex justify-between mb-2">
-								<span class="text-sm font-medium text-gray-700 dark:text-gray-300">Wet/Dry Mix</span>
+								<span class="text-sm font-medium text-gray-700 dark:text-gray-300">{t('effects.wetDry')}</span>
 								<span class="text-sm text-gray-500">{Math.round(effects.reverb.wetDry * 100)}%</span>
 							</div>
 							<input
@@ -473,14 +473,14 @@
 								value={effects.reverb.wetDry}
 								oninput={(e) => setReverbWetDry(parseFloat((e.target as HTMLInputElement).value))}
 								class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full appearance-none cursor-pointer"
-								aria-label="Reverb wet/dry mix"
+								aria-label={t('effects.wetDryAria')}
 							/>
 						</div>
 					{/if}
 
 					<div class="border-t border-gray-200 dark:border-gray-700 pt-6">
 						<label class="flex items-center justify-between">
-							<span class="text-sm font-medium text-gray-700 dark:text-gray-300">High-Pass Filter</span>
+							<span class="text-sm font-medium text-gray-700 dark:text-gray-300">{t('effects.highPass')}</span>
 							<button
 								type="button"
 								onclick={toggleHighPass}
@@ -490,7 +490,7 @@
 								class:dark:bg-gray-600={!effects.highPass.enabled}
 								role="switch"
 								aria-checked={effects.highPass.enabled}
-								aria-label="Toggle high-pass filter"
+								aria-label={t('effects.toggleHighPass')}
 							>
 								<span
 									class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
@@ -503,7 +503,7 @@
 						{#if effects.highPass.enabled}
 							<div class="mt-4">
 								<div class="flex justify-between mb-2">
-									<span class="text-sm text-gray-600 dark:text-gray-400">Cutoff Frequency</span>
+									<span class="text-sm text-gray-600 dark:text-gray-400">{t('effects.cutoff')}</span>
 									<span class="text-sm text-gray-500">{effects.highPass.frequency} Hz</span>
 								</div>
 								<input
@@ -514,13 +514,13 @@
 									value={effects.highPass.frequency}
 									oninput={(e) => setHighPassFrequency(parseFloat((e.target as HTMLInputElement).value))}
 									class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full appearance-none cursor-pointer"
-									aria-label="High-pass filter frequency"
+									aria-label={t('effects.cutoffAria')}
 								/>
 							</div>
 						{/if}
 
 						<p class="mt-3 text-sm text-gray-600 dark:text-gray-400">
-							Removes low-frequency rumble and noise below the cutoff frequency.
+							{t('effects.highPassHint')}
 						</p>
 					</div>
 				</div>

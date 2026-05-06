@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
+	import { t } from '$lib/i18n/index.svelte';
 
 	interface Props {
 		value: string;
@@ -7,7 +8,7 @@
 		onchange: (value: string) => void;
 	}
 
-	let { value = '', placeholder = 'Search files...', onchange }: Props = $props();
+	let { value = '', placeholder, onchange }: Props = $props();
 
 	let inputElement: HTMLInputElement | null = $state(null);
 
@@ -30,7 +31,7 @@
 </script>
 
 <div class="relative" role="search">
-	<label for="search-input" class="sr-only">Search files</label>
+	<label for="search-input" class="sr-only">{t('explorer.searchAria')}</label>
 	<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
 		<Icon name="search" size={20} class="text-gray-400" />
 	</div>
@@ -39,7 +40,7 @@
 		id="search-input"
 		type="search"
 		{value}
-		{placeholder}
+		placeholder={placeholder ?? t('explorer.search')}
 		oninput={handleInput}
 		onkeydown={handleKeydown}
 		class="input pl-10 pr-10"
@@ -53,7 +54,7 @@
 			type="button"
 			onclick={handleClear}
 			class="absolute inset-y-0 right-0 pr-3 flex items-center"
-			aria-label="Clear search"
+			aria-label={t('explorer.clearSearch')}
 		>
 			<Icon name="x" size={20} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" />
 		</button>

@@ -15,6 +15,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { audioEffects } from '$lib/services/audioEffects';
 	import { formatDuration } from '$lib/utils/format';
+	import { t } from '$lib/i18n/index.svelte';
 	import type { Bookmark } from '$server/db/schema';
 
 	interface Props {
@@ -66,7 +67,7 @@
 		if (!filePath) return;
 		const time = playerStore.currentTime;
 		const formatted = formatDuration(time);
-		bookmarkAnnouncement = `Bookmark added at ${formatted}`;
+		bookmarkAnnouncement = t('bookmarks.added', { time: formatted });
 		setTimeout(() => { bookmarkAnnouncement = ''; }, 100);
 		try {
 			const response = await fetch('/api/bookmarks', {
@@ -75,7 +76,7 @@
 				body: JSON.stringify({
 					mediaPath: filePath,
 					time,
-					label: label || `Bookmark at ${formatted}`
+					label: label || t('bookmarks.bookmarkAt', { time: formatted })
 				})
 			});
 			if (response.ok) {
@@ -93,7 +94,7 @@
 	$effect(() => {
 		const isPlaying = playerStore.isPlaying;
 		if (wasPlaying && !isPlaying && settingsStore.createBookmarkOnPause && !playerStore.isRadioStream) {
-			addBookmark(`Paused at ${formatDuration(playerStore.currentTime)}`);
+			addBookmark(t('bookmarks.pausedAt', { time: formatDuration(playerStore.currentTime) }));
 		}
 		wasPlaying = isPlaying;
 	});
@@ -360,7 +361,7 @@
 	function formatSeekUnit(seconds: number): string {
 		if (seconds >= 60) {
 			const minutes = seconds / 60;
-			return `${minutes}m`;
+			return t('player.minutesShort', { n: minutes });
 		}
 		return `${seconds}s`;
 	}
@@ -368,13 +369,13 @@
 	function formatSeekUnitLong(seconds: number): string {
 		if (seconds >= 60) {
 			const minutes = seconds / 60;
-			return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+			return t(minutes === 1 ? 'player.minute' : 'player.minutes', { n: minutes });
 		}
-		return seconds === 1 ? '1 second' : `${seconds} seconds`;
+		return t(seconds === 1 ? 'player.second' : 'player.seconds', { n: seconds });
 	}
 
 	function announceSeekUnit() {
-		seekUnitAnnouncement = `Seek unit: ${formatSeekUnitLong(seekUnit)}`;
+		seekUnitAnnouncement = t('player.seekUnitAnnounce', { unit: formatSeekUnitLong(seekUnit) });
 		// Clear after a moment so repeat announcements work
 		setTimeout(() => {
 			seekUnitAnnouncement = '';
@@ -403,11 +404,11 @@
 		const duration = playerStore.duration;
 		const currentTime = playerStore.currentTime;
 		if (duration <= 0) {
-			timeInfoAnnouncement = 'Duration not available';
+			timeInfoAnnouncement = t('player.durationNotAvailable');
 		} else {
 			const percent = Math.round((currentTime / duration) * 100);
 			const remaining = duration - currentTime;
-			timeInfoAnnouncement = `${percent}%, ${formatDuration(remaining)} remaining`;
+			timeInfoAnnouncement = t('player.timeAnnounce', { pct: percent, remaining: formatDuration(remaining) });
 		}
 		// Clear after a moment so repeat announcements work
 		setTimeout(() => {
@@ -456,21 +457,21 @@
 				type="button"
 				onclick={handleBack}
 				class="btn-ghost p-2 flex items-center gap-1"
-				aria-label="Go back (Escape)"
+				aria-label={t('player.goBackAria')}
 			>
 				<Icon name="chevron-down" size={24} />
-				<span class="text-xs text-gray-500 dark:text-gray-400">Esc</span>
+				<span class="text-xs text-gray-500 dark:text-gray-400">{t('player.escLabel')}</span>
 			</button>
 
 			<div class="flex-1 text-center px-4">
-				<p class="text-sm text-gray-500 dark:text-gray-400 truncate">Now Playing</p>
+				<p class="text-sm text-gray-500 dark:text-gray-400 truncate">{t('player.nowPlaying')}</p>
 			</div>
 
 			<button
 				type="button"
 				onclick={() => showSettings = !showSettings}
 				class="btn-ghost p-2"
-				aria-label="Settings"
+				aria-label={t('common.settings')}
 				aria-pressed={showSettings}
 			>
 				<Icon name="settings" size={24} />
@@ -486,7 +487,7 @@
 				<Icon name={isRadio ? 'radio' : 'audio'} size={64} class="text-primary-500" />
 				{#if isRadio}
 					<div class="absolute top-2 right-2 px-2 py-1 bg-red-500 text-white text-xs font-bold rounded-full animate-pulse">
-						LIVE
+						{t('radio.live')}
 					</div>
 				{/if}
 			</div>
@@ -503,14 +504,14 @@
 
 			{#if isRadio}
 				<p class="text-gray-600 dark:text-gray-400">
-					Internet Radio
+					{t('radio.internetRadio')}
 				</p>
 			{/if}
 
 			<!-- Seek unit selector - hide for radio -->
 			{#if !isRadio}
 				<fieldset class="mt-4">
-					<legend class="sr-only">Seek unit</legend>
+					<legend class="sr-only">{t('player.seekUnit')}</legend>
 					<div class="flex flex-wrap justify-center gap-1.5">
 						{#each SEEK_UNITS as unit, i}
 							<label class="cursor-pointer">
@@ -576,7 +577,7 @@
 		{#if playerStore.isLoading}
 			<div class="text-center py-4" aria-live="polite">
 				<div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-primary-500"></div>
-				<span class="sr-only">Loading audio...</span>
+				<span class="sr-only">{t('player.loadingAudio')}</span>
 			</div>
 		{/if}
 
@@ -607,7 +608,7 @@
 					class="btn-secondary"
 				>
 					<Icon name="menu" size={20} class="mr-2" />
-					Chapters ({playerStore.chapters.length})
+					{t('chapters.button', { count: playerStore.chapters.length })}
 				</button>
 			{/if}
 
@@ -616,21 +617,22 @@
 					type="button"
 					class="btn-secondary"
 					onclick={() => addBookmark()}
-					aria-label="Add bookmark at current position (M)"
+					aria-label={t('bookmarks.addAria')}
 				>
 					<Icon name="bookmark" size={20} class="mr-2" />
-					Add
+					{t('bookmarks.add')}
 				</button>
 
 				{#if bookmarks.length > 0}
+					{@const bookmarkCount = t(bookmarks.length === 1 ? 'bookmarks.countOne' : 'bookmarks.countOther', { n: bookmarks.length })}
 					<button
 						type="button"
 						class="btn-secondary"
 						onclick={() => showBookmarks = true}
-						aria-label={`Open bookmarks list, ${bookmarks.length} ${bookmarks.length === 1 ? 'bookmark' : 'bookmarks'} (Shift+M)`}
+						aria-label={t('bookmarks.openListAria', { count: bookmarkCount })}
 					>
 						<Icon name="bookmark" size={20} class="mr-2" />
-						Bookmarks ({bookmarks.length})
+						{t('bookmarks.button', { count: bookmarks.length })}
 					</button>
 				{/if}
 
@@ -638,20 +640,20 @@
 					type="button"
 					class="btn-secondary"
 					onclick={() => showGoToTime = true}
-					aria-label="Jump to time (J)"
+					aria-label={t('player.jumpAria')}
 				>
 					<Icon name="clock" size={20} class="mr-2" />
-					Jump
+					{t('player.jump')}
 				</button>
 
 				<button
 					type="button"
 					class="btn-secondary"
 					onclick={announceTimeInfo}
-					aria-label="Announce time remaining (T)"
+					aria-label={t('player.timeAria')}
 				>
 					<Icon name="clock" size={20} class="mr-2" />
-					Time
+					{t('player.timeBtn')}
 				</button>
 			{/if}
 
@@ -659,13 +661,13 @@
 				type="button"
 				class="btn-secondary"
 				onclick={() => showSleepTimer = true}
-				aria-label="Sleep timer"
+				aria-label={t('player.sleepAria')}
 			>
 				<Icon name="clock" size={20} class="mr-2" />
 				{#if sleepTimerMinutes !== null}
-					{Math.ceil(sleepTimerRemaining / 60)}m
+					{t('player.minutesShort', { n: Math.ceil(sleepTimerRemaining / 60) })}
 				{:else}
-					Sleep
+					{t('player.sleep')}
 				{/if}
 			</button>
 
@@ -674,12 +676,12 @@
 					type="button"
 					class="btn-secondary"
 					onclick={toggleEffectsPanel}
-					aria-label="Audio effects (F)"
+					aria-label={t('player.effectsAria')}
 					aria-expanded={showEffects}
 					aria-haspopup="dialog"
 				>
 					<Icon name="settings" size={20} class="mr-2" />
-					Effects
+					{t('player.effects')}
 				</button>
 			{/if}
 		</div>

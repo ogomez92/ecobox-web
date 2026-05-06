@@ -2,6 +2,7 @@
 	import Icon from './Icon.svelte';
 	import ActionsDropdown from './ActionsDropdown.svelte';
 	import { formatBytes, formatDate, formatDateAccessible } from '$lib/utils/format';
+	import { t } from '$lib/i18n/index.svelte';
 	import type { FileEntry } from '$lib/types';
 
 	interface Props {
@@ -50,16 +51,16 @@
 
 		if (file.isDirectory) {
 			if (file.isDaisyBook) {
-				parts.push('DAISY book folder');
+				parts.push(t('fileTypes.daisyBook'));
 			} else if (file.isChapteredFolder) {
-				parts.push('chaptered folder');
+				parts.push(t('fileTypes.chapteredFolder'));
 			} else {
-				parts.push('folder');
+				parts.push(t('fileTypes.folder'));
 			}
 		} else if (file.isRadioFile) {
-			parts.push('radio station');
+			parts.push(t('radio.label'));
 		} else {
-			parts.push(`${getFileExtension()} file`);
+			parts.push(t('fileTypes.fileExt', { ext: getFileExtension() }));
 		}
 
 		parts.push(formatBytes(file.size));

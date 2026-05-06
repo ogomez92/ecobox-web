@@ -1,6 +1,6 @@
 <script lang="ts">
-	import Icon from './Icon.svelte';
 	import { formatDuration } from '$lib/utils/format';
+	import { t } from '$lib/i18n/index.svelte';
 
 	interface Props {
 		duration: number;
@@ -54,12 +54,12 @@
 		const time = parseTimeInput(inputValue);
 
 		if (time === null) {
-			error = 'Invalid time format';
+			error = t('goto.invalid');
 			return;
 		}
 
 		if (time < 0 || time > duration) {
-			error = `Time must be between 0 and ${formatDuration(duration)}`;
+			error = t('goto.outOfRange', { duration: formatDuration(duration) });
 			return;
 		}
 
@@ -92,18 +92,18 @@
 		type="button"
 		class="absolute inset-0 bg-black/50"
 		onclick={onclose}
-		aria-label="Close dialog"
+		aria-label={t('common.closeDialog')}
 	></button>
 
 	<div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-sm p-6">
 		<h2 id="goto-time-title" class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-			Jump to Time
+			{t('goto.title')}
 		</h2>
 
 		<form onsubmit={handleSubmit}>
 			<div class="mb-4">
 				<label for="time-input" class="block text-sm text-gray-600 dark:text-gray-400 mb-2">
-					Enter time (e.g., 1:23:45, 5:30, 90s, 1h30m)
+					{t('goto.label')}
 				</label>
 				<input
 					bind:this={inputElement}
@@ -120,7 +120,7 @@
 			</div>
 
 			<p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-				Duration: {formatDuration(duration)}
+				{t('goto.duration', { time: formatDuration(duration) })}
 			</p>
 
 			<div class="flex gap-3">
@@ -129,13 +129,13 @@
 					onclick={onclose}
 					class="btn-secondary flex-1"
 				>
-					Cancel
+					{t('common.cancel')}
 				</button>
 				<button
 					type="submit"
 					class="btn-primary flex-1"
 				>
-					Go
+					{t('goto.go')}
 				</button>
 			</div>
 		</form>

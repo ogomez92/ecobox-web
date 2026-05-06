@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { t } from '$lib/i18n/index.svelte';
+
 	interface Props {
 		speed: number;
 		onchange: (speed: number) => void;
@@ -16,12 +18,12 @@
 
 <div class="space-y-3">
 	<div class="flex items-center justify-between">
-		<span class="text-sm text-gray-600 dark:text-gray-400">Speed</span>
+		<span class="text-sm text-gray-600 dark:text-gray-400">{t('speed.label')}</span>
 		<span class="text-sm font-medium text-gray-900 dark:text-gray-100">{speed.toFixed(2)}x</span>
 	</div>
 
 	<label class="block">
-		<span class="sr-only">Playback speed: {speed}x</span>
+		<span class="sr-only">{t('speed.srValue', { value: speed })}</span>
 		<input
 			type="range"
 			min="0.5"
@@ -30,11 +32,11 @@
 			value={speed}
 			oninput={handleInput}
 			class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full appearance-none cursor-pointer accent-primary-500"
-			aria-label="Playback speed"
+			aria-label={t('speed.aria')}
 		/>
 	</label>
 
-	<div class="flex justify-between gap-1" role="group" aria-label="Speed presets">
+	<div class="flex justify-between gap-1" role="group" aria-label={t('speed.presets')}>
 		{#each presets as preset}
 			<button
 				type="button"

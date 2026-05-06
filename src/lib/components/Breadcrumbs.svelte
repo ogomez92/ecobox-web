@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
+	import { t } from '$lib/i18n/index.svelte';
 
 	interface Crumb {
 		name: string;
@@ -14,7 +15,7 @@
 	let { items, onnavigate }: Props = $props();
 </script>
 
-<nav aria-label="Breadcrumb navigation" class="overflow-x-auto scrollbar-hide">
+<nav aria-label={t('breadcrumbs.label')} class="overflow-x-auto scrollbar-hide">
 	<ol class="flex items-center gap-1 text-sm whitespace-nowrap py-2">
 		{#each items as crumb, index}
 			<li class="flex items-center">
@@ -36,7 +37,7 @@
 						class="text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 min-h-[44px] flex items-center"
 					>
 						{#if index === 0}
-							<Icon name="home" size={16} class="mr-1" ariaLabel="Home" />
+							<Icon name="home" size={16} class="mr-1" ariaLabel={t('breadcrumbs.home')} />
 						{/if}
 						<span class:sr-only={index === 0}>{crumb.name}</span>
 					</button>

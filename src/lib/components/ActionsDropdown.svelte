@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
+	import { t } from '$lib/i18n/index.svelte';
 	import type { FileEntry } from '$lib/types';
 
 	interface Props {
@@ -109,7 +110,7 @@
 		class="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
 		aria-haspopup="menu"
 		aria-expanded={isOpen}
-		aria-label="Actions for {file.name}"
+		aria-label={t('actions.forFile', { name: file.name })}
 	>
 		<Icon name="more-vertical" size={20} />
 	</button>
@@ -130,7 +131,7 @@
 				class="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
 			>
 				<Icon name="download" size={16} />
-				Download
+				{t('actions.download')}
 			</button>
 			{#if isUnlocked}
 				<button
@@ -140,7 +141,7 @@
 					class="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
 				>
 					<Icon name={file.isProtected ? 'lock-open' : 'lock'} size={16} />
-					{file.isProtected ? 'Unprotect' : 'Protect'}
+					{file.isProtected ? t('actions.unprotect') : t('actions.protect')}
 				</button>
 			{/if}
 			<button
@@ -150,7 +151,7 @@
 				class="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
 			>
 				<Icon name="trash" size={16} />
-				Delete
+				{t('common.delete')}
 			</button>
 		</div>
 	{/if}
