@@ -715,7 +715,10 @@
 		duration={playerStore.duration}
 		currentTime={playerStore.currentTime}
 		onseek={(time: number) => playerStore.seek(time)}
-		onclose={() => showGoToTime = false}
+		onclose={() => {
+			showGoToTime = false;
+			requestAnimationFrame(() => playButtonRef?.focus());
+		}}
 	/>
 {/if}
 
