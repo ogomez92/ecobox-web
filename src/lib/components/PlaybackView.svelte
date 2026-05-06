@@ -44,6 +44,7 @@
 	const seekUnit = $derived(SEEK_UNITS[seekUnitIndex]);
 	let seekUnitAnnouncement = $state('');
 	let timeInfoAnnouncement = $state('');
+	let bookmarkAnnouncement = $state('');
 
 	const title = $derived(playerStore.currentTitle);
 	const chapterTitle = $derived(playerStore.currentChapter?.title);
@@ -63,14 +64,18 @@
 
 	async function addBookmark(label?: string) {
 		if (!filePath) return;
+		const time = playerStore.currentTime;
+		const formatted = formatDuration(time);
+		bookmarkAnnouncement = `Bookmark added at ${formatted}`;
+		setTimeout(() => { bookmarkAnnouncement = ''; }, 100);
 		try {
 			const response = await fetch('/api/bookmarks', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					mediaPath: filePath,
-					time: playerStore.currentTime,
-					label: label || `Bookmark at ${formatDuration(playerStore.currentTime)}`
+					time,
+					label: label || `Bookmark at ${formatted}`
 				})
 			});
 			if (response.ok) {
@@ -214,8 +219,29 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		// Skip if in input field or dialog is open
-		if (e.target instanceof HTMLInputElement || showGoToTime) return;
+		if (e.target instanceof HTMLInputElement) return;
+
+		// Escape: close any open modal first; otherwise go back.
+		// If Escape originated inside a dialog, defer to its local handler.
+		if (e.code === 'Escape') {
+			const fromDialog = e.target instanceof HTMLElement && e.target.closest('[role="dialog"]');
+			if (fromDialog) return;
+			e.preventDefault();
+			if (showEffects) { closeEffectsPanel(); return; }
+			if (showGoToTime) { showGoToTime = false; return; }
+			if (showBookmarks) {
+				showBookmarks = false;
+				requestAnimationFrame(() => playButtonRef?.focus());
+				return;
+			}
+			if (showChapters) { showChapters = false; return; }
+			if (showSleepTimer) { showSleepTimer = false; return; }
+			handleBack();
+			return;
+		}
+
+		// For other keys, bail when any modal is open
+		if (showGoToTime || showBookmarks || showChapters || showSleepTimer) return;
 
 		// F key toggles effects panel even when it's open
 		if (e.code === 'KeyF' && !isRadio) {
@@ -227,10 +253,6 @@
 		if (showEffects) return;
 
 		switch (e.code) {
-			case 'Escape':
-				e.preventDefault();
-				handleBack();
-				break;
 
 			case 'Space':
 				e.preventDefault();
@@ -274,9 +296,15 @@
 				showGoToTime = true;
 				break;
 
-			// M: Mute toggle
+			// M: Add bookmark; Shift+M: Open bookmarks list
 			case 'KeyM':
-				playerStore.setVolume(playerStore.volume > 0 ? 0 : 1);
+				if (isRadio) return;
+				e.preventDefault();
+				if (e.shiftKey) {
+					showBookmarks = true;
+				} else {
+					addBookmark();
+				}
 				break;
 
 			// I: Volume up
@@ -588,7 +616,7 @@
 					type="button"
 					class="btn-secondary"
 					onclick={() => addBookmark()}
-					aria-label="Add bookmark at current position"
+					aria-label="Add bookmark at current position (M)"
 				>
 					<Icon name="bookmark" size={20} class="mr-2" />
 					Add
@@ -599,6 +627,7 @@
 						type="button"
 						class="btn-secondary"
 						onclick={() => showBookmarks = true}
+						aria-label={`Open bookmarks list, ${bookmarks.length} ${bookmarks.length === 1 ? 'bookmark' : 'bookmarks'} (Shift+M)`}
 					>
 						<Icon name="bookmark" size={20} class="mr-2" />
 						Bookmarks ({bookmarks.length})
@@ -673,7 +702,10 @@
 		{bookmarks}
 		onselect={(time: number) => playerStore.seek(time)}
 		ondelete={deleteBookmark}
-		onclose={() => showBookmarks = false}
+		onclose={() => {
+			showBookmarks = false;
+			requestAnimationFrame(() => playButtonRef?.focus());
+		}}
 	/>
 {/if}
 
@@ -709,6 +741,9 @@
 </div>
 <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 	{timeInfoAnnouncement}
+</div>
+<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+	{bookmarkAnnouncement}
 </div>
 
 <style>
