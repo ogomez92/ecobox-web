@@ -17,6 +17,7 @@ export const ru: Record<MessageKey, string> = {
 	'explorer.searchAria': 'Поиск файлов',
 	'explorer.clearSearch': 'Очистить поиск',
 	'explorer.atRootAnnouncement': 'Уже в корневой папке',
+	'explorer.noMatchForLetters': 'Нет элементов, начинающихся с «{letters}»',
 	'explorer.atRootDirectory': 'В корневой папке',
 	'explorer.parentDirectory': 'Родительская папка',
 	'explorer.loading': 'Загрузка файлов...',

@@ -17,6 +17,7 @@ export const zh: Record<MessageKey, string> = {
 	'explorer.searchAria': '搜索文件',
 	'explorer.clearSearch': '清除搜索',
 	'explorer.atRootAnnouncement': '已在根目录',
+	'explorer.noMatchForLetters': '没有以"{letters}"开头的项目',
 	'explorer.atRootDirectory': '已在根目录',
 	'explorer.parentDirectory': '上级目录',
 	'explorer.loading': '正在加载文件...',

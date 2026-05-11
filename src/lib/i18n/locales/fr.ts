@@ -17,6 +17,7 @@ export const fr: Record<MessageKey, string> = {
 	'explorer.searchAria': 'Rechercher des fichiers',
 	'explorer.clearSearch': 'Effacer la recherche',
 	'explorer.atRootAnnouncement': 'Déjà dans le dossier racine',
+	'explorer.noMatchForLetters': 'Aucun élément ne commence par « {letters} »',
 	'explorer.atRootDirectory': 'Dans le dossier racine',
 	'explorer.parentDirectory': 'Dossier parent',
 	'explorer.loading': 'Chargement des fichiers...',

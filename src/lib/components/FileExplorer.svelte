@@ -25,9 +25,32 @@
 	let deleteTarget = $state<FileEntry | null>(null);
 	let focusedIndex = $state(-1);
 	let hasAppliedFocus = $state(false);
-	let atRootAnnouncement = $state('');
+	let liveAnnouncement = $state('');
 	let emptyFolderUploadButton: HTMLButtonElement | undefined = $state();
 	let actionsMenuOpen = $state(false);
+
+	let typeBuffer = '';
+	let lastTypeTime = 0;
+	const TYPE_TIMEOUT_MS = 1000;
+
+	function announce(message: string) {
+		liveAnnouncement = '';
+		// Force the live region to re-fire even if the message repeats
+		setTimeout(() => { liveAnnouncement = message; }, 10);
+	}
+
+	function findStartingWith(prefix: string, startIdx: number): number {
+		const files = filesStore.sortedFiles;
+		for (let i = startIdx; i < files.length; i++) {
+			if (files[i].name.toLowerCase().startsWith(prefix)) return i;
+		}
+		return -1;
+	}
+
+	function resetTypeBuffer() {
+		typeBuffer = '';
+		lastTypeTime = 0;
+	}
 
 	const isAtRoot = $derived(initialPath === '');
 	const parentPath = $derived(() => {
@@ -78,8 +101,7 @@
 
 	function goToParent() {
 		if (isAtRoot) {
-			atRootAnnouncement = t('explorer.atRootAnnouncement');
-			setTimeout(() => atRootAnnouncement = '', 1000);
+			announce(t('explorer.atRootAnnouncement'));
 			return;
 		}
 		const parts = initialPath.split('/').filter(Boolean);
@@ -140,61 +162,106 @@
 		const files = filesStore.sortedFiles;
 		if (files.length === 0) return;
 
-		// Arrow navigation (no wrap at boundaries)
+		// Arrow navigation (no wrap at boundaries) — cancels in-progress letter nav
 		if (e.key === 'ArrowDown') {
 			e.preventDefault();
+			resetTypeBuffer();
 			if (focusedIndex < files.length - 1) {
 				focusedIndex = focusedIndex + 1;
 			}
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
+			resetTypeBuffer();
 			if (focusedIndex > 0) {
 				focusedIndex = focusedIndex - 1;
 			}
 		}
 
-		// Letter/number navigation - find next match starting with key
-		else if (/^[a-z0-9]$/i.test(e.key)) {
-			const char = e.key.toLowerCase();
-			const startIndex = focusedIndex + 1;
-
-			// Search from current position to end
-			let found = files.findIndex((f, i) =>
-				i >= startIndex && f.name.toLowerCase().startsWith(char)
-			);
-
-			// Wrap around to beginning
-			if (found === -1) {
-				found = files.findIndex(f => f.name.toLowerCase().startsWith(char));
-			}
-
-			if (found !== -1) {
-				focusedIndex = found;
-			}
+		// Multi-letter type-ahead navigation (mirrors Windows Explorer / Google Docs)
+		else if (e.key.length === 1 && /^[\p{L}\p{N}]$/u.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+			handleLetterNav(e.key.toLowerCase());
 		}
 
 		// Delete key - open confirmation
 		else if (e.key === 'Delete' && focusedIndex >= 0) {
 			e.preventDefault();
+			resetTypeBuffer();
 			deleteTarget = files[focusedIndex];
 		}
 
 		// Backspace - go to parent directory
 		else if (e.key === 'Backspace') {
 			e.preventDefault();
+			resetTypeBuffer();
 			goToParent();
 		}
 
 		// Home - go to first item
 		else if (e.key === 'Home') {
 			e.preventDefault();
+			resetTypeBuffer();
 			focusedIndex = 0;
 		}
 
 		// End - go to last item
 		else if (e.key === 'End') {
 			e.preventDefault();
+			resetTypeBuffer();
 			focusedIndex = files.length - 1;
+		}
+
+		// Enter / Escape / anything else: cancel in-progress letter navigation
+		else if (e.key === 'Enter' || e.key === 'Escape' || e.key === ' ' || e.key === 'Tab') {
+			resetTypeBuffer();
+		}
+	}
+
+	function handleLetterNav(char: string) {
+		const files = filesStore.sortedFiles;
+		const now = Date.now();
+		if (now - lastTypeTime > TYPE_TIMEOUT_MS) {
+			typeBuffer = '';
+		}
+		lastTypeTime = now;
+
+		if (typeBuffer === '') {
+			// Fresh single-letter navigation: cycle from current focus + 1
+			let idx = findStartingWith(char, focusedIndex + 1);
+			if (idx === -1) idx = findStartingWith(char, 0);
+			if (idx !== -1) {
+				focusedIndex = idx;
+				typeBuffer = char;
+			} else {
+				announce(t('explorer.noMatchForLetters', { letters: char }));
+			}
+			return;
+		}
+
+		const attempted = typeBuffer + char;
+
+		// If current focus already matches the extended prefix, stay put
+		if (focusedIndex >= 0 && files[focusedIndex].name.toLowerCase().startsWith(attempted)) {
+			typeBuffer = attempted;
+			return;
+		}
+
+		// Otherwise jump to first match for the extended prefix
+		const idx = findStartingWith(attempted, 0);
+		if (idx !== -1) {
+			focusedIndex = idx;
+			typeBuffer = attempted;
+			return;
+		}
+
+		// Extended prefix doesn't match anything — fall back to cycling on just the new char
+		let fallback = findStartingWith(char, focusedIndex + 1);
+		if (fallback === -1) fallback = findStartingWith(char, 0);
+		if (fallback !== -1) {
+			focusedIndex = fallback;
+			typeBuffer = char;
+		} else {
+			announce(t('explorer.noMatchForLetters', { letters: attempted }));
+			typeBuffer = '';
 		}
 	}
 </script>
@@ -204,7 +271,7 @@
 <div class="flex flex-col h-screen">
 	<!-- Live region for announcements -->
 	<div class="sr-only" aria-live="assertive" aria-atomic="true">
-		{atRootAnnouncement}
+		{liveAnnouncement}
 	</div>
 
 	<header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 pt-safe-top sticky top-0 z-10">

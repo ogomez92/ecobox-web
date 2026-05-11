@@ -17,6 +17,7 @@ export const es: Record<MessageKey, string> = {
 	'explorer.searchAria': 'Buscar archivos',
 	'explorer.clearSearch': 'Limpiar búsqueda',
 	'explorer.atRootAnnouncement': 'Ya estás en la carpeta raíz',
+	'explorer.noMatchForLetters': 'Ningún elemento empieza por "{letters}"',
 	'explorer.atRootDirectory': 'En la carpeta raíz',
 	'explorer.parentDirectory': 'Carpeta superior',
 	'explorer.loading': 'Cargando archivos...',

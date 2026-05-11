@@ -17,6 +17,7 @@ export const ja: Record<MessageKey, string> = {
 	'explorer.searchAria': 'ファイルを検索',
 	'explorer.clearSearch': '検索をクリア',
 	'explorer.atRootAnnouncement': 'すでにルートディレクトリです',
+	'explorer.noMatchForLetters': '「{letters}」で始まる項目はありません',
 	'explorer.atRootDirectory': 'ルートディレクトリ',
 	'explorer.parentDirectory': '親ディレクトリ',
 	'explorer.loading': 'ファイルを読み込み中...',

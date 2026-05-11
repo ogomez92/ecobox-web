@@ -15,6 +15,7 @@ export const en = {
 	'explorer.searchAria': 'Search files',
 	'explorer.clearSearch': 'Clear search',
 	'explorer.atRootAnnouncement': 'Already at root directory',
+	'explorer.noMatchForLetters': 'No item starts with "{letters}"',
 	'explorer.atRootDirectory': 'At root directory',
 	'explorer.parentDirectory': 'Parent directory',
 	'explorer.loading': 'Loading files...',
