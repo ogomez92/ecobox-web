@@ -33,5 +33,5 @@ playwright-report/
 # Misc
 *.log
 *.tgz
-media/
+/media/
 .claude
