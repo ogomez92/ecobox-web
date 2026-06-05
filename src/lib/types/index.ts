@@ -134,6 +134,8 @@ export interface Settings {
 	theme: 'light' | 'dark' | 'system';
 	autoplay: boolean;
 	maskTitle: string;
+	/** Default SonicRoom server origin for "Cast to call". */
+	sonicroomUrl: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -144,7 +146,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	radioResumeBehavior: 'ask',
 	theme: 'system',
 	autoplay: true,
-	maskTitle: ''
+	maskTitle: '',
+	sonicroomUrl: ''
 };
 
 export const DEFAULT_EQ_BANDS: EQBand[] = [

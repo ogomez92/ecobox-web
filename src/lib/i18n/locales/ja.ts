@@ -288,5 +288,26 @@ export const ja: Record<MessageKey, string> = {
 	'fileTypes.daisyBook': 'DAISY 図書フォルダ',
 	'fileTypes.chapteredFolder': 'チャプター付きフォルダ',
 	'fileTypes.folder': 'フォルダ',
-	'fileTypes.fileExt': '{ext} ファイル'
+	'fileTypes.fileExt': '{ext} ファイル',
+
+	'cast.button': '通話に配信',
+	'cast.stop': '配信を停止',
+	'cast.aria': 'この音声を SonicRoom の通話に配信',
+	'cast.title': 'SonicRoom の通話に配信',
+	'cast.label': 'ルームのリンクまたは名前',
+	'cast.placeholder': 'https://sonicroom…/room/my-studio',
+	'cast.help': 'SonicRoom のルームリンク、またはルーム名を貼り付けてください。通話中の全員がこの音声をステレオで聞けます。Ecobox はローカルでミュートし、通話経由で聞いてください。',
+	'cast.start': '配信を開始',
+	'cast.connecting': '接続中…',
+	'cast.casting': '{room} に配信中',
+	'cast.castingTo': '「{title}」を {room} に配信中',
+	'cast.invalidTarget': 'SonicRoom のルームのリンクまたは名前を入力してください',
+	'cast.failed': '配信できませんでした: {error}',
+	'cast.radioUnavailable': 'ラジオ配信では利用できません',
+	'cast.iosWarning': 'iOS では配信が Web Audio を経由するため、タブがバックグラウンドになると停止する場合があります。',
+
+	'settings.casting': '配信',
+	'settings.sonicroomUrl': 'SonicRoom サーバー URL',
+	'settings.sonicroomUrlPlaceholder': 'https://sonicroom.your-domain.com',
+	'settings.sonicroomUrlDesc': '「通話に配信」の既定の SonicRoom サーバー。配信時に完全なルームリンクを貼り付けることもできます。'
 };

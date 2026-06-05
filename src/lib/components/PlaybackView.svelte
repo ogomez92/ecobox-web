@@ -11,9 +11,11 @@
 	import GoToTimeDialog from './GoToTimeDialog.svelte';
 	import SleepTimer from './SleepTimer.svelte';
 	import EffectsPanel from './EffectsPanel.svelte';
+	import CastDialog from './CastDialog.svelte';
 	import { playerStore } from '$lib/stores/player.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { audioEffects } from '$lib/services/audioEffects';
+	import { roomCaster } from '$lib/services/roomCaster.svelte';
 	import { formatDuration } from '$lib/utils/format';
 	import { t } from '$lib/i18n/index.svelte';
 	import type { Bookmark } from '$server/db/schema';
@@ -32,6 +34,7 @@
 	let showGoToTime = $state(false);
 	let showSleepTimer = $state(false);
 	let showEffects = $state(false);
+	let showCast = $state(false);
 	let bookmarks = $state<Bookmark[]>([]);
 
 	// Sleep timer state
@@ -190,6 +193,9 @@
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 		}
 		cancelSleepTimer();
+		// Stop casting first — audioEffects.destroy() closes the context and would
+		// otherwise leave the caster producing a dead track.
+		if (roomCaster.isCasting) roomCaster.stop();
 		playerStore.destroy();
 		audioEffects.destroy();
 	});
@@ -229,6 +235,7 @@
 			if (fromDialog) return;
 			e.preventDefault();
 			if (showEffects) { closeEffectsPanel(); return; }
+			if (showCast) { showCast = false; return; }
 			if (showGoToTime) { showGoToTime = false; return; }
 			if (showBookmarks) {
 				showBookmarks = false;
@@ -242,7 +249,7 @@
 		}
 
 		// For other keys, bail when any modal is open
-		if (showGoToTime || showBookmarks || showChapters || showSleepTimer) return;
+		if (showGoToTime || showBookmarks || showChapters || showSleepTimer || showCast) return;
 
 		// F key toggles effects panel even when it's open
 		if (e.code === 'KeyF' && !isRadio) {
@@ -496,6 +503,17 @@
 				{title}
 			</h1>
 
+			{#if roomCaster.isCasting}
+				<div
+					class="mb-2 inline-flex items-center gap-1.5 rounded-full bg-primary-100 dark:bg-primary-900 px-3 py-1 text-sm text-primary-700 dark:text-primary-300"
+					role="status"
+					aria-live="polite"
+				>
+					<Icon name="broadcast" size={16} />
+					{t('cast.casting', { room: roomCaster.roomName ?? '' })}
+				</div>
+			{/if}
+
 			{#if chapterTitle && !isRadio}
 				<p class="text-gray-600 dark:text-gray-400">
 					{chapterTitle}
@@ -683,6 +701,19 @@
 					<Icon name="settings" size={20} class="mr-2" />
 					{t('player.effects')}
 				</button>
+
+				<button
+					type="button"
+					class="btn-secondary {roomCaster.isCasting ? 'ring-2 ring-primary-500 text-primary-600 dark:text-primary-400' : ''}"
+					onclick={() => { if (roomCaster.isCasting) roomCaster.stop(); else showCast = true; }}
+					aria-label={roomCaster.isCasting ? t('cast.stop') : t('cast.aria')}
+					aria-expanded={roomCaster.isCasting ? undefined : showCast}
+					aria-haspopup={roomCaster.isCasting ? undefined : 'dialog'}
+					aria-pressed={roomCaster.isCasting}
+				>
+					<Icon name="broadcast" size={20} class="mr-2" />
+					{roomCaster.isCasting ? t('cast.stop') : t('cast.button')}
+				</button>
 			{/if}
 		</div>
 	</footer>
@@ -738,6 +769,17 @@
 <!-- Effects panel modal -->
 {#if showEffects}
 	<EffectsPanel onclose={closeEffectsPanel} />
+{/if}
+
+<!-- Cast dialog -->
+{#if showCast}
+	<CastDialog
+		currentTitle={playerStore.currentTitle}
+		onclose={() => {
+			showCast = false;
+			requestAnimationFrame(() => playButtonRef?.focus());
+		}}
+	/>
 {/if}
 
 <!-- Live region for announcements -->

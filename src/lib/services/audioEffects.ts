@@ -27,6 +27,23 @@ export class AudioEffectsChain {
 	private isInitialized = false;
 	private webAudioConnected = false; // Track if we've connected to Web Audio API
 
+	// --- Cast tap (stream the post-effects audio to a SonicRoom call) ---
+	// A single post-effects master bus. EVERY path that used to terminate at
+	// audioContext.destination now terminates at `tapNode` instead, so the tap
+	// is correct whether effects are enabled, bypassed, or never toggled.
+	//   tapNode -> monitorGain -> destination   (local speakers; muted via gain
+	//                                             while casting)
+	//   tapNode -> captureDest                  (the MediaStream we cast)
+	private tapNode: GainNode | null = null;
+	private monitorGain: GainNode | null = null;
+	private captureDest: MediaStreamAudioDestinationNode | null = null;
+	private isCasting = false;
+	// Master output volume (0..1). Once the graph is connected the element's own
+	// `.volume` no longer reaches the captured stream in many browsers, so the
+	// player drives volume through here (tapNode) instead. Applied to BOTH the
+	// local monitor and the cast tap, so changing volume changes the stream.
+	private outputVolume = 1;
+
 	private effects: AudioEffects = {
 		enabled: false,
 		eq: { bands: [
@@ -178,8 +195,24 @@ export class AudioEffectsChain {
 		this.convolverNode = this.audioContext.createConvolver();
 		await this.loadReverbImpulse();
 
-		// Connect bypass chain (when effects disabled)
-		this.sourceNode.connect(this.audioContext.destination);
+		// Post-effects master bus + cast tap. Wired once, permanently: nothing in
+		// enable()/disable() touches these, they only change what feeds tapNode.
+		// tapNode also carries the master output volume (see outputVolume).
+		this.tapNode = this.audioContext.createGain();
+		this.tapNode.gain.value = this.outputVolume;
+		this.monitorGain = this.audioContext.createGain();
+		this.monitorGain.gain.value = this.isCasting ? 0 : 1;
+		this.captureDest = this.audioContext.createMediaStreamDestination();
+		this.tapNode.connect(this.monitorGain);
+		this.monitorGain.connect(this.audioContext.destination);
+		this.tapNode.connect(this.captureDest);
+
+		// Connect bypass chain (when effects disabled) into the master bus.
+		this.sourceNode.connect(this.tapNode);
+
+		// The graph is now the volume authority — pin the element to 1 so its own
+		// volume doesn't double-attenuate (or get ignored, depending on browser).
+		if (this.audioElement) this.audioElement.volume = 1;
 
 		this.webAudioConnected = true;
 	}
@@ -266,10 +299,10 @@ export class AudioEffectsChain {
 			currentNode = this.outputNode;
 		}
 
-		// Volume boost (always connected, final stage)
-		if (this.volumeBoostNode) {
+		// Volume boost (always connected, final stage) -> post-effects master bus
+		if (this.volumeBoostNode && this.tapNode) {
 			currentNode.connect(this.volumeBoostNode);
-			this.volumeBoostNode.connect(this.audioContext.destination);
+			this.volumeBoostNode.connect(this.tapNode);
 		}
 
 		this.effects.enabled = true;
@@ -279,7 +312,8 @@ export class AudioEffectsChain {
 	disable(): void {
 		if (!this.audioContext || !this.sourceNode || !this.effects.enabled) return;
 
-		// Disconnect everything
+		// Disconnect the effect chain. The tap bus (tapNode/monitorGain/
+		// captureDest) is intentionally NOT touched — it stays permanently wired.
 		this.sourceNode.disconnect();
 		this.eqNodes.forEach(node => node.disconnect());
 		this.compressorNode?.disconnect();
@@ -290,8 +324,8 @@ export class AudioEffectsChain {
 		this.outputNode?.disconnect();
 		this.volumeBoostNode?.disconnect();
 
-		// Connect bypass
-		this.sourceNode.connect(this.audioContext.destination);
+		// Connect bypass into the post-effects master bus
+		if (this.tapNode) this.sourceNode.connect(this.tapNode);
 
 		this.effects.enabled = false;
 
@@ -433,11 +467,48 @@ export class AudioEffectsChain {
 	}
 
 	async suspendContext(): Promise<void> {
+		// Never suspend while casting: a suspended AudioContext freezes the
+		// capture tap, silencing the live stream to the call. The <audio> pause
+		// handler calls this, so the guard must come first.
+		if (this.isCasting) return;
 		// Only suspend if Web Audio is actually connected — otherwise we'd create
 		// and immediately suspend a context we didn't need.
 		if (this.webAudioConnected && this.audioContext?.state === 'running') {
 			await this.audioContext.suspend();
 		}
+	}
+
+	// --- Cast tap API ---------------------------------------------------------
+	// Start streaming the post-effects audio. Forces the Web Audio graph to
+	// connect (even on iOS / effects-never-enabled), keeps the context running,
+	// and mutes local monitoring (the caster hears the music via the call
+	// return in their SonicRoom tab, in sync with everyone else). Returns the
+	// stereo MediaStream to hand to the caster's mediasoup producer.
+	async startCapture(): Promise<MediaStream> {
+		await this.connectWebAudio();
+		await this.resumeContext();
+		this.isCasting = true;
+		if (this.monitorGain) this.monitorGain.gain.value = 0;
+		if (!this.captureDest) throw new Error('Capture destination not available');
+		return this.captureDest.stream;
+	}
+
+	// Stop streaming and restore local monitoring. The context and tap nodes are
+	// left intact so local playback continues normally.
+	stopCapture(): void {
+		this.isCasting = false;
+		if (this.monitorGain) this.monitorGain.gain.value = 1;
+	}
+
+	getIsCasting(): boolean {
+		return this.isCasting;
+	}
+
+	// Set the master output volume (0..1). Drives both local playback and the
+	// cast tap. The player calls this so a volume change reaches the stream.
+	setOutputVolume(volume: number): void {
+		this.outputVolume = Math.max(0, Math.min(1, volume));
+		if (this.tapNode) this.tapNode.gain.value = this.outputVolume;
 	}
 
 	destroy(): void {
@@ -453,6 +524,10 @@ export class AudioEffectsChain {
 		this.wetGainNode = null;
 		this.dryGainNode = null;
 		this.outputNode = null;
+		this.tapNode = null;
+		this.monitorGain = null;
+		this.captureDest = null;
+		this.isCasting = false;
 		this.audioElement = null;
 		this.isInitialized = false;
 		this.webAudioConnected = false;

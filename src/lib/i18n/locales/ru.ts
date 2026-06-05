@@ -288,5 +288,26 @@ export const ru: Record<MessageKey, string> = {
 	'fileTypes.daisyBook': 'папка DAISY-книги',
 	'fileTypes.chapteredFolder': 'папка с главами',
 	'fileTypes.folder': 'папка',
-	'fileTypes.fileExt': 'файл {ext}'
+	'fileTypes.fileExt': 'файл {ext}',
+
+	'cast.button': 'Транслировать в звонок',
+	'cast.stop': 'Остановить трансляцию',
+	'cast.aria': 'Транслировать этот звук в звонок SonicRoom',
+	'cast.title': 'Трансляция в звонок SonicRoom',
+	'cast.label': 'Ссылка или название комнаты',
+	'cast.placeholder': 'https://sonicroom…/room/my-studio',
+	'cast.help': 'Вставьте ссылку на комнату SonicRoom или просто её название. Все в звонке услышат этот звук в стерео; отключите звук Ecobox локально — вы услышите его через звонок.',
+	'cast.start': 'Начать трансляцию',
+	'cast.connecting': 'Подключение…',
+	'cast.casting': 'Трансляция в {room}',
+	'cast.castingTo': 'Трансляция «{title}» в {room}',
+	'cast.invalidTarget': 'Введите ссылку или название комнаты SonicRoom',
+	'cast.failed': 'Не удалось транслировать: {error}',
+	'cast.radioUnavailable': 'Трансляция недоступна для радиопотоков',
+	'cast.iosWarning': 'На iOS трансляция идёт через Web Audio и может прекратиться, когда вкладка уходит в фон.',
+
+	'settings.casting': 'Трансляция',
+	'settings.sonicroomUrl': 'URL сервера SonicRoom',
+	'settings.sonicroomUrlPlaceholder': 'https://sonicroom.ваш-домен.com',
+	'settings.sonicroomUrlDesc': 'Сервер SonicRoom по умолчанию для «Транслировать в звонок». При трансляции по-прежнему можно вставить полную ссылку на комнату.'
 };

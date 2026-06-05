@@ -123,6 +123,9 @@ class PlayerStore {
 		});
 
 		this.audio.addEventListener('volumechange', () => {
+			// In graph mode the element is pinned to 1 and the master gain is the
+			// authority, so don't let the element clobber the logical volume.
+			if (audioEffects.isWebAudioConnected()) return;
 			this.volume = this.audio?.volume ?? 1;
 		});
 
@@ -470,8 +473,15 @@ class PlayerStore {
 	}
 
 	setVolume(volume: number) {
+		const clamped = Math.max(0, Math.min(1, volume));
+		this.volume = clamped;
+		// Keep the Web Audio master gain in sync (it's the authority once the
+		// graph is connected — e.g. effects on or casting — and is what reaches
+		// the cast stream). When the graph is connected the element is pinned to
+		// 1; otherwise the element's own volume is the only control.
+		audioEffects.setOutputVolume(clamped);
 		if (this.audio) {
-			this.audio.volume = Math.max(0, Math.min(1, volume));
+			this.audio.volume = audioEffects.isWebAudioConnected() ? 1 : clamped;
 		}
 	}
 

@@ -286,7 +286,28 @@ export const en = {
 	'fileTypes.daisyBook': 'DAISY book folder',
 	'fileTypes.chapteredFolder': 'chaptered folder',
 	'fileTypes.folder': 'folder',
-	'fileTypes.fileExt': '{ext} file'
+	'fileTypes.fileExt': '{ext} file',
+
+	'cast.button': 'Cast to call',
+	'cast.stop': 'Stop casting',
+	'cast.aria': 'Stream this audio into a SonicRoom call',
+	'cast.title': 'Cast to a SonicRoom call',
+	'cast.label': 'Room link or name',
+	'cast.placeholder': 'https://sonicroom…/room/my-studio',
+	'cast.help': 'Paste a SonicRoom room link, or just the room name. Everyone in the call hears this audio in stereo; mute Ecobox locally — you hear it via the call.',
+	'cast.start': 'Start casting',
+	'cast.connecting': 'Connecting…',
+	'cast.casting': 'Casting to {room}',
+	'cast.castingTo': 'Casting “{title}” to {room}',
+	'cast.invalidTarget': 'Enter a SonicRoom room link or name',
+	'cast.failed': 'Could not cast: {error}',
+	'cast.radioUnavailable': 'Casting is unavailable for radio streams',
+	'cast.iosWarning': 'On iOS, casting routes audio through Web Audio and may stop when the tab is backgrounded.',
+
+	'settings.casting': 'Casting',
+	'settings.sonicroomUrl': 'SonicRoom server URL',
+	'settings.sonicroomUrlPlaceholder': 'https://sonicroom.your-domain.com',
+	'settings.sonicroomUrlDesc': "Default SonicRoom server for 'Cast to call'. You can still paste a full room link when casting."
 };
 
 export type MessageKey = keyof typeof en;

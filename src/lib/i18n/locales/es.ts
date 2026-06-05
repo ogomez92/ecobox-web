@@ -288,5 +288,26 @@ export const es: Record<MessageKey, string> = {
 	'fileTypes.daisyBook': 'carpeta de libro DAISY',
 	'fileTypes.chapteredFolder': 'carpeta con capítulos',
 	'fileTypes.folder': 'carpeta',
-	'fileTypes.fileExt': 'archivo {ext}'
+	'fileTypes.fileExt': 'archivo {ext}',
+
+	'cast.button': 'Emitir a la llamada',
+	'cast.stop': 'Detener emisión',
+	'cast.aria': 'Transmitir este audio a una llamada de SonicRoom',
+	'cast.title': 'Emitir a una llamada de SonicRoom',
+	'cast.label': 'Enlace o nombre de la sala',
+	'cast.placeholder': 'https://sonicroom…/room/mi-sala',
+	'cast.help': 'Pega un enlace de sala de SonicRoom o solo el nombre. Todos en la llamada oirán este audio en estéreo; silencia Ecobox localmente: lo oirás por la llamada.',
+	'cast.start': 'Empezar a emitir',
+	'cast.connecting': 'Conectando…',
+	'cast.casting': 'Emitiendo a {room}',
+	'cast.castingTo': 'Emitiendo «{title}» a {room}',
+	'cast.invalidTarget': 'Introduce un enlace o nombre de sala de SonicRoom',
+	'cast.failed': 'No se pudo emitir: {error}',
+	'cast.radioUnavailable': 'La emisión no está disponible para emisoras de radio',
+	'cast.iosWarning': 'En iOS, la emisión enruta el audio por Web Audio y puede detenerse cuando la pestaña pasa a segundo plano.',
+
+	'settings.casting': 'Emisión',
+	'settings.sonicroomUrl': 'URL del servidor SonicRoom',
+	'settings.sonicroomUrlPlaceholder': 'https://sonicroom.tu-dominio.com',
+	'settings.sonicroomUrlDesc': 'Servidor SonicRoom por defecto para «Emitir a la llamada». Aún puedes pegar un enlace de sala completo al emitir.'
 };

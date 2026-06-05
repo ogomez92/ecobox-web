@@ -288,5 +288,26 @@ export const zh: Record<MessageKey, string> = {
 	'fileTypes.daisyBook': 'DAISY 图书文件夹',
 	'fileTypes.chapteredFolder': '带章节文件夹',
 	'fileTypes.folder': '文件夹',
-	'fileTypes.fileExt': '{ext} 文件'
+	'fileTypes.fileExt': '{ext} 文件',
+
+	'cast.button': '投放到通话',
+	'cast.stop': '停止投放',
+	'cast.aria': '将此音频投放到 SonicRoom 通话',
+	'cast.title': '投放到 SonicRoom 通话',
+	'cast.label': '房间链接或名称',
+	'cast.placeholder': 'https://sonicroom…/room/my-studio',
+	'cast.help': '粘贴 SonicRoom 房间链接，或仅输入房间名称。通话中的所有人都会以立体声听到此音频；请将 Ecobox 本地静音——你将通过通话听到它。',
+	'cast.start': '开始投放',
+	'cast.connecting': '连接中…',
+	'cast.casting': '正在投放到 {room}',
+	'cast.castingTo': '正在将“{title}”投放到 {room}',
+	'cast.invalidTarget': '请输入 SonicRoom 房间链接或名称',
+	'cast.failed': '无法投放：{error}',
+	'cast.radioUnavailable': '电台流不支持投放',
+	'cast.iosWarning': '在 iOS 上，投放通过 Web Audio 进行，标签页切到后台时可能会停止。',
+
+	'settings.casting': '投放',
+	'settings.sonicroomUrl': 'SonicRoom 服务器地址',
+	'settings.sonicroomUrlPlaceholder': 'https://sonicroom.your-domain.com',
+	'settings.sonicroomUrlDesc': '“投放到通话”的默认 SonicRoom 服务器。投放时仍可粘贴完整的房间链接。'
 };

@@ -28,7 +28,8 @@
 		| 'sort'
 		| 'more-vertical'
 		| 'lock'
-		| 'lock-open';
+		| 'lock-open'
+		| 'broadcast';
 
 	interface Props {
 		name: IconName;
@@ -68,7 +69,8 @@
 		sort: 'M3 6h18M6 12h12M9 18h6',
 		'more-vertical': 'M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z',
 		lock: 'M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 0110 0v4',
-		'lock-open': 'M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 019.9-1'
+		'lock-open': 'M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 019.9-1',
+		broadcast: 'M4.93 4.93a10 10 0 000 14.14M19.07 4.93a10 10 0 010 14.14M7.76 7.76a6 6 0 000 8.48M16.24 7.76a6 6 0 010 8.48M12 13a1 1 0 100-2 1 1 0 000 2z'
 	};
 </script>
 

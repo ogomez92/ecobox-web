@@ -8,7 +8,8 @@ const defaultSettings: Settings = {
 	radioResumeBehavior: 'ask',
 	theme: 'system',
 	autoplay: true,
-	maskTitle: ''
+	maskTitle: '',
+	sonicroomUrl: ''
 };
 
 class SettingsStore {
@@ -20,6 +21,7 @@ class SettingsStore {
 	theme = $state<'light' | 'dark' | 'system'>(defaultSettings.theme);
 	autoplay = $state(defaultSettings.autoplay);
 	maskTitle = $state(defaultSettings.maskTitle);
+	sonicroomUrl = $state(defaultSettings.sonicroomUrl);
 
 	private isLoaded = false;
 
@@ -48,6 +50,7 @@ class SettingsStore {
 		if (settings.theme !== undefined) this.theme = settings.theme;
 		if (settings.autoplay !== undefined) this.autoplay = settings.autoplay;
 		if (settings.maskTitle !== undefined) this.maskTitle = settings.maskTitle;
+		if (settings.sonicroomUrl !== undefined) this.sonicroomUrl = settings.sonicroomUrl;
 	}
 
 	async save() {
@@ -59,7 +62,8 @@ class SettingsStore {
 			radioResumeBehavior: this.radioResumeBehavior,
 			theme: this.theme,
 			autoplay: this.autoplay,
-			maskTitle: this.maskTitle
+			maskTitle: this.maskTitle,
+			sonicroomUrl: this.sonicroomUrl
 		};
 
 		try {
@@ -111,6 +115,11 @@ class SettingsStore {
 
 	setMaskTitle(value: string) {
 		this.maskTitle = value;
+		this.save();
+	}
+
+	setSonicroomUrl(value: string) {
+		this.sonicroomUrl = value.trim();
 		this.save();
 	}
 

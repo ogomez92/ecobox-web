@@ -22,6 +22,7 @@ export const GET: RequestHandler = async () => {
 		if (settings.radioResumeBehavior) parsed.radioResumeBehavior = settings.radioResumeBehavior as 'always' | 'never' | 'ask';
 		if (settings.theme) parsed.theme = settings.theme as 'light' | 'dark' | 'system';
 		if (settings.maskTitle !== undefined) parsed.maskTitle = settings.maskTitle;
+		if (settings.sonicroomUrl !== undefined) parsed.sonicroomUrl = settings.sonicroomUrl;
 
 		return json(parsed);
 	} catch (err) {
@@ -57,6 +58,9 @@ export const PUT: RequestHandler = async ({ request }) => {
 		}
 		if (body.maskTitle !== undefined) {
 			entries.push({ key: 'maskTitle', value: body.maskTitle });
+		}
+		if (body.sonicroomUrl !== undefined) {
+			entries.push({ key: 'sonicroomUrl', value: body.sonicroomUrl });
 		}
 
 		// Upsert each setting

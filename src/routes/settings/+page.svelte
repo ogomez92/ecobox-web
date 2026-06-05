@@ -188,6 +188,30 @@
 			</div>
 		</section>
 
+		<!-- Casting -->
+		<section class="card p-4 mb-4">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.casting')}</h2>
+
+			<div>
+				<label for="sonicroom-url" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+					{t('settings.sonicroomUrl')}
+				</label>
+				<input
+					id="sonicroom-url"
+					type="url"
+					inputmode="url"
+					value={settingsStore.sonicroomUrl}
+					oninput={(e) => settingsStore.setSonicroomUrl((e.target as HTMLInputElement).value)}
+					placeholder={t('settings.sonicroomUrlPlaceholder')}
+					aria-describedby="sonicroom-url-desc"
+					class="input"
+				/>
+				<p id="sonicroom-url-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+					{t('settings.sonicroomUrlDesc')}
+				</p>
+			</div>
+		</section>
+
 		<!-- Language -->
 		<section class="card p-4 mb-4">
 			<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.language')}</h2>

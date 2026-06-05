@@ -38,7 +38,9 @@
     "archiver": "^7.0.1",
     "better-sqlite3": "^11.8.0",
     "drizzle-orm": "^0.38.4",
-    "music-metadata": "^10.5.1"
+    "mediasoup-client": "^3.20.0",
+    "music-metadata": "^10.5.1",
+    "socket.io-client": "^4.8.3"
   },
   "type": "module"
 }

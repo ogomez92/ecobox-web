@@ -288,5 +288,26 @@ export const fr: Record<MessageKey, string> = {
 	'fileTypes.daisyBook': 'dossier de livre DAISY',
 	'fileTypes.chapteredFolder': 'dossier avec chapitres',
 	'fileTypes.folder': 'dossier',
-	'fileTypes.fileExt': 'fichier {ext}'
+	'fileTypes.fileExt': 'fichier {ext}',
+
+	'cast.button': 'Diffuser vers l’appel',
+	'cast.stop': 'Arrêter la diffusion',
+	'cast.aria': 'Diffuser cet audio dans un appel SonicRoom',
+	'cast.title': 'Diffuser vers un appel SonicRoom',
+	'cast.label': 'Lien ou nom du salon',
+	'cast.placeholder': 'https://sonicroom…/room/mon-studio',
+	'cast.help': 'Collez un lien de salon SonicRoom, ou simplement le nom. Tout le monde dans l’appel entend cet audio en stéréo ; coupez Ecobox en local : vous l’entendez via l’appel.',
+	'cast.start': 'Démarrer la diffusion',
+	'cast.connecting': 'Connexion…',
+	'cast.casting': 'Diffusion vers {room}',
+	'cast.castingTo': 'Diffusion de « {title} » vers {room}',
+	'cast.invalidTarget': 'Saisissez un lien ou un nom de salon SonicRoom',
+	'cast.failed': 'Diffusion impossible : {error}',
+	'cast.radioUnavailable': 'La diffusion n’est pas disponible pour les flux radio',
+	'cast.iosWarning': 'Sur iOS, la diffusion passe par Web Audio et peut s’arrêter quand l’onglet passe en arrière-plan.',
+
+	'settings.casting': 'Diffusion',
+	'settings.sonicroomUrl': 'URL du serveur SonicRoom',
+	'settings.sonicroomUrlPlaceholder': 'https://sonicroom.votre-domaine.com',
+	'settings.sonicroomUrlDesc': 'Serveur SonicRoom par défaut pour « Diffuser vers l’appel ». Vous pouvez toujours coller un lien de salon complet lors de la diffusion.'
 };

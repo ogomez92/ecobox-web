@@ -288,5 +288,26 @@ export const de: Record<MessageKey, string> = {
 	'fileTypes.daisyBook': 'DAISY-Buchordner',
 	'fileTypes.chapteredFolder': 'Kapitel-Ordner',
 	'fileTypes.folder': 'Ordner',
-	'fileTypes.fileExt': '{ext}-Datei'
+	'fileTypes.fileExt': '{ext}-Datei',
+
+	'cast.button': 'In Anruf streamen',
+	'cast.stop': 'Streaming beenden',
+	'cast.aria': 'Dieses Audio in einen SonicRoom-Anruf streamen',
+	'cast.title': 'In einen SonicRoom-Anruf streamen',
+	'cast.label': 'Raum-Link oder -Name',
+	'cast.placeholder': 'https://sonicroom…/room/mein-studio',
+	'cast.help': 'Füge einen SonicRoom-Raum-Link oder einfach den Raumnamen ein. Alle im Anruf hören dieses Audio in Stereo; schalte Ecobox lokal stumm – du hörst es über den Anruf.',
+	'cast.start': 'Streaming starten',
+	'cast.connecting': 'Verbinden…',
+	'cast.casting': 'Streaming an {room}',
+	'cast.castingTo': '„{title}“ wird an {room} gestreamt',
+	'cast.invalidTarget': 'Gib einen SonicRoom-Raum-Link oder -Namen ein',
+	'cast.failed': 'Streaming fehlgeschlagen: {error}',
+	'cast.radioUnavailable': 'Streaming ist für Radiostreams nicht verfügbar',
+	'cast.iosWarning': 'Unter iOS läuft das Streaming über Web Audio und kann stoppen, wenn der Tab in den Hintergrund wechselt.',
+
+	'settings.casting': 'Streaming',
+	'settings.sonicroomUrl': 'SonicRoom-Server-URL',
+	'settings.sonicroomUrlPlaceholder': 'https://sonicroom.deine-domain.com',
+	'settings.sonicroomUrlDesc': 'Standard-SonicRoom-Server für „In Anruf streamen“. Beim Streamen kannst du weiterhin einen vollständigen Raum-Link einfügen.'
 };
