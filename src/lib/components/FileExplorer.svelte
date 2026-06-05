@@ -177,8 +177,17 @@
 			}
 		}
 
-		// Multi-letter type-ahead navigation (mirrors Windows Explorer / Google Docs)
-		else if (e.key.length === 1 && /^[\p{L}\p{N}]$/u.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+		// Multi-letter type-ahead navigation (mirrors Windows Explorer / Google Docs).
+		// Space is allowed mid-word so names like "los espadachines" are reachable,
+		// but a leading space (empty buffer) is left to the cancel branch below.
+		else if (
+			e.key.length === 1 &&
+			!e.ctrlKey &&
+			!e.metaKey &&
+			!e.altKey &&
+			(/^[\p{L}\p{N}]$/u.test(e.key) || (e.key === ' ' && typeBuffer !== ''))
+		) {
+			if (e.key === ' ') e.preventDefault(); // don't scroll the page mid-typeahead
 			handleLetterNav(e.key.toLowerCase());
 		}
 

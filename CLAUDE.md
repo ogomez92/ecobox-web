@@ -48,6 +48,19 @@ sudo chown -R ecobox .   # build/ and .svelte-kit/ are written as root if you ra
 
 Hot dev (`npm run dev`) does not affect the running service — the service serves the last `build/` output.
 
+### Native module rebuild (better-sqlite3)
+
+`vite build` runs DB code during prerender analysis, so it fails with "Could not locate the bindings file" if `better-sqlite3`'s native binding isn't compiled for the current Node version (e.g. after a Node upgrade, or when pnpm skipped the unapproved build script). `pnpm rebuild better-sqlite3` may exit 0 without actually building. The reliable fix is to invoke the node-gyp bundled inside pnpm directly:
+
+```bash
+cd node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3
+GYP=$(find /root/.local/share/pnpm -name node-gyp.js -path '*bin*' | head -1)
+node "$GYP" rebuild --release
+cd /home/ecobox
+```
+
+Then run the normal `npm run build` / `sudo systemctl restart ecobox` / `sudo chown -R ecobox .` sequence above. Verify the binding exists with `find node_modules/.pnpm/better-sqlite3@*/ -name '*.node'`.
+
 ## Architecture
 
 ### Tech Stack
