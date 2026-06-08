@@ -27,6 +27,7 @@
 	let hasAppliedFocus = $state(false);
 	let liveAnnouncement = $state('');
 	let emptyFolderUploadButton: HTMLButtonElement | undefined = $state();
+	let rowRefs = $state<(FileRow | null)[]>([]);
 	let actionsMenuOpen = $state(false);
 
 	let typeBuffer = '';
@@ -133,12 +134,42 @@
 		showUploadDialog = true;
 	}
 
+	function focusList() {
+		const files = filesStore.sortedFiles;
+		if (files.length === 0) return;
+		const target = focusedIndex >= 0 && focusedIndex < files.length ? focusedIndex : 0;
+		focusedIndex = target;
+		// Force focus even when focusedIndex is unchanged (e.g. coming from the
+		// search box), so the `focused` $effect alone can't be relied upon.
+		rowRefs[target]?.focus();
+	}
+
 	function handleGlobalKeydown(e: KeyboardEvent) {
+		const target = e.target as HTMLElement | null;
+		const inField = !!target?.closest('input, textarea, select, [contenteditable="true"]');
+
+		// Ctrl+L moves focus to the file list, no matter what currently has focus
+		// (including the search box) — so it intentionally skips the field guard.
+		if (e.ctrlKey && (e.key === 'l' || e.key === 'L') && !e.metaKey && !e.shiftKey && !e.altKey) {
+			if (showUploadDialog || deleteTarget) return;
+			e.preventDefault();
+			focusList();
+			return;
+		}
+
+		// Ctrl+, opens the app settings page (no player open in this context).
+		if (e.ctrlKey && e.key === ',' && !e.metaKey && !e.shiftKey && !e.altKey) {
+			if (inField) return;
+			if (showUploadDialog || deleteTarget) return;
+			e.preventDefault();
+			goto('/settings');
+			return;
+		}
+
 		// Alt+N opens the actions menu. Ignore when inside form fields or modal dialogs.
 		if (!(e.altKey && (e.key === 'n' || e.key === 'N'))) return;
 		if (e.ctrlKey || e.metaKey || e.shiftKey) return;
-		const target = e.target as HTMLElement | null;
-		if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+		if (inField) return;
 		if (showUploadDialog || deleteTarget) return;
 		e.preventDefault();
 		actionsMenuOpen = true;
@@ -425,6 +456,7 @@
 					<tbody onkeydown={handleTableKeydown}>
 						{#each filesStore.sortedFiles as file, index (file.path)}
 							<FileRow
+								bind:this={rowRefs[index]}
 								{file}
 								focused={focusedIndex === index}
 								ondelete={() => deleteTarget = file}

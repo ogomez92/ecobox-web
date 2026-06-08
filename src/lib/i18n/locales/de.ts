@@ -285,6 +285,17 @@ export const de: Record<MessageKey, string> = {
 	'settings.languageDesc': 'Wähle deine bevorzugte Sprache',
 	'settings.langSystem': 'Systemvorgabe',
 
+	'settings.deletionHistory': 'Löschverlauf',
+	'settings.deletionHistoryDesc': 'Über die Web-App gelöschte Dateien und Ordner. Die letzten 1000 werden behalten; ältere Einträge werden automatisch entfernt.',
+	'settings.deletionHistoryEmpty': 'Noch keine Löschungen aufgezeichnet',
+	'settings.deletionHistoryLoading': 'Löschverlauf wird geladen…',
+	'settings.deletionHistoryError': 'Löschverlauf konnte nicht geladen werden',
+	'settings.deletionHistoryListLabel': 'Gelöschte Dateien und Ordner',
+	'settings.deletionHistoryHint': 'Mit den Pfeiltasten Auf und Ab durch den Löschverlauf navigieren.',
+	'settings.deletionViaSync': 'per Sync',
+	'settings.deletionAriaFile': '{name}, Datei, gelöscht am {date}',
+	'settings.deletionAriaFolder': '{name}, Ordner, gelöscht am {date}',
+
 	'fileTypes.daisyBook': 'DAISY-Buchordner',
 	'fileTypes.chapteredFolder': 'Kapitel-Ordner',
 	'fileTypes.folder': 'Ordner',

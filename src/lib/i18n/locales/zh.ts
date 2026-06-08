@@ -285,6 +285,17 @@ export const zh: Record<MessageKey, string> = {
 	'settings.languageDesc': '选择首选语言',
 	'settings.langSystem': '系统默认',
 
+	'settings.deletionHistory': '删除历史',
+	'settings.deletionHistoryDesc': '通过网页应用删除的文件和文件夹。保留最近的 1000 条，更早的条目会自动清除。',
+	'settings.deletionHistoryEmpty': '尚无删除记录',
+	'settings.deletionHistoryLoading': '正在加载删除历史…',
+	'settings.deletionHistoryError': '无法加载删除历史',
+	'settings.deletionHistoryListLabel': '已删除的文件和文件夹',
+	'settings.deletionHistoryHint': '使用上下方向键浏览删除历史。',
+	'settings.deletionViaSync': '因同步',
+	'settings.deletionAriaFile': '{name}，文件，删除于 {date}',
+	'settings.deletionAriaFolder': '{name}，文件夹，删除于 {date}',
+
 	'fileTypes.daisyBook': 'DAISY 图书文件夹',
 	'fileTypes.chapteredFolder': '带章节文件夹',
 	'fileTypes.folder': '文件夹',

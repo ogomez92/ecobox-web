@@ -285,6 +285,17 @@ export const ja: Record<MessageKey, string> = {
 	'settings.languageDesc': '優先する言語を選択',
 	'settings.langSystem': 'システムの既定',
 
+	'settings.deletionHistory': '削除履歴',
+	'settings.deletionHistoryDesc': 'ウェブアプリから削除したファイルとフォルダー。最新の1000件を保持し、古い項目は自動的に消去されます。',
+	'settings.deletionHistoryEmpty': '削除の記録はまだありません',
+	'settings.deletionHistoryLoading': '削除履歴を読み込んでいます…',
+	'settings.deletionHistoryError': '削除履歴を読み込めませんでした',
+	'settings.deletionHistoryListLabel': '削除したファイルとフォルダー',
+	'settings.deletionHistoryHint': '上下の矢印キーで削除履歴を移動できます。',
+	'settings.deletionViaSync': '同期による',
+	'settings.deletionAriaFile': '{name}、ファイル、{date} に削除',
+	'settings.deletionAriaFolder': '{name}、フォルダー、{date} に削除',
+
 	'fileTypes.daisyBook': 'DAISY 図書フォルダ',
 	'fileTypes.chapteredFolder': 'チャプター付きフォルダ',
 	'fileTypes.folder': 'フォルダ',

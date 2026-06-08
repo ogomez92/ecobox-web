@@ -52,6 +52,18 @@ export const protectedPaths = sqliteTable('protected_paths', {
 		.$defaultFn(() => new Date())
 });
 
+export const deletionHistory = sqliteTable('deletion_history', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	path: text('path').notNull(),
+	name: text('name').notNull(),
+	isDirectory: integer('is_directory', { mode: 'boolean' }).notNull().default(false),
+	// How the deletion was triggered: an explicit user action, or a sync-mode upload.
+	source: text('source', { enum: ['user', 'sync'] }).notNull().default('user'),
+	deletedAt: integer('deleted_at', { mode: 'timestamp' })
+		.notNull()
+		.$defaultFn(() => new Date())
+});
+
 export type MediaMetadata = typeof mediaMetadata.$inferSelect;
 export type NewMediaMetadata = typeof mediaMetadata.$inferInsert;
 export type Bookmark = typeof bookmarks.$inferSelect;
@@ -64,3 +76,5 @@ export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
 export type ProtectedPath = typeof protectedPaths.$inferSelect;
 export type NewProtectedPath = typeof protectedPaths.$inferInsert;
+export type DeletionHistoryEntry = typeof deletionHistory.$inferSelect;
+export type NewDeletionHistoryEntry = typeof deletionHistory.$inferInsert;

@@ -140,14 +140,16 @@ export async function getStorageInfo(): Promise<StorageInfo> {
 	return { used, free, total };
 }
 
-export async function deleteFile(relativePath: string): Promise<void> {
+export async function deleteFile(relativePath: string): Promise<{ isDirectory: boolean }> {
 	const filePath = resolvePath(relativePath);
 	const stats = await fs.stat(filePath);
 
 	if (stats.isDirectory()) {
 		await fs.rm(filePath, { recursive: true });
+		return { isDirectory: true };
 	} else {
 		await fs.unlink(filePath);
+		return { isDirectory: false };
 	}
 }
 

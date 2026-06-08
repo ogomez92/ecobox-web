@@ -38,15 +38,24 @@ npm run db:studio     # Open Drizzle Studio GUI
 
 This working directory (`/home/ecobox`) is **also the production install**. The app runs as the `ecobox.service` systemd unit (`User=ecobox`, `WorkingDirectory=/home/ecobox`, `ExecStart=/usr/bin/node build`, `EnvironmentFile=/home/ecobox/.env`).
 
-After changing source code, deploying requires three steps:
+**IMPORTANT — a source change is NOT done until the service is restarted.** Editing `.svelte`/`.ts` and even running `vite build` does nothing visible: the running service keeps serving the *previous* `build/` until it restarts. After ANY source change in this repo, always run the full deploy sequence below before claiming the change works or asking the user to test. Do not skip the restart.
 
 ```bash
-npm run build
-sudo systemctl restart ecobox
-sudo chown -R ecobox .   # build/ and .svelte-kit/ are written as root if you ran npm as root
+# 1. Build. `npm` is DISABLED on this machine, and `pnpm run build` aborts on a
+#    deps-approval gate (ERR_PNPM_IGNORED_BUILDS). Invoke the binary directly:
+node_modules/.bin/vite build
+# 2. Restart the service so the new build/ is served (run as root; no sudo needed):
+systemctl restart ecobox
+# 3. Fix ownership — build/ and .svelte-kit/ are written as root and the service
+#    runs as User=ecobox, so it can't read them until chowned back:
+chown -R ecobox:ecobox build .svelte-kit
 ```
 
-Hot dev (`npm run dev`) does not affect the running service — the service serves the last `build/` output.
+Type-checking has the same pnpm gate; run it directly too: `node_modules/.bin/svelte-kit sync && node_modules/.bin/svelte-check --tsconfig ./tsconfig.json`.
+
+**Verifying the live app:** the service listens on `PORT` from `.env` (currently **4923**), fronted by Caddy at `https://ecobox.oriolgomez.com`. Verify with `curl localhost:4923/...`. Do NOT use `localhost:3000` — that is an unrelated `gulp serve` process, not ecobox. Confirm the restart with `systemctl is-active ecobox`.
+
+Hot dev (`vite dev`) does not affect the running service — the service serves the last `build/` output.
 
 ### Native module rebuild (better-sqlite3)
 
@@ -59,7 +68,7 @@ node "$GYP" rebuild --release
 cd /home/ecobox
 ```
 
-Then run the normal `npm run build` / `sudo systemctl restart ecobox` / `sudo chown -R ecobox .` sequence above. Verify the binding exists with `find node_modules/.pnpm/better-sqlite3@*/ -name '*.node'`.
+Then run the normal build / `systemctl restart ecobox` / `chown -R ecobox:ecobox build .svelte-kit` sequence above. Verify the binding exists with `find node_modules/.pnpm/better-sqlite3@*/ -name '*.node'`.
 
 ## Architecture
 

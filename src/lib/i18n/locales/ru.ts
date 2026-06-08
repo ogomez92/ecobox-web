@@ -285,6 +285,17 @@ export const ru: Record<MessageKey, string> = {
 	'settings.languageDesc': 'Выберите предпочитаемый язык',
 	'settings.langSystem': 'По системе',
 
+	'settings.deletionHistory': 'История удалений',
+	'settings.deletionHistoryDesc': 'Файлы и папки, удалённые через веб-приложение. Сохраняются последние 1000 записей; более старые удаляются автоматически.',
+	'settings.deletionHistoryEmpty': 'Удалений пока нет',
+	'settings.deletionHistoryLoading': 'Загрузка истории удалений…',
+	'settings.deletionHistoryError': 'Не удалось загрузить историю удалений',
+	'settings.deletionHistoryListLabel': 'Удалённые файлы и папки',
+	'settings.deletionHistoryHint': 'Используйте стрелки вверх и вниз для перемещения по истории удалений.',
+	'settings.deletionViaSync': 'при синхронизации',
+	'settings.deletionAriaFile': '{name}, файл, удалён {date}',
+	'settings.deletionAriaFolder': '{name}, папка, удалена {date}',
+
 	'fileTypes.daisyBook': 'папка DAISY-книги',
 	'fileTypes.chapteredFolder': 'папка с главами',
 	'fileTypes.folder': 'папка',

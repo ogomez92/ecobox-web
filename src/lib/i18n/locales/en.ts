@@ -283,6 +283,17 @@ export const en = {
 	'settings.languageDesc': 'Choose your preferred language',
 	'settings.langSystem': 'System default',
 
+	'settings.deletionHistory': 'Deletion History',
+	'settings.deletionHistoryDesc': 'Files and folders deleted through the web app. The most recent 1000 are kept; older entries clear automatically.',
+	'settings.deletionHistoryEmpty': 'No deletions recorded yet',
+	'settings.deletionHistoryLoading': 'Loading deletion history…',
+	'settings.deletionHistoryError': 'Could not load deletion history',
+	'settings.deletionHistoryListLabel': 'Deleted files and folders',
+	'settings.deletionHistoryHint': 'Use the Up and Down arrow keys to move through the deletion history.',
+	'settings.deletionViaSync': 'via sync',
+	'settings.deletionAriaFile': '{name}, file, deleted {date}',
+	'settings.deletionAriaFolder': '{name}, folder, deleted {date}',
+
 	'fileTypes.daisyBook': 'DAISY book folder',
 	'fileTypes.chapteredFolder': 'chaptered folder',
 	'fileTypes.folder': 'folder',

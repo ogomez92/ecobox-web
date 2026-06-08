@@ -35,8 +35,9 @@
 		inputElement?.focus();
 	});
 
+	// SonicRoom caps displayName at 256 chars; clamp here to stay within it.
 	function sanitizeName(name: string): string {
-		return name.replace(/[<>"'&]/g, '').trim().slice(0, 30);
+		return name.replace(/[<>"'&]/g, '').trim().slice(0, 256);
 	}
 
 	async function handleStart(e: Event) {
@@ -52,7 +53,7 @@
 		} catch {
 			// ignore storage errors
 		}
-		const displayName = `🎵 ${sanitizeName(currentTitle) || 'Ecobox'}`;
+		const displayName = sanitizeName(currentTitle) || 'Ecobox';
 		try {
 			await roomCaster.start(target, displayName);
 			// Streaming runs in the standalone roomCaster singleton, so close the

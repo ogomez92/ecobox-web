@@ -59,8 +59,26 @@ sqlite.exec(`
 		value TEXT NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS deletion_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		path TEXT NOT NULL,
+		name TEXT NOT NULL,
+		is_directory INTEGER NOT NULL DEFAULT 0,
+		source TEXT NOT NULL DEFAULT 'user',
+		deleted_at INTEGER NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_bookmarks_media_path ON bookmarks(media_path);
 	CREATE INDEX IF NOT EXISTS idx_chaptered_bookmarks_folder ON chaptered_bookmarks(folder_path);
 `);
+
+// Idempotent column additions for DBs created before a column existed.
+// (CREATE TABLE IF NOT EXISTS above won't alter a pre-existing table.)
+const deletionHistoryColumns = sqlite
+	.prepare('PRAGMA table_info(deletion_history)')
+	.all() as { name: string }[];
+if (!deletionHistoryColumns.some((c) => c.name === 'source')) {
+	sqlite.exec("ALTER TABLE deletion_history ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
+}
 
 export { schema };

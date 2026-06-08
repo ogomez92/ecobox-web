@@ -285,6 +285,17 @@ export const es: Record<MessageKey, string> = {
 	'settings.languageDesc': 'Elige tu idioma preferido',
 	'settings.langSystem': 'Predeterminado del sistema',
 
+	'settings.deletionHistory': 'Historial de eliminaciones',
+	'settings.deletionHistoryDesc': 'Archivos y carpetas eliminados desde la aplicación web. Se conservan los 1000 más recientes; las entradas más antiguas se borran automáticamente.',
+	'settings.deletionHistoryEmpty': 'Aún no hay eliminaciones registradas',
+	'settings.deletionHistoryLoading': 'Cargando historial de eliminaciones…',
+	'settings.deletionHistoryError': 'No se pudo cargar el historial de eliminaciones',
+	'settings.deletionHistoryListLabel': 'Archivos y carpetas eliminados',
+	'settings.deletionHistoryHint': 'Usa las flechas Arriba y Abajo para desplazarte por el historial de eliminaciones.',
+	'settings.deletionViaSync': 'por sincronización',
+	'settings.deletionAriaFile': '{name}, archivo, eliminado el {date}',
+	'settings.deletionAriaFolder': '{name}, carpeta, eliminada el {date}',
+
 	'fileTypes.daisyBook': 'carpeta de libro DAISY',
 	'fileTypes.chapteredFolder': 'carpeta con capítulos',
 	'fileTypes.folder': 'carpeta',

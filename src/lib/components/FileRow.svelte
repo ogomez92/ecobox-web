@@ -79,6 +79,10 @@
 	export function getRowElement(): HTMLTableRowElement | undefined {
 		return rowEl;
 	}
+
+	export function focus() {
+		rowEl?.querySelector('a')?.focus();
+	}
 </script>
 
 <tr

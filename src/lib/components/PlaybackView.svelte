@@ -5,7 +5,7 @@
 	import SeekBar from './SeekBar.svelte';
 	import PlaybackControls from './PlaybackControls.svelte';
 	import VolumeControl from './VolumeControl.svelte';
-	import SpeedControl from './SpeedControl.svelte';
+	import PlayerSettingsDialog from './PlayerSettingsDialog.svelte';
 	import ChapterList from './ChapterList.svelte';
 	import BookmarkList from './BookmarkList.svelte';
 	import GoToTimeDialog from './GoToTimeDialog.svelte';
@@ -28,6 +28,7 @@
 
 	let audioElement: HTMLAudioElement | null = $state(null);
 	let playButtonRef: HTMLButtonElement | null = $state(null);
+	let settingsButtonRef: HTMLButtonElement | null = $state(null);
 	let showChapters = $state(false);
 	let showSettings = $state(false);
 	let showBookmarks = $state(false);
@@ -244,6 +245,7 @@
 			}
 			if (showChapters) { showChapters = false; return; }
 			if (showSleepTimer) { showSleepTimer = false; return; }
+			if (showSettings) { closeSettingsPanel(); return; }
 			handleBack();
 			return;
 		}
@@ -259,6 +261,15 @@
 		}
 
 		if (showEffects) return;
+
+		// Ctrl+, toggles the in-player settings panel (the player-context
+		// "settings"; the file browser maps the same shortcut to /settings).
+		// Reached only when no modal/effects panel is open, so it never stacks.
+		if (e.code === 'Comma' && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+			e.preventDefault();
+			toggleSettingsPanel();
+			return;
+		}
 
 		switch (e.code) {
 
@@ -407,6 +418,21 @@
 		requestAnimationFrame(() => playButtonRef?.focus());
 	}
 
+	// In-player settings dialog (the player-context "settings"). The dialog
+	// focuses itself on open; restore focus to its trigger when it closes.
+	function closeSettingsPanel() {
+		showSettings = false;
+		requestAnimationFrame(() => settingsButtonRef?.focus());
+	}
+
+	function toggleSettingsPanel() {
+		if (showSettings) {
+			closeSettingsPanel();
+		} else {
+			showSettings = true;
+		}
+	}
+
 	function announceTimeInfo() {
 		const duration = playerStore.duration;
 		const currentTime = playerStore.currentTime;
@@ -475,11 +501,13 @@
 			</div>
 
 			<button
+				bind:this={settingsButtonRef}
 				type="button"
-				onclick={() => showSettings = !showSettings}
+				onclick={toggleSettingsPanel}
 				class="btn-ghost p-2"
 				aria-label={t('common.settings')}
-				aria-pressed={showSettings}
+				aria-haspopup="dialog"
+				aria-expanded={showSettings}
 			>
 				<Icon name="settings" size={24} />
 			</button>
@@ -605,15 +633,6 @@
 			</div>
 		{/if}
 
-		<!-- Settings panel -->
-		{#if showSettings}
-			<div class="card p-4 space-y-6 mb-6">
-				<SpeedControl
-					speed={playerStore.playbackRate}
-					onchange={(s) => playerStore.setPlaybackRate(s)}
-				/>
-			</div>
-		{/if}
 	</main>
 
 	<!-- Bottom actions -->
@@ -769,6 +788,11 @@
 <!-- Effects panel modal -->
 {#if showEffects}
 	<EffectsPanel onclose={closeEffectsPanel} />
+{/if}
+
+<!-- Player settings modal -->
+{#if showSettings}
+	<PlayerSettingsDialog onclose={closeSettingsPanel} />
 {/if}
 
 <!-- Cast dialog -->

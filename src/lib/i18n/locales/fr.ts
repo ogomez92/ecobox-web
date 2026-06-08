@@ -285,6 +285,17 @@ export const fr: Record<MessageKey, string> = {
 	'settings.languageDesc': 'Choisissez votre langue préférée',
 	'settings.langSystem': 'Par défaut du système',
 
+	'settings.deletionHistory': 'Historique des suppressions',
+	'settings.deletionHistoryDesc': 'Fichiers et dossiers supprimés depuis l’application web. Les 1000 plus récents sont conservés ; les entrées plus anciennes sont effacées automatiquement.',
+	'settings.deletionHistoryEmpty': 'Aucune suppression enregistrée pour l’instant',
+	'settings.deletionHistoryLoading': 'Chargement de l’historique des suppressions…',
+	'settings.deletionHistoryError': 'Impossible de charger l’historique des suppressions',
+	'settings.deletionHistoryListLabel': 'Fichiers et dossiers supprimés',
+	'settings.deletionHistoryHint': 'Utilisez les flèches Haut et Bas pour parcourir l’historique des suppressions.',
+	'settings.deletionViaSync': 'par synchronisation',
+	'settings.deletionAriaFile': '{name}, fichier, supprimé le {date}',
+	'settings.deletionAriaFolder': '{name}, dossier, supprimé le {date}',
+
 	'fileTypes.daisyBook': 'dossier de livre DAISY',
 	'fileTypes.chapteredFolder': 'dossier avec chapitres',
 	'fileTypes.folder': 'dossier',

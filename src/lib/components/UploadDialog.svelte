@@ -282,10 +282,11 @@
 		try {
 			const { toUpload, toDelete } = preflight;
 
-			// Delete files if in sync mode
+			// Delete files if in sync mode. Tagged source=sync so the deletion
+			// history can label these as sync-originated (still recorded, same list).
 			if (toDelete && toDelete.length > 0) {
 				for (const path of toDelete) {
-					await fetch(`/api/files?path=${encodeURIComponent(path)}`, {
+					await fetch(`/api/files?path=${encodeURIComponent(path)}&source=sync`, {
 						method: 'DELETE'
 					});
 				}

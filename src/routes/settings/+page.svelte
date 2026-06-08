@@ -1,11 +1,20 @@
 <script lang="ts">
+	import { onMount, tick } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import DeletionHistoryList from '$lib/components/DeletionHistoryList.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { i18n, t, SUPPORTED_LOCALES, LOCALE_NAMES, type LocaleCode } from '$lib/i18n/index.svelte';
 	import { goto } from '$app/navigation';
 
 	const seekIntervalOptions = [1, 2, 3, 5, 10, 15, 30];
 	const longSeekIntervalOptions = [10, 15, 30, 45, 60, 90, 120];
+
+	// Move focus to the back button on open so focus isn't stranded on whatever
+	// triggered the navigation (e.g. the Ctrl+, shortcut or the header gear).
+	let backButtonRef: HTMLButtonElement | null = $state(null);
+	onMount(() => {
+		tick().then(() => backButtonRef?.focus());
+	});
 
 	// 'system' means: don't pin a locale; use browser detection.
 	const languageValue = $derived<'system' | LocaleCode>(
@@ -25,6 +34,7 @@
 	<header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 sticky top-0 z-10">
 		<div class="max-w-2xl mx-auto flex items-center gap-4">
 			<button
+				bind:this={backButtonRef}
 				type="button"
 				onclick={() => goto('/')}
 				class="btn-ghost p-2"
@@ -38,8 +48,8 @@
 
 	<main class="max-w-2xl mx-auto p-4 pb-8">
 		<!-- Playback Settings -->
-		<section class="card p-4 mb-4">
-			<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.playback')}</h2>
+		<fieldset class="card p-4 mb-4 min-w-0">
+			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.playback')}</legend>
 
 			<div class="space-y-4">
 				<div class="flex items-center justify-between py-2">
@@ -107,11 +117,11 @@
 					</p>
 				</div>
 			</div>
-		</section>
+		</fieldset>
 
 		<!-- Bookmarks -->
-		<section class="card p-4 mb-4">
-			<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.bookmarks')}</h2>
+		<fieldset class="card p-4 mb-4 min-w-0">
+			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.bookmarks')}</legend>
 
 			<div class="flex items-center justify-between py-2">
 				<div>
@@ -137,11 +147,11 @@
 					></span>
 				</button>
 			</div>
-		</section>
+		</fieldset>
 
 		<!-- Appearance -->
-		<section class="card p-4 mb-4">
-			<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.appearance')}</h2>
+		<fieldset class="card p-4 mb-4 min-w-0">
+			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.appearance')}</legend>
 
 			<fieldset>
 				<legend class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -186,11 +196,11 @@
 					{t('settings.maskTitleDesc')}
 				</p>
 			</div>
-		</section>
+		</fieldset>
 
 		<!-- Casting -->
-		<section class="card p-4 mb-4">
-			<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.casting')}</h2>
+		<fieldset class="card p-4 mb-4 min-w-0">
+			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.casting')}</legend>
 
 			<div>
 				<label for="sonicroom-url" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -210,16 +220,14 @@
 					{t('settings.sonicroomUrlDesc')}
 				</p>
 			</div>
-		</section>
+		</fieldset>
 
 		<!-- Language -->
-		<section class="card p-4 mb-4">
-			<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.language')}</h2>
+		<fieldset class="card p-4 mb-4 min-w-0">
+			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.language')}</legend>
 
-			<fieldset>
-				<legend class="sr-only">{t('settings.language')}</legend>
-				<p id="language-desc" class="text-sm text-gray-500 dark:text-gray-400 mb-3">{t('settings.languageDesc')}</p>
-				<div class="space-y-2" aria-describedby="language-desc">
+			<p id="language-desc" class="text-sm text-gray-500 dark:text-gray-400 mb-3">{t('settings.languageDesc')}</p>
+			<div class="space-y-2" aria-describedby="language-desc">
 					<label class="flex items-center gap-3 py-2 cursor-pointer">
 						<input
 							type="radio"
@@ -246,8 +254,15 @@
 							<span class="text-gray-700 dark:text-gray-300">{LOCALE_NAMES[code]}</span>
 						</label>
 					{/each}
-				</div>
-			</fieldset>
+			</div>
+		</fieldset>
+
+		<!-- Deletion History -->
+		<section class="card p-4 mb-4">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">{t('settings.deletionHistory')}</h2>
+			<p class="text-sm text-gray-500 dark:text-gray-400 mb-4">{t('settings.deletionHistoryDesc')}</p>
+
+			<DeletionHistoryList />
 		</section>
 
 		<!-- Keyboard Shortcuts -->

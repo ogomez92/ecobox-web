@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listDirectory, deleteFile } from '$server/services/files';
+import { recordDeletion } from '$server/services/deletionHistory';
 import { db } from '$server/db';
 import { protectedPaths } from '$server/db/schema';
 import { env } from '$env/dynamic/private';
@@ -85,8 +86,19 @@ export const DELETE: RequestHandler = async ({ url }) => {
 		throw error(400, 'Path is required');
 	}
 
+	// Sync-mode uploads tag their DELETEs with source=sync so the history can
+	// label them; everything else is a direct user deletion.
+	const source = url.searchParams.get('source') === 'sync' ? 'sync' : 'user';
+
 	try {
-		await deleteFile(path);
+		const { isDirectory } = await deleteFile(path);
+		// Record every deletion in the history. Best-effort: never let history
+		// bookkeeping fail an actual deletion.
+		try {
+			await recordDeletion({ path, isDirectory, source });
+		} catch (histErr) {
+			console.error('Failed to record deletion history:', histErr);
+		}
 		return json({ success: true });
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {

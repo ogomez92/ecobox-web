@@ -102,7 +102,7 @@ class RoomCaster {
 	 * Join the SonicRoom room as a send-only "music" caster and produce the
 	 * post-effects stereo tap. Throws on failure (and tears itself down).
 	 */
-	async start(target: CastTarget, displayName = '🎵 Ecobox'): Promise<void> {
+	async start(target: CastTarget, displayName = 'Ecobox'): Promise<void> {
 		if (this.status === 'casting' || this.status === 'connecting') return;
 		this.status = 'connecting';
 		this.error = null;
