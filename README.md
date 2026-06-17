@@ -12,6 +12,7 @@ A self-hosted audiobook and media player web application. Stream your audio libr
 - Playback speed control (0.5x - 2x)
 - Sleep timer
 - Radio stream support (.radio files)
+- **Book reading (text-to-speech)** — convert EPUB/DOCX/TXT into books read aloud, using your browser's built-in voice (free, local) or a cloud voice service (ElevenLabs, Azure, Google)
 - File upload and sync
 - Mobile-friendly interface
 
@@ -19,6 +20,7 @@ A self-hosted audiobook and media player web application. Stream your audio libr
 
 - Node.js 18+
 - npm
+- `pandoc` (optional) — only needed for the book reading feature, to convert EPUB/DOCX into readable text (`apt install pandoc`). TXT files convert without it.
 
 ## Quick Start
 
@@ -164,6 +166,40 @@ sudo systemctl reload caddy
   "name": "My Radio Station"
 }
 ```
+
+### Book Reading (Text-to-Speech)
+
+Ecobox can read written books aloud. Upload an **EPUB**, **DOCX**, or **TXT** file (or use the **Convert** action in the file browser) and Ecobox turns it into a book that's narrated sentence by sentence, with saved reading position, find-in-book, and chapter navigation — just like the audio player.
+
+You choose how the narration is produced in **Settings → reading / TTS service**:
+
+**Local (default — no setup, no API keys)**
+
+The `webspeech` service uses your browser's built-in **Web Speech** voices. It's free, runs entirely on your device, and works out of the box — no keys, no accounts, nothing to configure. The available voices depend on your operating system and browser. Caveats: it can't reliably keep playing in the background or on the lock screen (a browser limitation, worst on iOS), and changing voice or speed mid-sentence re-reads the current sentence.
+
+**If you want higher-quality cloud voices**
+
+Server-synthesized services produce more natural narration and support proper **background / lock-screen playback**:
+
+- **ElevenLabs** — most natural voices; requires an API key
+- **Azure** — requires an API key + region
+- **Google** — requires an API key
+- **Azure Edge** (`azure-edge`) — keyless Microsoft Edge read-aloud voices (experimental, no account needed)
+
+To use a key-based service, open **Settings → TTS service**, pick the provider, and paste in your API key (and region, for Azure). Keys are stored server-side and are **never sent back to the browser**. Synthesized audio is cached on disk, so re-reading a passage doesn't call the API again.
+
+You can also seed keys from the environment instead of the UI:
+
+```
+ELEVENLABS_API_KEY=...
+AZURE_SPEECH_KEY=...
+AZURE_SPEECH_REGION=...      # e.g. eastus
+GOOGLE_TTS_API_KEY=...
+```
+
+**Which should I pick?** If you just want it to work for free, stick with the local Web Speech voice. If you want the best-sounding narration or reliable background playback on mobile, add an API key for one of the cloud services. You can switch services at any time without losing your reading position.
+
+> Converting EPUB/DOCX requires the `pandoc` system binary (see Requirements). If it's missing, conversion of those formats fails safely and the original file is kept; TXT files don't need it.
 
 ### Uploading Files
 
