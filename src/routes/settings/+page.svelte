@@ -28,6 +28,42 @@
 			i18n.setLocale(value);
 		}
 	}
+
+	// Reading (TTS): rate is a global setting; voice is device-local (localStorage),
+	// because the Web Speech voice list differs per browser/device.
+	const TTS_VOICE_KEY = 'ecobox-tts-voice';
+	let ttsVoices = $state<SpeechSynthesisVoice[]>([]);
+	let ttsVoiceURI = $state<string | null>(null);
+
+	onMount(() => {
+		settingsStore.load();
+		if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+		const synth = window.speechSynthesis;
+		const load = () => {
+			ttsVoices = synth.getVoices();
+			try {
+				const saved = localStorage.getItem(TTS_VOICE_KEY);
+				if (saved) ttsVoiceURI = saved;
+			} catch {
+				// ignore
+			}
+			if (!ttsVoiceURI && ttsVoices.length > 0) {
+				ttsVoiceURI = (ttsVoices.find((v) => v.default) ?? ttsVoices[0]).voiceURI;
+			}
+		};
+		load();
+		synth.addEventListener('voiceschanged', load);
+		return () => synth.removeEventListener('voiceschanged', load);
+	});
+
+	function setTtsVoice(uri: string) {
+		ttsVoiceURI = uri;
+		try {
+			localStorage.setItem(TTS_VOICE_KEY, uri);
+		} catch {
+			// ignore
+		}
+	}
 </script>
 
 <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -219,6 +255,56 @@
 				<p id="sonicroom-url-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
 					{t('settings.sonicroomUrlDesc')}
 				</p>
+			</div>
+		</fieldset>
+
+		<!-- Reading (text-to-speech) -->
+		<fieldset class="card p-4 mb-4 min-w-0">
+			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.reading')}</legend>
+
+			<div class="space-y-4">
+				<div>
+					<label for="tts-rate" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+						{t('settings.ttsRate')}: {settingsStore.ttsRate.toFixed(1)}x
+					</label>
+					<input
+						id="tts-rate"
+						type="range"
+						min="0.5"
+						max="5"
+						step="0.1"
+						value={settingsStore.ttsRate}
+						oninput={(e) => settingsStore.setTtsRate(parseFloat((e.target as HTMLInputElement).value))}
+						aria-describedby="tts-rate-desc"
+						aria-valuetext={`${settingsStore.ttsRate.toFixed(1)}x`}
+						class="w-full"
+					/>
+					<p id="tts-rate-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+						{t('settings.ttsRateDesc')}
+					</p>
+				</div>
+
+				{#if ttsVoices.length > 0}
+					<div>
+						<label for="tts-voice" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+							{t('settings.ttsVoice')}
+						</label>
+						<select
+							id="tts-voice"
+							value={ttsVoiceURI}
+							onchange={(e) => setTtsVoice((e.target as HTMLSelectElement).value)}
+							aria-describedby="tts-voice-desc"
+							class="input"
+						>
+							{#each ttsVoices as voice (voice.voiceURI)}
+								<option value={voice.voiceURI}>{voice.name} ({voice.lang})</option>
+							{/each}
+						</select>
+						<p id="tts-voice-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+							{t('settings.ttsVoiceDesc')}
+						</p>
+					</div>
+				{/if}
 			</div>
 		</fieldset>
 

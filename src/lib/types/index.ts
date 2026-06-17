@@ -9,6 +9,30 @@ export interface FileEntry {
 	isDaisyBook?: boolean;
 	isRadioFile?: boolean;
 	isProtected?: boolean;
+	/** A converted book folder (contains book.md + book.chunks.json + .BOOK marker). */
+	isBookFolder?: boolean;
+	/** A raw, not-yet-converted book file (.epub/.docx/.txt) that can be converted. */
+	isRawBook?: boolean;
+	/** For book folders: false when conversion passed verify only loosely (original kept). */
+	bookVerified?: boolean;
+}
+
+/** One spoken unit of a converted book — a single sentence (or a heading line). */
+export interface Chunk {
+	/** Global, stable, zero-based index across the whole book (the position key). */
+	i: number;
+	/** Plain spoken text (markdown stripped). */
+	text: string;
+	/** Source block index (heading or paragraph) — used for paragraph jumps and result labels. */
+	para: number;
+	type: 'heading' | 'paragraph';
+}
+
+/** Payload returned by GET /api/books/content. */
+export interface BookContent {
+	title: string;
+	locale: string;
+	chunks: Chunk[];
 }
 
 export interface Chapter {
@@ -136,6 +160,8 @@ export interface Settings {
 	maskTitle: string;
 	/** Default SonicRoom server origin for "Cast to call". */
 	sonicroomUrl: string;
+	/** Default Web Speech rate for book reading (global; the reader slider persists here). */
+	ttsRate: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -147,7 +173,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	theme: 'system',
 	autoplay: true,
 	maskTitle: '',
-	sonicroomUrl: ''
+	sonicroomUrl: '',
+	ttsRate: 1.0
 };
 
 export const DEFAULT_EQ_BANDS: EQBand[] = [

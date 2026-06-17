@@ -7,10 +7,11 @@
 		file: FileEntry;
 		ondelete: () => void;
 		onprotect?: () => void;
+		onconvert?: () => void;
 		isUnlocked?: boolean;
 	}
 
-	let { file, ondelete, onprotect, isUnlocked = false }: Props = $props();
+	let { file, ondelete, onprotect, onconvert, isUnlocked = false }: Props = $props();
 
 	let isOpen = $state(false);
 	let buttonEl: HTMLButtonElement | undefined = $state();
@@ -31,6 +32,11 @@
 
 	function handleProtect() {
 		onprotect?.();
+		isOpen = false;
+	}
+
+	function handleConvert() {
+		onconvert?.();
 		isOpen = false;
 	}
 
@@ -133,6 +139,17 @@
 				<Icon name="download" size={16} />
 				{t('actions.download')}
 			</button>
+			{#if file.isRawBook}
+				<button
+					type="button"
+					role="menuitem"
+					onclick={handleConvert}
+					class="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+				>
+					<Icon name="book" size={16} />
+					{t('actions.convert')}
+				</button>
+			{/if}
 			{#if isUnlocked}
 				<button
 					type="button"

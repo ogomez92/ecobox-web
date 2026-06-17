@@ -23,6 +23,7 @@ export const GET: RequestHandler = async () => {
 		if (settings.theme) parsed.theme = settings.theme as 'light' | 'dark' | 'system';
 		if (settings.maskTitle !== undefined) parsed.maskTitle = settings.maskTitle;
 		if (settings.sonicroomUrl !== undefined) parsed.sonicroomUrl = settings.sonicroomUrl;
+		if (settings.ttsRate) parsed.ttsRate = parseFloat(settings.ttsRate);
 
 		return json(parsed);
 	} catch (err) {
@@ -61,6 +62,9 @@ export const PUT: RequestHandler = async ({ request }) => {
 		}
 		if (body.sonicroomUrl !== undefined) {
 			entries.push({ key: 'sonicroomUrl', value: body.sonicroomUrl });
+		}
+		if (body.ttsRate !== undefined) {
+			entries.push({ key: 'ttsRate', value: String(body.ttsRate) });
 		}
 
 		// Upsert each setting

@@ -108,6 +108,14 @@ src/
 - **Chaptered folders**: Directories with `.CHAPTERED` marker file — treated as a single playable unit, files become chapters in order. The marker is preserved across uploads (negotiate refuses to delete it).
 - **DAISY books**: Detected by `ncc.html` / `ncc.xml` / `Navigation.xml`.
 - **Radio files**: `.radio` files containing JSON `{url, name, username?, password?}`.
+- **Books (TTS)**: Folders with a `.BOOK` marker, containing `book.md` + `book.chunks.json`. Created by converting an uploaded `.epub` / `.docx` / `.txt` (v1; PDF + OCR are v2). Routed to `/read/[...path]` (NOT `/play`) and read aloud with the browser's Web Speech API (`speechSynthesis`) — there is no `<audio>` element and position is a chunk (sentence) index, not seconds. See the "Book reading" section below.
+
+### Book reading (TTS)
+- **Conversion** (`POST /api/books/convert {path}`, `$server/services/bookConvert.ts`): pandoc converts epub/docx → GFM markdown (txt is read as-is); the markdown is stripped to plain text and sentence-split with `Intl.Segmenter` (`$lib/utils/bookChunks.ts`) into `book.chunks.json`. Requires the **`pandoc`** system binary (`apt install pandoc`); if pandoc is missing/errors, conversion **fails safe** and the original is kept. Conversion runs synchronously (v1); the `dispatchConvert` seam in the route is where v2 can wrap OCR in a background job. Triggered automatically after upload (`UploadDialog`) and via the "Convert" action in the file browser (`ActionsDropdown` → `FileExplorer.handleConvert`) for files that arrive by other means.
+- **Verify gate** (`$server/services/bookVerify.ts`): the source word count is measured **independently of pandoc** (jszip for epub, mammoth for docx, the file itself for txt). On PASS (`md_words ≥ 0.90 × source_words`, non-empty, pandoc ok) the original is **deleted**; on FAIL the original is moved **inside** the book folder and the `.BOOK` marker records `verified:false`.
+- **Reader** (`$lib/stores/reader.svelte.ts`, `ReaderView`/`ReaderControls`/`FindInBook`): the whole chunk list loads once; play/pause/seek/find are in-memory. **Voice is device-local** (`localStorage['ecobox-tts-voice']` — Web Speech voices differ per device); **rate is global** (the `ttsRate` setting; the reader slider persists to it). The book **content is voiced only by Web Speech — never put it in an `aria-live` region**; the surrounding controls/status keep normal ARIA.
+- **Web Speech caveats**: pause = `cancel()` + remembered index (engine `pause()` is unreliable); changing rate/voice mid-utterance re-speaks the current sentence (the API can't retune a live utterance). Chrome's ~15s long-utterance cutoff is mitigated by sentence-sized chunks; the optional `pause()/resume()` keepalive pump was **removed** (re-add only if the cutoff actually shows up — see the `tts-keepalive-pump` auto-memory). **Background / lock-screen playback is NOT supported in v1** (a Web Speech limitation, worst on iOS) — MediaSession handlers are wired best-effort only. Real background audio would require a v2 pivot to server-side audio TTS through the existing `<audio>` + MediaSession path.
+- npm deps: `jszip`, `mammoth` (pure-JS, no native build).
 
 ### Path safety
 All filesystem-touching API routes go through `resolvePath()` in `$server/services/files.ts`, which joins against `MEDIA_ROOT` and rejects traversal. New endpoints that take a user-supplied path **must** go through it; throw the resulting error as a 403 if the message contains `traversal` (see existing handlers for the pattern). The file service follows symlinks intentionally — `MEDIA_ROOT` may be a symlink tree.
@@ -130,6 +138,7 @@ The four breakdown fields are mode-independent and are what the upload dialog us
 - `chaptered_metadata` — playback state for multi-file chaptered content
 - `chaptered_bookmarks` — bookmarks within chaptered folders
 - `settings` — key-value settings storage
+- `book_metadata` — reading position (current chunk index) for converted books
 
 ### Environment Variables
 ```

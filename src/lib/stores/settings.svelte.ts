@@ -9,7 +9,8 @@ const defaultSettings: Settings = {
 	theme: 'system',
 	autoplay: true,
 	maskTitle: '',
-	sonicroomUrl: ''
+	sonicroomUrl: '',
+	ttsRate: 1.0
 };
 
 class SettingsStore {
@@ -22,6 +23,7 @@ class SettingsStore {
 	autoplay = $state(defaultSettings.autoplay);
 	maskTitle = $state(defaultSettings.maskTitle);
 	sonicroomUrl = $state(defaultSettings.sonicroomUrl);
+	ttsRate = $state(defaultSettings.ttsRate);
 
 	private isLoaded = false;
 
@@ -51,6 +53,7 @@ class SettingsStore {
 		if (settings.autoplay !== undefined) this.autoplay = settings.autoplay;
 		if (settings.maskTitle !== undefined) this.maskTitle = settings.maskTitle;
 		if (settings.sonicroomUrl !== undefined) this.sonicroomUrl = settings.sonicroomUrl;
+		if (settings.ttsRate !== undefined) this.ttsRate = settings.ttsRate;
 	}
 
 	async save() {
@@ -63,7 +66,8 @@ class SettingsStore {
 			theme: this.theme,
 			autoplay: this.autoplay,
 			maskTitle: this.maskTitle,
-			sonicroomUrl: this.sonicroomUrl
+			sonicroomUrl: this.sonicroomUrl,
+			ttsRate: this.ttsRate
 		};
 
 		try {
@@ -120,6 +124,12 @@ class SettingsStore {
 
 	setSonicroomUrl(value: string) {
 		this.sonicroomUrl = value.trim();
+		this.save();
+	}
+
+	setTtsRate(value: number) {
+		// Clamp to the reader slider's range.
+		this.ttsRate = Math.min(5, Math.max(0.5, value));
 		this.save();
 	}
 

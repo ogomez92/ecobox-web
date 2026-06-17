@@ -59,6 +59,14 @@ sqlite.exec(`
 		value TEXT NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS book_metadata (
+		book_folder_path TEXT PRIMARY KEY,
+		current_chunk_index INTEGER DEFAULT 0,
+		total_chunks INTEGER,
+		last_read_date INTEGER,
+		is_favorite INTEGER DEFAULT 0
+	);
+
 	CREATE TABLE IF NOT EXISTS deletion_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		path TEXT NOT NULL,

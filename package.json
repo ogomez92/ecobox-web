@@ -38,6 +38,8 @@
     "archiver": "^7.0.1",
     "better-sqlite3": "^11.8.0",
     "drizzle-orm": "^0.38.4",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.0",
     "mediasoup-client": "^3.20.0",
     "music-metadata": "^10.5.1",
     "socket.io-client": "^4.8.3"

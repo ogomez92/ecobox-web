@@ -29,6 +29,9 @@
 	let emptyFolderUploadButton: HTMLButtonElement | undefined = $state();
 	let rowRefs = $state<(FileRow | null)[]>([]);
 	let actionsMenuOpen = $state(false);
+	// Set when the upload dialog closes so focus returns to the list once the
+	// post-upload reload settles (the dialog steals focus while open).
+	let focusListWhenReady = $state(false);
 
 	let typeBuffer = '';
 	let lastTypeTime = 0;
@@ -92,6 +95,18 @@
 		}
 	});
 
+	// After the upload dialog closes, return focus to the file list. Deferred via
+	// a flag because the post-upload reload is async — wait until files settle.
+	$effect(() => {
+		if (!focusListWhenReady || filesStore.isLoading) return;
+		if (filesStore.sortedFiles.length > 0) {
+			focusList();
+		} else {
+			emptyFolderUploadButton?.focus();
+		}
+		focusListWhenReady = false;
+	});
+
 	function handleNavigate(path: string) {
 		if (path === '') {
 			goto('/');
@@ -124,6 +139,29 @@
 	}
 
 	function handleUploadComplete() {
+		filesStore.loadFiles(filesStore.currentPath);
+		filesStore.loadStorage();
+	}
+
+	async function handleConvert(file: FileEntry) {
+		announce(t('upload.converting', { name: file.name }));
+		try {
+			const res = await fetch('/api/books/convert', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ path: file.path })
+			});
+			const data = res.ok ? await res.json() : { status: 'failed' };
+			if (data.status === 'verified') {
+				announce(t('upload.convertVerified', { name: file.name }));
+			} else if (data.status === 'unverified') {
+				announce(t('upload.convertUnverified', { name: file.name }));
+			} else {
+				announce(t('upload.convertFailed', { name: file.name }));
+			}
+		} catch {
+			announce(t('upload.convertFailed', { name: file.name }));
+		}
 		filesStore.loadFiles(filesStore.currentPath);
 		filesStore.loadStorage();
 	}
@@ -461,6 +499,7 @@
 								focused={focusedIndex === index}
 								ondelete={() => deleteTarget = file}
 								onprotect={() => filesStore.toggleProtection(file.path)}
+								onconvert={() => handleConvert(file)}
 								isUnlocked={filesStore.unlocked}
 							/>
 						{/each}
@@ -477,7 +516,10 @@
 		currentPath={filesStore.currentPath}
 		initialTab={uploadInitialTab}
 		initialPicker={uploadInitialPicker}
-		onclose={() => showUploadDialog = false}
+		onclose={() => {
+			showUploadDialog = false;
+			focusListWhenReady = true;
+		}}
 		oncomplete={handleUploadComplete}
 	/>
 

@@ -10,32 +10,44 @@
 		focused?: boolean;
 		ondelete: () => void;
 		onprotect?: () => void;
+		onconvert?: () => void;
 		isUnlocked?: boolean;
 	}
 
-	let { file, focused = false, ondelete, onprotect, isUnlocked = false }: Props = $props();
+	let { file, focused = false, ondelete, onprotect, onconvert, isUnlocked = false }: Props = $props();
 
 	let rowEl: HTMLTableRowElement | undefined = $state();
 
 	function getIcon() {
 		if (file.isDirectory) {
+			if (file.isBookFolder) return 'book';
 			if (file.isDaisyBook) return 'book';
-			if (file.isChapteredFolder) return 'folder';
 			return 'folder';
 		}
+		if (file.isRawBook) return 'book';
 		if (file.isRadioFile) return 'radio';
 		return 'audio';
 	}
 
 	function getHref(): string {
 		if (file.isDirectory) {
-			// DAISY books and chaptered folders go to player, not browser
+			// Book folders go to the reader; DAISY/chaptered folders go to the player.
+			if (file.isBookFolder) return `/read/${file.path}`;
 			if (file.isDaisyBook || file.isChapteredFolder) {
 				return `/play/${file.path}`;
 			}
 			return `/browse/${file.path}`;
 		}
+		// A raw book file isn't playable until converted — the click triggers convert.
+		if (file.isRawBook) return '#';
 		return `/play/${file.path}`;
+	}
+
+	function handlePrimaryClick(e: MouseEvent) {
+		if (file.isRawBook) {
+			e.preventDefault();
+			onconvert?.();
+		}
 	}
 
 	function getFileExtension(): string {
@@ -50,13 +62,17 @@
 		const parts: string[] = [file.name];
 
 		if (file.isDirectory) {
-			if (file.isDaisyBook) {
+			if (file.isBookFolder) {
+				parts.push(t('fileTypes.book'));
+			} else if (file.isDaisyBook) {
 				parts.push(t('fileTypes.daisyBook'));
 			} else if (file.isChapteredFolder) {
 				parts.push(t('fileTypes.chapteredFolder'));
 			} else {
 				parts.push(t('fileTypes.folder'));
 			}
+		} else if (file.isRawBook) {
+			parts.push(t('fileTypes.rawBook'));
 		} else if (file.isRadioFile) {
 			parts.push(t('radio.label'));
 		} else {
@@ -95,6 +111,7 @@
 	<td class="py-2 px-4">
 		<a
 			href={getHref()}
+			onclick={handlePrimaryClick}
 			aria-label={getAriaLabel()}
 			class="flex items-center gap-3 text-gray-900 dark:text-gray-100 hover:text-primary-600 dark:hover:text-primary-400"
 		>
@@ -123,6 +140,6 @@
 		</span>
 	</td>
 	<td class="py-2 px-4 text-right">
-		<ActionsDropdown {file} {ondelete} {onprotect} {isUnlocked} />
+		<ActionsDropdown {file} {ondelete} {onprotect} {onconvert} {isUnlocked} />
 	</td>
 </tr>

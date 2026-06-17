@@ -3,10 +3,14 @@ import fsSync from 'fs';
 import path from 'path';
 import { env } from '$env/dynamic/private';
 import type { FileEntry, StorageInfo } from '$lib/types';
+import { isBookExtension } from '$lib/utils/bookChunks';
+export { isBookExtension, BOOK_EXTENSIONS } from '$lib/utils/bookChunks';
 const AUDIO_EXTENSIONS = ['.mp3', '.m4a', '.m4b', '.aac', '.ogg', '.opus', '.wav', '.flac'];
 const DAISY_MARKERS = ['ncc.html', 'ncc.xml', 'Navigation.xml'];
 const CHAPTERED_MARKER = '.CHAPTERED';
 const RADIO_EXTENSION = '.radio';
+// Marker file written into a converted-book folder (alongside book.md / book.chunks.json).
+export const BOOK_MARKER = '.BOOK';
 
 export function getMediaRoot(): string {
 	return env.MEDIA_ROOT || './media';
@@ -61,14 +65,25 @@ export async function listDirectory(relativePath: string = ''): Promise<FileEntr
 			};
 
 			if (entry.isDirectory()) {
-				// Check for DAISY book
-				fileEntry.isDaisyBook = await isDaisyBook(entryPath);
-				// Check for chaptered folder
-				fileEntry.isChapteredFolder = await isChapteredFolder(entryPath);
+				// Check for converted book folder first (cheap marker check).
+				fileEntry.isBookFolder = await isBookFolder(entryPath);
+				if (fileEntry.isBookFolder) {
+					fileEntry.bookVerified = await isBookVerified(entryPath);
+				}
+				if (!fileEntry.isBookFolder) {
+					// Check for DAISY book
+					fileEntry.isDaisyBook = await isDaisyBook(entryPath);
+					// Check for chaptered folder
+					fileEntry.isChapteredFolder = await isChapteredFolder(entryPath);
+				}
 			} else {
 				// Check for radio file
 				if (entry.name.endsWith(RADIO_EXTENSION)) {
 					fileEntry.isRadioFile = true;
+				}
+				// Check for a raw, not-yet-converted book source file.
+				if (isBookExtension(entry.name)) {
+					fileEntry.isRawBook = true;
 				}
 			}
 
@@ -93,7 +108,9 @@ export async function listDirectoryRecursive(relativePath: string = ''): Promise
 		for (const entry of entries) {
 			files.push(entry);
 
-			if (entry.isDirectory && !entry.isDaisyBook && !entry.isChapteredFolder) {
+			// Treat book folders as opaque units (like DAISY/chaptered) — never descend
+			// into them, or upload-negotiate would list book.md/book.chunks.json as extras.
+			if (entry.isDirectory && !entry.isDaisyBook && !entry.isChapteredFolder && !entry.isBookFolder) {
 				await recurse(entry.path);
 			}
 		}
@@ -121,6 +138,26 @@ export async function isChapteredFolder(dirPath: string): Promise<boolean> {
 		return true;
 	} catch {
 		return false;
+	}
+}
+
+export async function isBookFolder(dirPath: string): Promise<boolean> {
+	try {
+		await fs.access(path.join(dirPath, BOOK_MARKER));
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Read the .BOOK marker's `verified` flag (defaults to true if the marker is legacy/unparsable). */
+export async function isBookVerified(dirPath: string): Promise<boolean> {
+	try {
+		const raw = await fs.readFile(path.join(dirPath, BOOK_MARKER), 'utf-8');
+		const marker = JSON.parse(raw) as { verified?: boolean };
+		return marker.verified !== false;
+	} catch {
+		return true;
 	}
 }
 

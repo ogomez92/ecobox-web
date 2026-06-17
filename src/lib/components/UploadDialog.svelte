@@ -3,6 +3,7 @@
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { formatBytes } from '$lib/utils/format';
 	import { t } from '$lib/i18n/index.svelte';
+	import { isBookExtension } from '$lib/utils/bookChunks';
 	import type { UploadNegotiateRequest, UploadNegotiateResponse } from '$lib/types';
 
 	interface Props {
@@ -320,6 +321,34 @@
 				progressAnnouncement = t(totalFiles === 1 ? 'upload.completeOne' : 'upload.completeOther', { n: totalFiles });
 			}
 
+			// Auto-convert any uploaded book files (epub/docx/txt) into book folders.
+			// A conversion failure must never fail the upload.
+			const bookFiles = filesToUpload.filter((f) =>
+				isBookExtension(f.webkitRelativePath || f.name)
+			);
+			for (const file of bookFiles) {
+				const rel = file.webkitRelativePath || file.name;
+				const bookPath = currentPath ? `${currentPath}/${rel}` : rel;
+				progressAnnouncement = t('upload.converting', { name: file.name });
+				try {
+					const res = await fetch('/api/books/convert', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ path: bookPath })
+					});
+					const data = res.ok ? await res.json() : { status: 'failed' };
+					if (data.status === 'verified') {
+						progressAnnouncement = t('upload.convertVerified', { name: file.name });
+					} else if (data.status === 'unverified') {
+						progressAnnouncement = t('upload.convertUnverified', { name: file.name });
+					} else {
+						progressAnnouncement = t('upload.convertFailed', { name: file.name });
+					}
+				} catch {
+					progressAnnouncement = t('upload.convertFailed', { name: file.name });
+				}
+			}
+
 			oncomplete();
 
 			await new Promise(resolve => setTimeout(resolve, 500));
@@ -460,7 +489,7 @@
 								bind:this={fileInput}
 								type="file"
 								multiple
-								accept="audio/*,.radio"
+								accept="audio/*,.radio,.epub,.docx,.txt"
 								onchange={handleFileSelect}
 								class="hidden"
 								aria-label={t('upload.selectFiles')}

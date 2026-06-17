@@ -45,6 +45,14 @@ export const settings = sqliteTable('settings', {
 	value: text('value').notNull()
 });
 
+export const bookMetadata = sqliteTable('book_metadata', {
+	bookFolderPath: text('book_folder_path').primaryKey(),
+	currentChunkIndex: integer('current_chunk_index').default(0),
+	totalChunks: integer('total_chunks'),
+	lastReadDate: integer('last_read_date', { mode: 'timestamp' }),
+	isFavorite: integer('is_favorite', { mode: 'boolean' }).default(false)
+});
+
 export const protectedPaths = sqliteTable('protected_paths', {
 	path: text('path').primaryKey(),
 	createdAt: integer('created_at', { mode: 'timestamp' })
@@ -74,6 +82,8 @@ export type ChapteredBookmark = typeof chapteredBookmarks.$inferSelect;
 export type NewChapteredBookmark = typeof chapteredBookmarks.$inferInsert;
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
+export type BookMetadata = typeof bookMetadata.$inferSelect;
+export type NewBookMetadata = typeof bookMetadata.$inferInsert;
 export type ProtectedPath = typeof protectedPaths.$inferSelect;
 export type NewProtectedPath = typeof protectedPaths.$inferInsert;
 export type DeletionHistoryEntry = typeof deletionHistory.$inferSelect;
