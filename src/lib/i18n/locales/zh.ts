@@ -24,6 +24,7 @@ export const zh: Record<MessageKey, string> = {
 	'reader.nextPara': '下一段',
 	'reader.rate': '速度',
 	'reader.voice': '语音',
+	'reader.testVoice': '试听语音',
 	'reader.progress': '{pct}% — 第 {current} / {total}',
 	'reader.playing': '播放中',
 	'reader.paused': '已暂停',

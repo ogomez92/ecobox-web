@@ -24,6 +24,7 @@ export const fr: Record<MessageKey, string> = {
 	'reader.nextPara': 'Paragraphe suivant',
 	'reader.rate': 'Vitesse',
 	'reader.voice': 'Voix',
+	'reader.testVoice': 'Tester la voix',
 	'reader.progress': '{pct}% — {current} sur {total}',
 	'reader.playing': 'Lecture en cours',
 	'reader.paused': 'En pause',

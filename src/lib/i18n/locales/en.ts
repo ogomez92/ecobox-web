@@ -22,6 +22,7 @@ export const en = {
 	'reader.nextPara': 'Next paragraph',
 	'reader.rate': 'Speed',
 	'reader.voice': 'Voice',
+	'reader.testVoice': 'Test voice',
 	'reader.progress': '{pct}% — {current} of {total}',
 	'reader.playing': 'Playing',
 	'reader.paused': 'Paused',

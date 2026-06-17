@@ -435,6 +435,14 @@
 								<option value={voice.id}>{voice.name}</option>
 							{/each}
 						</select>
+						<button
+							type="button"
+							onclick={() => readerStore.testVoice()}
+							class="btn-secondary mt-2 flex items-center gap-2"
+						>
+							<Icon name="play" size={16} />
+							{t('reader.testVoice')}
+						</button>
 					</div>
 				{:else if readerStore.service !== 'webspeech'}
 					<p class="text-sm text-amber-600 dark:text-amber-400" role="status">

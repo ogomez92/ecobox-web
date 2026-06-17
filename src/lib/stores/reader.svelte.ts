@@ -505,9 +505,15 @@ class ReaderStore {
 		} else {
 			ttsConfigStore.setVoiceId(this.service as TtsAudioService, voiceId);
 		}
-		// Let the user hear the newly-chosen voice (at the current rate) right away.
+		// If we're mid-read, re-speak the current sentence so the new voice takes
+		// effect immediately. When paused we deliberately stay silent — the user
+		// previews on demand via the "Test voice" button (testVoice()).
 		if (this.isPlaying) this.speakCurrent();
-		else this.previewVoice();
+	}
+
+	/** Speak the preview sample in the current voice + rate — the "Test voice" button. */
+	testVoice() {
+		this.previewVoice();
 	}
 
 	/**
@@ -522,8 +528,9 @@ class ReaderStore {
 
 	/**
 	 * Speak a fixed preview sentence (in Ecobox's current UI language) at the
-	 * chosen voice + rate, used to preview voice changes while paused. It
-	 * deliberately does NOT read the book, change the play state, or move position.
+	 * chosen voice + rate. Used by the rate slider (while paused) and the "Test
+	 * voice" button. It deliberately does NOT read the book, change the play
+	 * state, or move position.
 	 */
 	private async previewVoice() {
 		if (!this.engine) return;

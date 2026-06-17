@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import DeletionHistoryList from '$lib/components/DeletionHistoryList.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { ttsConfigStore } from '$lib/stores/ttsConfig.svelte';
+	import { speakPreview, stopPreview } from '$lib/services/tts/preview';
 	import { i18n, t, SUPPORTED_LOCALES, LOCALE_NAMES, type LocaleCode } from '$lib/i18n/index.svelte';
 	import { formatBytes } from '$lib/utils/format';
 	import {
@@ -90,6 +91,35 @@
 		settingsStore.ttsService !== 'webspeech' ? (settingsStore.ttsService as TtsAudioService) : null
 	);
 	const currentTtsConfig = $derived(audioService ? ttsConfigStore.get(audioService) : null);
+
+	// Voice preview ("Test voice"): speak a fixed sample at the chosen voice + the
+	// global speed. Server-synthesized services play through this hidden <audio>.
+	let previewAudioEl = $state<HTMLAudioElement | null>(null);
+
+	function previewDeviceVoice() {
+		if (!ttsVoiceURI) return;
+		speakPreview({
+			service: 'webspeech',
+			voiceId: ttsVoiceURI,
+			rate: settingsStore.ttsRate,
+			lang: i18n.locale,
+			sampleText: t('reader.voicePreviewSample')
+		});
+	}
+
+	function previewServiceVoice() {
+		if (!audioService || !currentTtsConfig?.voiceId) return;
+		speakPreview({
+			service: audioService,
+			voiceId: currentTtsConfig.voiceId,
+			rate: settingsStore.ttsRate,
+			lang: i18n.locale,
+			sampleText: t('reader.voicePreviewSample'),
+			audioEl: previewAudioEl
+		});
+	}
+
+	onDestroy(() => stopPreview());
 
 	onMount(() => {
 		ttsConfigStore.load();
@@ -199,6 +229,9 @@
 </script>
 
 <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
+	<!-- Shared sink for server-synthesized voice previews (Test voice). -->
+	<audio bind:this={previewAudioEl} preload="auto" class="hidden"></audio>
+
 	<header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 sticky top-0 z-10">
 		<div class="max-w-2xl mx-auto flex items-center gap-4">
 			<button
@@ -432,6 +465,14 @@
 								<option value={voice.voiceURI}>{voice.name} ({voice.lang})</option>
 							{/each}
 						</select>
+						<button
+							type="button"
+							class="btn-secondary mt-2 flex items-center gap-2"
+							onclick={previewDeviceVoice}
+						>
+							<Icon name="play" size={16} />
+							{t('reader.testVoice')}
+						</button>
 						<p id="tts-voice-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
 							{t('settings.ttsVoiceDesc')}
 						</p>
@@ -651,6 +692,15 @@
 									<option value={v.id}>{v.name}</option>
 								{/each}
 							</select>
+							<button
+								type="button"
+								class="btn-secondary mt-2 flex items-center gap-2"
+								onclick={previewServiceVoice}
+								disabled={!currentTtsConfig?.voiceId}
+							>
+								<Icon name="play" size={16} />
+								{t('reader.testVoice')}
+							</button>
 						{:else}
 							<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsNoVoices')}</p>
 						{/if}

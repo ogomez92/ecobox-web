@@ -24,6 +24,7 @@ export const ja: Record<MessageKey, string> = {
 	'reader.nextPara': '次の段落',
 	'reader.rate': '速度',
 	'reader.voice': '音声',
+	'reader.testVoice': '音声をテスト',
 	'reader.progress': '{pct}% — {current} / {total}',
 	'reader.playing': '再生中',
 	'reader.paused': '一時停止中',
