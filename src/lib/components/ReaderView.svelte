@@ -3,10 +3,14 @@
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { readerStore } from '$lib/stores/reader.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { ttsConfigStore } from '$lib/stores/ttsConfig.svelte';
 	import ReaderControls from './ReaderControls.svelte';
 	import FindInBook from './FindInBook.svelte';
+	import BookmarkList from './BookmarkList.svelte';
+	import BookInfoDialog from './BookInfoDialog.svelte';
 	import Icon from './Icon.svelte';
 	import { t } from '$lib/i18n/index.svelte';
+	import type { BookInfo } from '$lib/types';
 
 	interface Props {
 		bookPath: string;
@@ -15,7 +19,132 @@
 	let { bookPath }: Props = $props();
 
 	let playButtonRef = $state<HTMLButtonElement | null>(null);
+	let audioEl = $state<HTMLAudioElement | null>(null);
 	let showFind = $state(false);
+
+	// Book info modal + the UI-only "language not detected" warning. Both read from
+	// the additive /api/books/info endpoint (the app-facing /content is untouched).
+	let bookInfo = $state<BookInfo | null>(null);
+	let showInfo = $state(false);
+	let showLangWarning = $state(false);
+
+	async function loadBookInfo() {
+		try {
+			const res = await fetch(`/api/books/info?path=${encodeURIComponent(bookPath)}`);
+			if (!res.ok) return;
+			bookInfo = await res.json();
+			// Only nag when detection actually fell back ('default'); 'unknown' (older
+			// books, never recorded) stays silent to avoid spurious warnings.
+			if (bookInfo?.localeSource === 'default') showLangWarning = true;
+		} catch {
+			// Non-fatal — the info button just stays disabled.
+		}
+	}
+
+	function onInfoSaved(updated: BookInfo) {
+		bookInfo = updated;
+		readerStore.setLocale(updated.locale);
+		showLangWarning = false;
+	}
+
+	// Bookmarks — the TTS analogue of the player's time bookmarks: a saved chunk
+	// (sentence) index + optional label. Persisted via /api/books/bookmarks (the
+	// same endpoint the iOS app uses), and shown through the shared BookmarkList.
+	type BookBookmark = { chunkIndex: number; label: string | null };
+	let bookmarks = $state<BookBookmark[]>([]);
+	let showBookmarks = $state(false);
+	let bookmarkAnnouncement = $state('');
+
+	const isBookmarked = $derived(
+		bookmarks.some((b) => b.chunkIndex === readerStore.currentChunkIndex)
+	);
+
+	// Secondary line in the list: a preview of the bookmarked sentence (or its number).
+	function bookmarkDetail(chunkIndex: number): string {
+		const text = readerStore.chunks[chunkIndex]?.text?.trim();
+		if (text) return text.length > 80 ? text.slice(0, 80) + '…' : text;
+		return t('reader.bookmarkSentence', { n: chunkIndex + 1 });
+	}
+
+	const bookmarkEntries = $derived(
+		bookmarks.map((b) => ({
+			id: b.chunkIndex,
+			label: b.label ?? '',
+			detail: bookmarkDetail(b.chunkIndex),
+			deleteAria: t('reader.deleteBookmarkAt', { n: b.chunkIndex + 1 })
+		}))
+	);
+
+	function announceBookmark(message: string) {
+		bookmarkAnnouncement = message;
+		setTimeout(() => {
+			bookmarkAnnouncement = '';
+		}, 1000);
+	}
+
+	// T: announce reading position — percentage and, for books with headings,
+	// the current chapter ("n%, chapter x of y"). The player's analogue reads
+	// out time remaining; here position is a chunk index, so percent + chapter.
+	let progressAnnouncement = $state('');
+	function announceProgress() {
+		const pct = Math.round(readerStore.progress);
+		const total = readerStore.chapterCount;
+		const chapter = readerStore.currentChapter;
+		progressAnnouncement =
+			total > 0 && chapter > 0
+				? t('reader.progressAnnounce', { pct, chapter, total })
+				: t('reader.progressPercent', { pct });
+		// Clear after a moment so repeat presses re-announce.
+		setTimeout(() => {
+			progressAnnouncement = '';
+		}, 1000);
+	}
+
+	async function loadBookmarks() {
+		try {
+			const res = await fetch(`/api/books/bookmarks?path=${encodeURIComponent(bookPath)}`);
+			if (res.ok) bookmarks = await res.json();
+		} catch {
+			// Non-critical — reading works without bookmarks.
+		}
+	}
+
+	async function addBookmark() {
+		const chunkIndex = readerStore.currentChunkIndex;
+		try {
+			const res = await fetch('/api/books/bookmarks', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ bookFolderPath: bookPath, chunkIndex })
+			});
+			if (res.ok) {
+				await loadBookmarks();
+				announceBookmark(t('reader.bookmarkAdded'));
+			}
+		} catch {
+			// ignore
+		}
+	}
+
+	async function removeBookmark(chunkIndex: number) {
+		try {
+			const res = await fetch(
+				`/api/books/bookmarks?path=${encodeURIComponent(bookPath)}&chunkIndex=${chunkIndex}`,
+				{ method: 'DELETE' }
+			);
+			if (res.ok) {
+				await loadBookmarks();
+				announceBookmark(t('reader.bookmarkRemoved'));
+			}
+		} catch {
+			// ignore
+		}
+	}
+
+	function toggleBookmark() {
+		if (isBookmarked) removeBookmark(readerStore.currentChunkIndex);
+		else addBookmark();
+	}
 
 	// Seek unit, mirroring the media player: Left/Right move by the chosen unit,
 	// Up/Down cycle through the units. Persisted per device.
@@ -65,10 +194,15 @@
 			// ignore
 		}
 		(async () => {
-			// Settings (saved speed) before loadBook, and voices before autoplay —
-			// otherwise the first utterance uses the default rate/voice, not the saved one.
+			// Settings (saved speed + service) and TTS config before loadBook, the
+			// <audio> element wired before play, and voices before autoplay —
+			// otherwise the first unit uses the default rate/voice, not the saved one.
 			await settingsStore.load();
+			await ttsConfigStore.load();
+			readerStore.initializeAudio(audioEl);
 			await readerStore.loadBook(bookPath);
+			loadBookmarks();
+			loadBookInfo();
 			await readerStore.loadVoices();
 			playButtonRef?.focus();
 			// Start reading automatically on open, now that voice + speed are resolved.
@@ -126,8 +260,8 @@
 			return;
 		}
 
-		// While the find modal is open it owns the keyboard.
-		if (showFind) return;
+		// While a modal is open it owns the keyboard (find, bookmarks, info, warning).
+		if (showFind || showBookmarks || showInfo || showLangWarning) return;
 
 		// Form controls (rate slider, voice combo box) handle their own keys —
 		// critically Up/Down must adjust them, not navigate the book.
@@ -156,6 +290,17 @@
 				e.preventDefault();
 				changeSeekUnit(-1);
 				break;
+			// M: toggle a bookmark on the current sentence; Shift+M: open the list.
+			case 'KeyM':
+				e.preventDefault();
+				if (e.shiftKey) showBookmarks = true;
+				else toggleBookmark();
+				break;
+			// T: announce reading position (percentage + chapter).
+			case 'KeyT':
+				e.preventDefault();
+				announceProgress();
+				break;
 		}
 	}
 
@@ -174,6 +319,11 @@
 	onvisibilitychange={handleVisibility}
 />
 
+<!-- Shared sink for audio-based TTS services (ElevenLabs/Azure/Google). Web Speech
+	 doesn't use it. Wired to the reader via initializeAudio(); a real media element
+	 is what enables MediaSession / lock-screen controls for those services. -->
+<audio bind:this={audioEl} preload="auto" class="hidden"></audio>
+
 <div class="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
 	<header class="flex items-center gap-3 p-4">
 		<a
@@ -184,6 +334,15 @@
 			<Icon name="chevron-right" size={24} class="rotate-180" />
 		</a>
 		<span class="text-sm font-medium text-gray-500 dark:text-gray-400">{t('reader.reading')}</span>
+		<button
+			type="button"
+			class="btn-ghost p-2 ml-auto text-gray-700 dark:text-gray-300"
+			aria-label={t('reader.bookInfo')}
+			onclick={() => (showInfo = true)}
+			disabled={!bookInfo}
+		>
+			<Icon name="info" size={22} />
+		</button>
 	</header>
 
 	<main class="flex-1 flex flex-col items-center justify-center gap-8 p-6 max-w-xl mx-auto w-full">
@@ -260,32 +419,91 @@
 					/>
 				</div>
 
-				<div>
-					<label for="voice-select" class="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-						{t('reader.voice')}
-					</label>
-					<select
-						id="voice-select"
-						value={readerStore.voiceURI}
-						onchange={onVoiceChange}
-						class="input w-full"
-						aria-label={t('reader.voice')}
-					>
-						{#each readerStore.voices as voice (voice.voiceURI)}
-							<option value={voice.voiceURI}>{voice.name} ({voice.lang})</option>
-						{/each}
-					</select>
-				</div>
+				{#if readerStore.voices.length > 0}
+					<div>
+						<label for="voice-select" class="block text-sm text-gray-600 dark:text-gray-400 mb-1">
+							{t('reader.voice')}
+						</label>
+						<select
+							id="voice-select"
+							value={readerStore.voiceId}
+							onchange={onVoiceChange}
+							class="input w-full"
+							aria-label={t('reader.voice')}
+						>
+							{#each readerStore.voices as voice (voice.id)}
+								<option value={voice.id}>{voice.name}</option>
+							{/each}
+						</select>
+					</div>
+				{:else if readerStore.service !== 'webspeech'}
+					<p class="text-sm text-amber-600 dark:text-amber-400" role="status">
+						{t('reader.noVoices')}
+					</p>
+				{/if}
 
-				<button
-					type="button"
-					onclick={() => (showFind = true)}
-					class="btn-secondary w-full flex items-center justify-center gap-2"
-				>
-					<Icon name="search" size={18} />
-					{t('reader.findInBook')}
-				</button>
+				<div class="flex flex-wrap justify-center gap-2">
+					<button
+						type="button"
+						onclick={toggleBookmark}
+						class="btn-secondary flex items-center justify-center gap-2 {isBookmarked
+							? 'text-primary-600 dark:text-primary-400'
+							: ''}"
+						aria-pressed={isBookmarked}
+						aria-label={isBookmarked
+							? t('reader.removeBookmarkAria')
+							: t('reader.addBookmarkAria')}
+					>
+						<Icon name="bookmark" size={18} fill={isBookmarked ? 'currentColor' : 'none'} />
+						{isBookmarked ? t('reader.removeBookmark') : t('reader.addBookmark')}
+					</button>
+
+					{#if bookmarks.length > 0}
+						{@const countLabel = t(
+							bookmarks.length === 1 ? 'bookmarks.countOne' : 'bookmarks.countOther',
+							{ n: bookmarks.length }
+						)}
+						<button
+							type="button"
+							onclick={() => (showBookmarks = true)}
+							class="btn-secondary flex items-center justify-center gap-2"
+							aria-label={t('bookmarks.openListAria', { count: countLabel })}
+						>
+							<Icon name="bookmark" size={18} />
+							{t('bookmarks.button', { count: bookmarks.length })}
+						</button>
+					{/if}
+
+					<button
+						type="button"
+						onclick={() => (showFind = true)}
+						class="btn-secondary flex items-center justify-center gap-2"
+					>
+						<Icon name="search" size={18} />
+						{t('reader.findInBook')}
+					</button>
+				</div>
 			</div>
+
+			{#if readerStore.isSynthesizing}
+				<p
+					class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400"
+					role="status"
+					aria-live="polite"
+				>
+					<span
+						class="inline-block w-4 h-4 rounded-full border-2 border-gray-300 border-t-blue-600 animate-spin"
+						aria-hidden="true"
+					></span>
+					{t('reader.generating')}
+				</p>
+			{/if}
+
+			{#if readerStore.notice}
+				<p class="text-sm text-amber-600 dark:text-amber-400" role="status" aria-live="polite">
+					{readerStore.notice}
+				</p>
+			{/if}
 
 			<div class="sr-only" role="status" aria-live="polite">
 				{readerStore.isPlaying ? t('reader.playing') : t('reader.paused')}
@@ -293,6 +511,14 @@
 
 			<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 				{seekUnitAnnouncement}
+			</div>
+
+			<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+				{bookmarkAnnouncement}
+			</div>
+
+			<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+				{progressAnnouncement}
 			</div>
 		{/if}
 	</main>
@@ -305,4 +531,77 @@
 			playButtonRef?.focus();
 		}}
 	/>
+{/if}
+
+{#if showBookmarks}
+	<BookmarkList
+		bookmarks={bookmarkEntries}
+		onselect={(id: number) => readerStore.seekToChunk(id)}
+		ondelete={(id: number) => removeBookmark(id)}
+		onclose={() => {
+			showBookmarks = false;
+			playButtonRef?.focus();
+		}}
+	/>
+{/if}
+
+{#if showInfo && bookInfo}
+	<BookInfoDialog
+		{bookPath}
+		info={bookInfo}
+		onsaved={onInfoSaved}
+		onclose={() => {
+			showInfo = false;
+			playButtonRef?.focus();
+		}}
+	/>
+{/if}
+
+<!-- UI-only warning when the book's language couldn't be detected. -->
+{#if showLangWarning && bookInfo}
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center p-4"
+		role="alertdialog"
+		aria-modal="true"
+		aria-labelledby="langwarn-title"
+		aria-describedby="langwarn-body"
+		onkeydown={(e) => {
+			if (e.key === 'Escape') {
+				e.stopPropagation();
+				showLangWarning = false;
+			}
+		}}
+		tabindex="-1"
+	>
+		<button
+			type="button"
+			class="absolute inset-0 bg-black/50"
+			onclick={() => (showLangWarning = false)}
+			aria-label={t('common.closeDialog')}
+		></button>
+		<div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-md p-6">
+			<h2 id="langwarn-title" class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+				{t('reader.langWarnTitle')}
+			</h2>
+			<p id="langwarn-body" class="text-sm text-gray-600 dark:text-gray-300">
+				{t('reader.langWarnBody', { locale: bookInfo.locale })}
+			</p>
+			<div class="mt-5 flex justify-end gap-2">
+				<button type="button" class="btn-secondary" onclick={() => (showLangWarning = false)}>
+					{t('reader.langWarnDismiss')}
+				</button>
+				<button
+					type="button"
+					class="btn-primary"
+					onclick={() => {
+						showLangWarning = false;
+						showInfo = true;
+					}}
+				>
+					{t('reader.langWarnSet')}
+				</button>
+			</div>
+		</div>
+	</div>
 {/if}

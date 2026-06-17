@@ -1,4 +1,4 @@
-import type { Settings } from '$lib/types';
+import type { Settings, TtsService } from '$lib/types';
 
 const defaultSettings: Settings = {
 	seekInterval: 5,
@@ -10,7 +10,8 @@ const defaultSettings: Settings = {
 	autoplay: true,
 	maskTitle: '',
 	sonicroomUrl: '',
-	ttsRate: 1.0
+	ttsRate: 1.0,
+	ttsService: 'webspeech'
 };
 
 class SettingsStore {
@@ -24,6 +25,7 @@ class SettingsStore {
 	maskTitle = $state(defaultSettings.maskTitle);
 	sonicroomUrl = $state(defaultSettings.sonicroomUrl);
 	ttsRate = $state(defaultSettings.ttsRate);
+	ttsService = $state<TtsService>(defaultSettings.ttsService);
 
 	private isLoaded = false;
 
@@ -54,6 +56,7 @@ class SettingsStore {
 		if (settings.maskTitle !== undefined) this.maskTitle = settings.maskTitle;
 		if (settings.sonicroomUrl !== undefined) this.sonicroomUrl = settings.sonicroomUrl;
 		if (settings.ttsRate !== undefined) this.ttsRate = settings.ttsRate;
+		if (settings.ttsService !== undefined) this.ttsService = settings.ttsService;
 	}
 
 	async save() {
@@ -67,7 +70,8 @@ class SettingsStore {
 			autoplay: this.autoplay,
 			maskTitle: this.maskTitle,
 			sonicroomUrl: this.sonicroomUrl,
-			ttsRate: this.ttsRate
+			ttsRate: this.ttsRate,
+			ttsService: this.ttsService
 		};
 
 		try {
@@ -130,6 +134,11 @@ class SettingsStore {
 	setTtsRate(value: number) {
 		// Clamp to the reader slider's range.
 		this.ttsRate = Math.min(5, Math.max(0.5, value));
+		this.save();
+	}
+
+	setTtsService(value: TtsService) {
+		this.ttsService = value;
 		this.save();
 	}
 

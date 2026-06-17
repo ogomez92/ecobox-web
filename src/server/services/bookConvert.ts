@@ -20,6 +20,7 @@ import JSZip from 'jszip';
 import { resolvePath, getRelativePath, BOOK_MARKER } from './files';
 import { countWords, sourceWordCount, verifyPass } from './bookVerify';
 import { splitIntoChunks } from '$lib/utils/bookChunks';
+import type { BookLocaleSource } from '$lib/types';
 
 const execFileAsync = promisify(execFile);
 
@@ -41,6 +42,13 @@ export interface BookMarker {
 	mdWords: number;
 	totalChunks: number;
 	locale: string;
+	/**
+	 * How `locale` was obtained: 'detected' (read from EPUB metadata), 'default'
+	 * (no detection — fell back to 'en', e.g. docx/txt or a tag-less epub), or
+	 * 'manual' (set by the user in the Book info modal). Drives the UI-only
+	 * "language not detected" warning. Older markers omit it (treated as 'unknown').
+	 */
+	localeSource: BookLocaleSource;
 	convertedAt: string;
 }
 
@@ -51,6 +59,8 @@ export interface BookMarker {
 interface RawConversion {
 	markdown: string;
 	locale: string;
+	/** Whether `locale` came from real detection ('detected') or a fallback ('default'). */
+	localeSource: 'detected' | 'default';
 	ok: boolean;
 }
 
@@ -71,34 +81,43 @@ async function runPandoc(absInputPath: string): Promise<string | null> {
 	}
 }
 
-/** Read the epub package document and extract the primary <dc:language>. */
-async function detectEpubLanguage(absInputPath: string): Promise<string> {
+/**
+ * Read the epub package document and extract the primary <dc:language>.
+ * `detected` reports whether a real tag was found (vs. the 'en' fallback).
+ */
+async function detectEpubLanguage(absInputPath: string): Promise<{ locale: string; detected: boolean }> {
 	try {
 		const buf = await fs.readFile(absInputPath);
 		const zip = await JSZip.loadAsync(buf);
 		const opf = Object.values(zip.files).find((f) => /\.opf$/i.test(f.name));
-		if (!opf) return 'en';
+		if (!opf) return { locale: 'en', detected: false };
 		const xml = await opf.async('string');
 		const match = xml.match(/<dc:language[^>]*>\s*([^<\s]+)/i);
-		return match ? match[1].trim() : 'en';
+		return match ? { locale: match[1].trim(), detected: true } : { locale: 'en', detected: false };
 	} catch {
-		return 'en';
+		return { locale: 'en', detected: false };
 	}
 }
 
 const converters: Record<string, (absPath: string) => Promise<RawConversion>> = {
 	'.epub': async (absPath) => {
 		const markdown = await runPandoc(absPath);
-		const locale = await detectEpubLanguage(absPath);
-		return { markdown: markdown ?? '', locale, ok: markdown !== null };
+		const { locale, detected } = await detectEpubLanguage(absPath);
+		return {
+			markdown: markdown ?? '',
+			locale,
+			localeSource: detected ? 'detected' : 'default',
+			ok: markdown !== null
+		};
 	},
 	'.docx': async (absPath) => {
 		const markdown = await runPandoc(absPath);
-		return { markdown: markdown ?? '', locale: 'en', ok: markdown !== null };
+		// pandoc converts the text but we don't extract docx language → fall back.
+		return { markdown: markdown ?? '', locale: 'en', localeSource: 'default', ok: markdown !== null };
 	},
 	'.txt': async (absPath) => {
 		const markdown = await fs.readFile(absPath, 'utf-8');
-		return { markdown, locale: 'en', ok: true };
+		return { markdown, locale: 'en', localeSource: 'default', ok: true };
 	}
 };
 
@@ -118,7 +137,7 @@ export async function convertBook(relInputPath: string): Promise<ConvertResult> 
 		return { status: 'failed', mdWords: 0, sourceWords: 0, totalChunks: 0, reason: `Unsupported format ${ext}` };
 	}
 
-	const { markdown, locale, ok: pandocOk } = await converter(absInput);
+	const { markdown, locale, localeSource, ok: pandocOk } = await converter(absInput);
 	if (!pandocOk) {
 		// Conversion itself failed (pandoc missing/errored) — keep original untouched.
 		return {
@@ -162,6 +181,7 @@ export async function convertBook(relInputPath: string): Promise<ConvertResult> 
 		mdWords,
 		totalChunks: chunks.length,
 		locale,
+		localeSource,
 		convertedAt: new Date().toISOString()
 	};
 	await fs.writeFile(path.join(folderAbs, BOOK_MARKER), JSON.stringify(marker), 'utf-8');

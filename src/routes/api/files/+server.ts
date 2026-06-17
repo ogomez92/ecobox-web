@@ -2,8 +2,10 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listDirectory, deleteFile } from '$server/services/files';
 import { recordDeletion } from '$server/services/deletionHistory';
+import { purgeCacheForPath } from '$server/services/tts/cache';
 import { db } from '$server/db';
-import { protectedPaths } from '$server/db/schema';
+import { protectedPaths, bookBookmarks } from '$server/db/schema';
+import { eq, or, sql } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 
 // Check if a path or any of its ancestors is protected
@@ -92,6 +94,33 @@ export const DELETE: RequestHandler = async ({ url }) => {
 
 	try {
 		const { isDirectory } = await deleteFile(path);
+		// Drop any cached TTS audio for this path (book folder, or a parent dir of
+		// books — the cache tree mirrors the media tree so the subtree goes too).
+		// Best-effort: never let cache bookkeeping fail an actual deletion.
+		try {
+			await purgeCacheForPath(path);
+		} catch (cacheErr) {
+			console.error('Failed to purge TTS cache:', cacheErr);
+		}
+		// Drop any saved book bookmarks for this path. Mirrors the cache purge:
+		// removes rows for an exact book folder, OR for every book under a deleted
+		// parent dir (the path itself or anything beneath "path/"). LIKE wildcards
+		// are escaped so a literal % or _ in a folder name can't widen the match.
+		// Best-effort: never let bookmark bookkeeping fail an actual deletion.
+		try {
+			const p = path.normalize('NFC');
+			const esc = p.replace(/[\\%_]/g, (c) => '\\' + c);
+			await db
+				.delete(bookBookmarks)
+				.where(
+					or(
+						eq(bookBookmarks.bookFolderPath, p),
+						sql`${bookBookmarks.bookFolderPath} LIKE ${esc + '/%'} ESCAPE '\\'`
+					)
+				);
+		} catch (bmErr) {
+			console.error('Failed to purge book bookmarks:', bmErr);
+		}
 		// Record every deletion in the history. Best-effort: never let history
 		// bookkeeping fail an actual deletion.
 		try {

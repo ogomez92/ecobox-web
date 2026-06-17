@@ -1,24 +1,34 @@
 /**
  * Book reader store — the TTS counterpart to playerStore.
  *
- * Engine is the browser's Web Speech API (window.speechSynthesis), not an <audio>
- * element. Position is a chunk (sentence) index, not seconds; "seek" means speak a
- * different sentence. The whole chunk list is loaded once and everything (play,
- * find, seek, position) is an in-memory operation.
+ * The reader owns position, navigation, persistence and MediaSession; the actual
+ * "make sound" step is delegated to a pluggable TtsEngine:
+ *  - WebSpeechEngine: the browser's speechSynthesis (units = single sentences).
+ *  - AudioEngine: a server-synthesized provider (ElevenLabs / Azure / Google)
+ *    played through a shared <audio> element, with larger grouped units + prefetch.
  *
- * Web Speech quirks handled here:
- *  - voices load asynchronously (voiceschanged)
- *  - rate/voice cannot be changed on a live utterance -> cancel + re-speak current
- *  - pause() is unreliable on some engines -> pause = cancel() + remembered index
- *  - Chrome cuts long utterances (~15s) -> mitigated by sentence-sized chunks
- *    (a pause/resume keepalive pump was removed; see memory if the cutoff appears)
- *  - stale utterance callbacks are ignored via a monotonic speak token
+ * Position is the canonical sentence index (`currentChunkIndex`), saved to
+ * book_metadata. Unit grouping is a runtime view (see ttsUnits) and never changes
+ * what gets stored, so positions survive switching services.
+ *
+ * Quirks handled here:
+ *  - Web Speech voices load asynchronously; rate/voice can't retune a live
+ *    utterance -> cancel + re-speak. Audio retunes live via playbackRate.
+ *  - stale callbacks (after seek/pause/voice change) are ignored via a monotonic
+ *    speak token threaded into each engine.speak call.
+ *  - if an audio provider fails mid-read we fall back to Web Speech for the session.
  */
-import type { Chunk, BookContent } from '$lib/types';
+import type { Chunk, BookContent, TtsService, TtsAudioService, TtsVoice } from '$lib/types';
 import { settingsStore } from './settings.svelte';
+import { ttsConfigStore } from './ttsConfig.svelte';
 import { t } from '$lib/i18n/index.svelte';
+import type { TtsEngine, SynthRequest } from '$lib/services/tts/types';
+import { WebSpeechEngine } from '$lib/services/tts/webspeech';
+import { AudioEngine } from '$lib/services/tts/audioEngine';
+import { groupChunks, singletonUnits, unitForChunk, type Unit } from '$lib/utils/ttsUnits';
 
 const VOICE_KEY = 'ecobox-tts-voice';
+const PREFETCH_AHEAD = 3;
 
 /**
  * Case- and accent-insensitive folding for find/highlight, so "policia" matches
@@ -37,21 +47,27 @@ class ReaderStore {
 
 	isPlaying = $state(false);
 	isLoading = $state(false);
+	/** True while an audio service is synthesizing a not-yet-cached unit. */
+	isSynthesizing = $state(false);
 	error = $state<string | null>(null);
+	/** Non-fatal info (e.g. "fell back to device voice"). */
+	notice = $state<string | null>(null);
 
 	rate = $state(1);
-	voiceURI = $state<string | null>(null);
-	voices = $state<SpeechSynthesisVoice[]>([]);
+	service = $state<TtsService>('webspeech');
+	voiceId = $state<string | null>(null);
+	voices = $state<TtsVoice[]>([]);
 
+	private engine: TtsEngine | null = null;
+	private audioEl: HTMLAudioElement | null = null;
+	private units: Unit[] = [];
 	private speakToken = 0;
+	private resumeInPlace = false;
+	private fellBack = false;
 	private positionSavedForNavigation = false;
 	private lastPositionSaveTime = 0;
 	private rateRestartTimer: ReturnType<typeof setTimeout> | null = null;
 	private mediaSessionSetup = false;
-
-	private get synth(): SpeechSynthesis | null {
-		return typeof window !== 'undefined' && 'speechSynthesis' in window ? window.speechSynthesis : null;
-	}
 
 	get totalChunks(): number {
 		return this.chunks.length;
@@ -74,6 +90,69 @@ class ReaderStore {
 		return '';
 	}
 
+	/** Total number of headings — the book's chapter count (0 if unstructured). */
+	get chapterCount(): number {
+		let n = 0;
+		for (const c of this.chunks) if (c.type === 'heading') n++;
+		return n;
+	}
+
+	/**
+	 * 1-based index of the chapter the current position falls in (the count of
+	 * headings at or before it). 0 when sitting in front matter before the first
+	 * heading, or when the book has no headings at all.
+	 */
+	get currentChapter(): number {
+		let n = 0;
+		const end = Math.min(this.currentChunkIndex, this.chunks.length - 1);
+		for (let i = 0; i <= end; i++) {
+			if (this.chunks[i]?.type === 'heading') n++;
+		}
+		return n;
+	}
+
+	// -------------------------------------------------------------------------
+	// Engine + audio element wiring
+	// -------------------------------------------------------------------------
+
+	/** Give the reader the page's <audio> element (used by audio engines). */
+	initializeAudio(el: HTMLAudioElement | null) {
+		this.audioEl = el;
+		if (this.engine && this.engine.kind === 'audio') {
+			(this.engine as AudioEngine).setAudio(el);
+		}
+	}
+
+	private buildEngine() {
+		if (this.engine) this.engine.destroy?.();
+		this.engine =
+			this.service === 'webspeech'
+				? new WebSpeechEngine()
+				: new AudioEngine(this.service, this.audioEl);
+	}
+
+	private rebuildUnits() {
+		if (!this.engine || this.engine.kind === 'webspeech') {
+			this.units = singletonUnits(this.chunks);
+		} else {
+			this.units = groupChunks(this.chunks, this.engine.unitMaxChars);
+		}
+	}
+
+	/** Switch the active TTS service (called from settings/reader controls). */
+	async setService(service: TtsService) {
+		if (service === this.service && this.engine) return;
+		this.pause();
+		this.service = service;
+		settingsStore.setTtsService(service);
+		this.fellBack = false;
+		this.notice = null;
+		this.resumeInPlace = false;
+		this.buildEngine();
+		this.rebuildUnits();
+		await this.loadVoices();
+	}
+
 	// -------------------------------------------------------------------------
 	// Loading
 	// -------------------------------------------------------------------------
@@ -83,10 +162,14 @@ class ReaderStore {
 		this.bookFolderPath = folderPath;
 		this.isLoading = true;
 		this.error = null;
+		this.notice = null;
+		this.fellBack = false;
 		this.currentChunkIndex = 0;
 		this.isPlaying = false;
-		// Adopt the global default rate (the slider then persists changes back).
+		// Adopt the global default rate + selected service (sliders persist changes back).
 		this.rate = settingsStore.ttsRate;
+		this.service = settingsStore.ttsService;
+		this.buildEngine();
 
 		try {
 			const res = await fetch(`/api/books/content?path=${encodeURIComponent(folderPath)}`);
@@ -100,6 +183,8 @@ class ReaderStore {
 			this.isLoading = false;
 			return;
 		}
+
+		this.rebuildUnits();
 
 		// Restore saved position.
 		try {
@@ -120,115 +205,178 @@ class ReaderStore {
 	}
 
 	/**
-	 * Populate the device's voice list and resolve the saved/default voice.
-	 * Resolves once voices are available (getVoices() is often empty until the
-	 * engine fires voiceschanged) so callers can wait before auto-starting —
-	 * otherwise the first utterance speaks in the default voice, not the saved one.
-	 * A short timeout backs out so autoplay is never blocked forever.
+	 * Load the active engine's voices and resolve the selected voice. Resolves once
+	 * voices are available so callers can wait before auto-starting (otherwise the
+	 * first unit speaks in the wrong voice). Never throws (missing key -> empty list).
 	 */
-	loadVoices(): Promise<void> {
-		const synth = this.synth;
-		if (!synth) return Promise.resolve();
+	async loadVoices(): Promise<void> {
+		if (!this.engine) return;
+		try {
+			this.voices = await this.engine.listVoices(this.locale);
+		} catch {
+			this.voices = [];
+		}
+		this.resolveVoice();
+	}
 
-		return new Promise((resolve) => {
-			let done = false;
-			const finish = () => {
-				if (done) return;
-				done = true;
-				resolve();
-			};
-
-			const apply = () => {
-				this.voices = synth.getVoices();
-				if (this.voices.length === 0) return;
-
-				let saved: string | null = null;
-				try {
-					saved = localStorage.getItem(VOICE_KEY);
-				} catch {
-					// ignore
-				}
-
-				if (saved && this.voices.some((v) => v.voiceURI === saved)) {
-					this.voiceURI = saved;
-				} else if (!this.voiceURI || !this.voices.some((v) => v.voiceURI === this.voiceURI)) {
-					const fallback =
-						this.voices.find((v) => v.lang?.toLowerCase().startsWith(this.locale.toLowerCase())) ||
-						this.voices.find((v) => v.default) ||
-						this.voices[0];
-					this.voiceURI = fallback?.voiceURI ?? null;
-				}
-				finish();
-			};
-
-			apply();
-			if (this.voices.length === 0) {
-				synth.addEventListener('voiceschanged', apply);
-				setTimeout(finish, 2000); // safety net if no voices ever arrive
+	/** Pick the saved/default voice for the active engine. */
+	private resolveVoice() {
+		const useLocal = !this.engine || this.engine.kind === 'webspeech';
+		let preferred: string | null = null;
+		if (useLocal) {
+			try {
+				preferred = localStorage.getItem(VOICE_KEY);
+			} catch {
+				// ignore
 			}
-		});
+		} else {
+			preferred = ttsConfigStore.get(this.service as TtsAudioService).voiceId || null;
+		}
+
+		if (preferred && this.voices.some((v) => v.id === preferred)) {
+			this.voiceId = preferred;
+			return;
+		}
+		const fallback =
+			this.voices.find((v) => v.lang?.toLowerCase().startsWith(this.locale.toLowerCase())) ||
+			this.voices[0];
+		this.voiceId = fallback?.id ?? null;
+		// Persist a freshly chosen audio voice so the server always has one.
+		if (!useLocal && this.voiceId && this.voiceId !== preferred) {
+			ttsConfigStore.setVoiceId(this.service as TtsAudioService, this.voiceId);
+		}
 	}
 
 	// -------------------------------------------------------------------------
 	// Playback
 	// -------------------------------------------------------------------------
 
-	/** Speak the current chunk and chain to the next on completion. Call from a user gesture. */
-	private speakCurrent() {
-		const synth = this.synth;
-		if (!synth) return;
+	private buildReq(unit: Unit, uIdx: number): SynthRequest {
+		const isEleven = this.service === 'elevenlabs';
+		const cfg = this.engine?.kind === 'audio' ? ttsConfigStore.get(this.service as TtsAudioService) : null;
+		return {
+			text: unit.text,
+			lang: this.locale,
+			voiceId: this.voiceId ?? '',
+			rate: this.rate,
+			model: cfg?.model || undefined,
+			voiceSettings: isEleven ? cfg?.voiceSettings : undefined,
+			previousText: isEleven ? this.units[uIdx - 1]?.text?.slice(-400) : undefined,
+			nextText: isEleven ? this.units[uIdx + 1]?.text?.slice(0, 400) : undefined,
+			bookPath: this.bookFolderPath ?? undefined
+		};
+	}
+
+	private prefetchAhead(uIdx: number) {
+		if (!this.engine?.prefetch) return;
+		for (let k = 1; k <= PREFETCH_AHEAD; k++) {
+			const u = this.units[uIdx + k];
+			if (!u) break;
+			this.engine.prefetch(this.buildReq(u, uIdx + k));
+		}
+	}
+
+	/** Speak the unit containing the current position and chain to the next. */
+	private async speakCurrent() {
+		if (!this.engine) return;
 		if (this.currentChunkIndex < 0 || this.currentChunkIndex >= this.chunks.length) {
 			this.isPlaying = false;
 			return;
 		}
-
+		this.resumeInPlace = false;
 		const myToken = ++this.speakToken;
-		synth.cancel(); // clear any queued/old utterance
+		this.engine.stop();
 
-		const chunk = this.chunks[this.currentChunkIndex];
-		const utterance = new SpeechSynthesisUtterance(chunk.text);
-		const voice = this.voices.find((v) => v.voiceURI === this.voiceURI);
-		if (voice) utterance.voice = voice;
-		utterance.rate = this.rate;
-		utterance.lang = voice?.lang || this.locale;
-
-		utterance.onend = () => {
-			if (myToken !== this.speakToken) return; // stale (cancelled/replaced)
-			if (this.currentChunkIndex < this.chunks.length - 1) {
-				this.currentChunkIndex++;
-				this.throttledSavePosition();
-				this.speakCurrent();
-			} else {
-				this.isPlaying = false;
-				this.savePosition();
-			}
-		};
-
-		utterance.onerror = (e) => {
-			if (myToken !== this.speakToken) return;
-			// 'interrupted'/'canceled' fire on a normal cancel — not real errors.
-			if (e.error === 'interrupted' || e.error === 'canceled') return;
-			this.error = t('reader.speakFailed');
+		const uIdx = unitForChunk(this.units, this.currentChunkIndex);
+		const unit = this.units[uIdx];
+		if (!unit) {
 			this.isPlaying = false;
-		};
+			return;
+		}
+		// Snap canonical position to the unit start so progress/heading/saves align.
+		this.currentChunkIndex = unit.startIndex;
 
 		this.isPlaying = true;
-		synth.speak(utterance);
 		this.setMediaSessionState('playing');
 		this.updateMediaSessionMetadata();
+		const isAudio = this.engine.kind === 'audio';
+		if (isAudio) this.isSynthesizing = true;
+
+		try {
+			await this.engine.speak(
+				this.buildReq(unit, uIdx),
+				() => myToken === this.speakToken,
+				() => this.onUnitEnded(myToken, unit),
+				(e) => this.onSpeakError(myToken, e)
+			);
+		} catch (e) {
+			this.onSpeakError(myToken, e);
+		} finally {
+			if (myToken === this.speakToken) this.isSynthesizing = false;
+		}
+
+		if (myToken === this.speakToken) this.prefetchAhead(uIdx);
+	}
+
+	private onUnitEnded(token: number, unit: Unit) {
+		if (token !== this.speakToken) return;
+		const nextStart = unit.endIndex + 1;
+		if (nextStart < this.chunks.length) {
+			this.currentChunkIndex = nextStart;
+			this.throttledSavePosition();
+			this.speakCurrent();
+		} else {
+			this.isPlaying = false;
+			this.savePosition();
+		}
+	}
+
+	private onSpeakError(token: number, _e: unknown) {
+		if (token !== this.speakToken) return;
+		this.isSynthesizing = false;
+		// An audio provider failed mid-read: fall back to Web Speech for the session.
+		if (this.engine?.kind === 'audio' && !this.fellBack) {
+			this.fellBack = true;
+			this.notice = t('reader.ttsFellBack');
+			const wasPlaying = this.isPlaying;
+			this.engine.destroy?.();
+			this.engine = new WebSpeechEngine();
+			this.rebuildUnits();
+			this.loadVoices().then(() => {
+				if (wasPlaying) this.speakCurrent();
+			});
+			return;
+		}
+		this.error = t('reader.speakFailed');
+		this.isPlaying = false;
+	}
+
+	private canResumeInPlace(): boolean {
+		return this.engine?.kind === 'audio' && this.resumeInPlace && !!this.audioEl?.src;
 	}
 
 	play() {
 		if (this.chunks.length === 0) return;
 		this.error = null;
+		if (this.canResumeInPlace()) {
+			this.isPlaying = true;
+			this.setMediaSessionState('playing');
+			this.audioEl?.play().catch(() => {});
+			return;
+		}
 		this.speakCurrent();
 	}
 
-	/** Pause = cancel + keep the index (pause() is unreliable across engines). */
+	/** Pause. Web Speech cancels (re-speaks on resume); audio pauses in place. */
 	pause() {
 		this.isPlaying = false;
-		this.speakToken++; // invalidate the in-flight utterance's callbacks
-		this.synth?.cancel();
+		if (this.engine?.kind === 'audio') {
+			this.resumeInPlace = true;
+			this.audioEl?.pause();
+		} else {
+			this.speakToken++;
+			this.engine?.stop();
+		}
 		this.setMediaSessionState('paused');
 		this.savePosition();
 	}
@@ -246,18 +394,24 @@ class ReaderStore {
 			this.speakCurrent();
 		} else {
 			this.speakToken++;
-			this.synth?.cancel();
+			this.engine?.stop();
+			this.resumeInPlace = false;
 			this.isPlaying = false;
 		}
 		this.savePosition();
 	}
 
+	/** Next/prev operate by unit (== sentence for Web Speech, == grouped unit for audio). */
 	next() {
-		this.seekToChunk(this.currentChunkIndex + 1);
+		const uIdx = unitForChunk(this.units, this.currentChunkIndex);
+		const target = this.units[uIdx + 1];
+		if (target) this.seekToChunk(target.startIndex);
 	}
 
 	prev() {
-		this.seekToChunk(this.currentChunkIndex - 1);
+		const uIdx = unitForChunk(this.units, this.currentChunkIndex);
+		const target = this.units[uIdx - 1];
+		this.seekToChunk(target ? target.startIndex : 0);
 	}
 
 	nextParagraph() {
@@ -324,6 +478,11 @@ class ReaderStore {
 	setRate(rate: number) {
 		this.rate = Math.min(5, Math.max(0.5, rate));
 		settingsStore.setTtsRate(this.rate);
+		if (this.engine?.kind === 'audio') {
+			// Audio retunes live — no re-synth, no debounce.
+			this.engine.setRate(this.rate);
+			return;
+		}
 		// Web Speech can't retune a live utterance — debounce (the slider fires
 		// rapidly), then re-speak the current sentence (if playing) or a short
 		// preview (if paused) so the new rate is always audible immediately.
@@ -334,12 +493,17 @@ class ReaderStore {
 		}, 250);
 	}
 
-	setVoice(voiceURI: string) {
-		this.voiceURI = voiceURI;
-		try {
-			localStorage.setItem(VOICE_KEY, voiceURI);
-		} catch {
-			// ignore
+	setVoice(voiceId: string) {
+		this.voiceId = voiceId;
+		this.resumeInPlace = false;
+		if (!this.engine || this.engine.kind === 'webspeech') {
+			try {
+				localStorage.setItem(VOICE_KEY, voiceId);
+			} catch {
+				// ignore
+			}
+		} else {
+			ttsConfigStore.setVoiceId(this.service as TtsAudioService, voiceId);
 		}
 		// Let the user hear the newly-chosen voice (at the current rate) right away.
 		if (this.isPlaying) this.speakCurrent();
@@ -347,21 +511,44 @@ class ReaderStore {
 	}
 
 	/**
+	 * Update the book's language for the current session (e.g. after the user
+	 * corrects it in the Book info modal). Affects the ElevenLabs `language_code`
+	 * and future voice listings; the chunk positions are untouched. Persistence
+	 * is handled by the modal's PUT — this only reflects it live.
+	 */
+	setLocale(locale: string) {
+		this.locale = locale;
+	}
+
+	/**
 	 * Speak a fixed preview sentence (in Ecobox's current UI language) at the
-	 * chosen voice + rate, used to preview voice/speed changes while paused. It
+	 * chosen voice + rate, used to preview voice changes while paused. It
 	 * deliberately does NOT read the book, change the play state, or move position.
 	 */
-	private previewVoice() {
-		const synth = this.synth;
-		if (!synth) return;
-		this.speakToken++; // invalidate any in-flight (book) utterance callbacks
-		synth.cancel();
-		const utterance = new SpeechSynthesisUtterance(t('reader.voicePreviewSample'));
-		const voice = this.voices.find((v) => v.voiceURI === this.voiceURI);
-		if (voice) utterance.voice = voice;
-		utterance.rate = this.rate;
-		if (voice?.lang) utterance.lang = voice.lang;
-		synth.speak(utterance);
+	private async previewVoice() {
+		if (!this.engine) return;
+		const myToken = ++this.speakToken;
+		this.engine.stop();
+		this.resumeInPlace = false;
+		const cfg = this.engine.kind === 'audio' ? ttsConfigStore.get(this.service as TtsAudioService) : null;
+		const req: SynthRequest = {
+			text: t('reader.voicePreviewSample'),
+			lang: this.locale,
+			voiceId: this.voiceId ?? '',
+			rate: this.rate,
+			model: cfg?.model || undefined,
+			voiceSettings: this.service === 'elevenlabs' ? cfg?.voiceSettings : undefined
+		};
+		try {
+			await this.engine.speak(
+				req,
+				() => myToken === this.speakToken,
+				() => {},
+				() => {}
+			);
+		} catch {
+			// ignore preview errors
+		}
 	}
 
 	// -------------------------------------------------------------------------
@@ -376,7 +563,7 @@ class ReaderStore {
 	}
 
 	// -------------------------------------------------------------------------
-	// Media Session (best-effort; foreground only — see plan/CLAUDE.md)
+	// Media Session (now backed by a real <audio> element for audio engines)
 	// -------------------------------------------------------------------------
 
 	private setupMediaSession() {
@@ -461,8 +648,9 @@ class ReaderStore {
 		const capturedIndex = this.currentChunkIndex;
 		this.positionSavedForNavigation = true;
 		this.speakToken++;
-		this.synth?.cancel();
+		this.engine?.destroy?.();
 		this.isPlaying = false;
+		this.isSynthesizing = false;
 		if (this.rateRestartTimer) clearTimeout(this.rateRestartTimer);
 		if (!wasSaved && this.bookFolderPath) {
 			this.doSavePosition(capturedIndex);

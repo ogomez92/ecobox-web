@@ -29,16 +29,19 @@
 		| 'more-vertical'
 		| 'lock'
 		| 'lock-open'
-		| 'broadcast';
+		| 'broadcast'
+		| 'info';
 
 	interface Props {
 		name: IconName;
 		size?: number;
 		class?: string;
 		ariaLabel?: string;
+		/** Override the SVG fill (e.g. 'currentColor' to render a solid/active icon). */
+		fill?: string;
 	}
 
-	let { name, size = 24, class: className = '', ariaLabel }: Props = $props();
+	let { name, size = 24, class: className = '', ariaLabel, fill = 'none' }: Props = $props();
 
 	const paths: Record<IconName, string> = {
 		folder: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z',
@@ -70,7 +73,8 @@
 		'more-vertical': 'M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z',
 		lock: 'M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 0110 0v4',
 		'lock-open': 'M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 019.9-1',
-		broadcast: 'M4.93 4.93a10 10 0 000 14.14M19.07 4.93a10 10 0 010 14.14M7.76 7.76a6 6 0 000 8.48M16.24 7.76a6 6 0 010 8.48M12 13a1 1 0 100-2 1 1 0 000 2z'
+		broadcast: 'M4.93 4.93a10 10 0 000 14.14M19.07 4.93a10 10 0 010 14.14M7.76 7.76a6 6 0 000 8.48M16.24 7.76a6 6 0 010 8.48M12 13a1 1 0 100-2 1 1 0 000 2z',
+		info: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
 	};
 </script>
 
@@ -79,7 +83,7 @@
 	width={size}
 	height={size}
 	viewBox="0 0 24 24"
-	fill="none"
+	{fill}
 	stroke="currentColor"
 	stroke-width="2"
 	stroke-linecap="round"

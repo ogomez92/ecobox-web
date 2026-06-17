@@ -38,6 +38,16 @@
 	let showCast = $state(false);
 	let bookmarks = $state<Bookmark[]>([]);
 
+	// Presentation rows for the shared BookmarkList (keyed by bookmark id; time → detail).
+	const bookmarkEntries = $derived(
+		bookmarks.map((b) => ({
+			id: b.id,
+			label: b.label ?? '',
+			detail: formatDuration(b.time),
+			deleteAria: t('bookmarks.deleteAt', { time: formatDuration(b.time) })
+		}))
+	);
+
 	// Sleep timer state
 	let sleepTimerMinutes = $state<number | null>(null);
 	let sleepTimerRemaining = $state(0);
@@ -751,8 +761,11 @@
 <!-- Bookmark list modal -->
 {#if showBookmarks}
 	<BookmarkList
-		{bookmarks}
-		onselect={(time: number) => playerStore.seek(time)}
+		bookmarks={bookmarkEntries}
+		onselect={(id: number) => {
+			const b = bookmarks.find((x) => x.id === id);
+			if (b) playerStore.seek(b.time);
+		}}
 		ondelete={deleteBookmark}
 		onclose={() => {
 			showBookmarks = false;

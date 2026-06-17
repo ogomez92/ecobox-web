@@ -1,13 +1,24 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import Icon from './Icon.svelte';
-	import { formatDuration } from '$lib/utils/format';
 	import { t } from '$lib/i18n/index.svelte';
-	import type { Bookmark } from '$server/db/schema';
+
+	/**
+	 * A presentation-agnostic marker shown in the list. Audio bookmarks map `time`
+	 * to `detail` (formatted duration); book bookmarks map a chunk index to a
+	 * sentence preview. `id` is whatever the caller selects/deletes by (a bookmark
+	 * row id for audio, a chunk index for books).
+	 */
+	export interface MarkerEntry {
+		id: number;
+		label: string;
+		detail: string;
+		deleteAria: string;
+	}
 
 	interface Props {
-		bookmarks: Bookmark[];
-		onselect: (time: number) => void;
+		bookmarks: MarkerEntry[];
+		onselect: (id: number) => void;
 		ondelete: (id: number) => void;
 		onclose: () => void;
 	}
@@ -34,7 +45,7 @@
 	function selectAt(idx: number) {
 		const bookmark = bookmarks[idx];
 		if (!bookmark) return;
-		onselect(bookmark.time);
+		onselect(bookmark.id);
 		onclose();
 	}
 
@@ -157,8 +168,8 @@
 								<p class="font-medium text-gray-900 dark:text-gray-100 truncate">
 									{bookmark.label || t('bookmarks.label')}
 								</p>
-								<p class="text-sm text-gray-500 dark:text-gray-400">
-									{formatDuration(bookmark.time)}
+								<p class="text-sm text-gray-500 dark:text-gray-400 truncate">
+									{bookmark.detail}
 								</p>
 							</div>
 						</button>
@@ -167,7 +178,7 @@
 							tabindex={-1}
 							onclick={() => deleteAt(index)}
 							class="btn-icon p-2 text-gray-400 hover:text-red-500"
-							aria-label={t('bookmarks.deleteAt', { time: formatDuration(bookmark.time) })}
+							aria-label={bookmark.deleteAria}
 						>
 							<Icon name="trash" size={20} />
 						</button>

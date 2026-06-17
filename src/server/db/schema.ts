@@ -53,6 +53,32 @@ export const bookMetadata = sqliteTable('book_metadata', {
 	isFavorite: integer('is_favorite', { mode: 'boolean' }).default(false)
 });
 
+export const bookBookmarks = sqliteTable('book_bookmarks', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	bookFolderPath: text('book_folder_path').notNull(),
+	chunkIndex: integer('chunk_index').notNull(),
+	label: text('label'),
+	createdAt: integer('created_at', { mode: 'timestamp' })
+		.notNull()
+		.$defaultFn(() => new Date())
+});
+
+export const ttsCredentials = sqliteTable('tts_credentials', {
+	// 'elevenlabs' | 'azure' | 'azure-edge' | 'google'
+	service: text('service').primaryKey(),
+	// SECRET — never serialized to the client (see /api/tts/config GET).
+	apiKey: text('api_key'),
+	region: text('region'),
+	model: text('model'),
+	voiceId: text('voice_id'),
+	enabled: integer('enabled', { mode: 'boolean' }).default(false),
+	// ElevenLabs voice_settings (null until the user tunes them).
+	stability: real('stability'),
+	similarityBoost: real('similarity_boost'),
+	style: real('style'),
+	useSpeakerBoost: integer('use_speaker_boost', { mode: 'boolean' })
+});
+
 export const protectedPaths = sqliteTable('protected_paths', {
 	path: text('path').primaryKey(),
 	createdAt: integer('created_at', { mode: 'timestamp' })
@@ -84,6 +110,10 @@ export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
 export type BookMetadata = typeof bookMetadata.$inferSelect;
 export type NewBookMetadata = typeof bookMetadata.$inferInsert;
+export type BookBookmark = typeof bookBookmarks.$inferSelect;
+export type NewBookBookmark = typeof bookBookmarks.$inferInsert;
+export type TtsCredential = typeof ttsCredentials.$inferSelect;
+export type NewTtsCredential = typeof ttsCredentials.$inferInsert;
 export type ProtectedPath = typeof protectedPaths.$inferSelect;
 export type NewProtectedPath = typeof protectedPaths.$inferInsert;
 export type DeletionHistoryEntry = typeof deletionHistory.$inferSelect;

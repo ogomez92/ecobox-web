@@ -67,6 +67,27 @@ sqlite.exec(`
 		is_favorite INTEGER DEFAULT 0
 	);
 
+	CREATE TABLE IF NOT EXISTS book_bookmarks (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		book_folder_path TEXT NOT NULL,
+		chunk_index INTEGER NOT NULL,
+		label TEXT,
+		created_at INTEGER NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS tts_credentials (
+		service TEXT PRIMARY KEY,
+		api_key TEXT,
+		region TEXT,
+		model TEXT,
+		voice_id TEXT,
+		enabled INTEGER DEFAULT 0,
+		stability REAL,
+		similarity_boost REAL,
+		style REAL,
+		use_speaker_boost INTEGER
+	);
+
 	CREATE TABLE IF NOT EXISTS deletion_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		path TEXT NOT NULL,
@@ -78,6 +99,7 @@ sqlite.exec(`
 
 	CREATE INDEX IF NOT EXISTS idx_bookmarks_media_path ON bookmarks(media_path);
 	CREATE INDEX IF NOT EXISTS idx_chaptered_bookmarks_folder ON chaptered_bookmarks(folder_path);
+	CREATE INDEX IF NOT EXISTS idx_book_bookmarks_path ON book_bookmarks(book_folder_path);
 `);
 
 // Idempotent column additions for DBs created before a column existed.
@@ -87,6 +109,21 @@ const deletionHistoryColumns = sqlite
 	.all() as { name: string }[];
 if (!deletionHistoryColumns.some((c) => c.name === 'source')) {
 	sqlite.exec("ALTER TABLE deletion_history ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
+}
+
+// ElevenLabs voice_settings columns added after tts_credentials shipped.
+const ttsCredentialColumns = sqlite
+	.prepare('PRAGMA table_info(tts_credentials)')
+	.all() as { name: string }[];
+for (const [col, type] of [
+	['stability', 'REAL'],
+	['similarity_boost', 'REAL'],
+	['style', 'REAL'],
+	['use_speaker_boost', 'INTEGER']
+] as const) {
+	if (!ttsCredentialColumns.some((c) => c.name === col)) {
+		sqlite.exec(`ALTER TABLE tts_credentials ADD COLUMN ${col} ${type}`);
+	}
 }
 
 export { schema };

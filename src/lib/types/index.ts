@@ -35,6 +35,30 @@ export interface BookContent {
 	chunks: Chunk[];
 }
 
+/** How a book's language was determined ('unknown' = older book, never recorded). */
+export type BookLocaleSource = 'detected' | 'default' | 'manual' | 'unknown';
+
+/**
+ * Rich book metadata for the Book info modal (GET /api/books/info). UI-only —
+ * separate from the app-facing BookContent so existing clients are unaffected.
+ */
+export interface BookInfo {
+	title: string;
+	locale: string;
+	localeSource: BookLocaleSource;
+	verified: boolean;
+	/** Word count of the source document (0 if unknown). */
+	sourceWords: number;
+	/** Word count of the spoken (converted) text. */
+	mdWords: number;
+	/** Sentence chunks — the canonical reading positions. */
+	totalChunks: number;
+	/** Number of headings, i.e. chapters. */
+	chapters: number;
+	/** ISO timestamp of conversion ('' if unknown). */
+	convertedAt: string;
+}
+
 export interface Chapter {
 	title: string;
 	startTime: number;
@@ -149,6 +173,76 @@ export interface HighPassSettings {
 
 export type EffectPreset = 'flat' | 'dialog' | 'bass' | 'treble' | 'custom';
 
+/**
+ * TTS service the reader uses. `webspeech` is the local browser engine (no server
+ * config). The rest synthesize server-side and have persisted per-service config.
+ * `azure-edge` is the keyless "Edge read-aloud" mode (no API key, experimental).
+ */
+export type TtsService = 'webspeech' | 'elevenlabs' | 'azure' | 'azure-edge' | 'google';
+/** Services that synthesize server-side and have a persisted credentials row. */
+export type TtsAudioService = Exclude<TtsService, 'webspeech'>;
+
+/** A selectable voice, unified across providers (Web Speech voiceURI = id). */
+export interface TtsVoice {
+	id: string;
+	name: string;
+	/** BCP-47 where known, '' otherwise. */
+	lang: string;
+}
+
+/**
+ * Sanitized per-service config returned by GET /api/tts/config. The API key is
+ * NEVER sent to the client — `configured` reports only whether one is stored.
+ */
+export interface TtsCredentialConfig {
+	service: TtsAudioService;
+	configured: boolean;
+	region: string;
+	model: string;
+	voiceId: string;
+	enabled: boolean;
+	/** ElevenLabs voice_settings (ignored by other services). */
+	voiceSettings: ElevenVoiceSettings;
+}
+
+/** Per-voice ElevenLabs rendering knobs — mirror the API's `voice_settings`. */
+export interface ElevenVoiceSettings {
+	/** 0–1. Lower = more expressive/variable, higher = more consistent. */
+	stability: number;
+	/** 0–1. How closely to adhere to the original voice. */
+	similarityBoost: number;
+	/** 0–1. Style exaggeration (0 = none; higher adds latency). */
+	style: number;
+	/** Boost similarity/clarity to the source speaker. */
+	useSpeakerBoost: boolean;
+}
+
+/** ElevenLabs' own documented defaults — used when nothing is configured. */
+export const DEFAULT_ELEVEN_VOICE_SETTINGS: ElevenVoiceSettings = {
+	stability: 0.5,
+	similarityBoost: 0.75,
+	style: 0,
+	useSpeakerBoost: true
+};
+
+export const TTS_AUDIO_SERVICES: TtsAudioService[] = ['elevenlabs', 'azure', 'azure-edge', 'google'];
+
+/** Known ElevenLabs model ids (default first). */
+export const ELEVEN_MODELS = [
+	'eleven_multilingual_v2',
+	'eleven_turbo_v2_5',
+	'eleven_flash_v2_5',
+	'eleven_v3'
+] as const;
+export const DEFAULT_ELEVEN_MODEL = 'eleven_multilingual_v2';
+
+/**
+ * Models that honor the `language_code` parameter. Other models ignore it (or
+ * may reject it), so we only send it for these.
+ * https://elevenlabs.io/docs/api-reference/text-to-speech/convert
+ */
+export const ELEVEN_LANG_CODE_MODELS: string[] = ['eleven_turbo_v2_5', 'eleven_flash_v2_5'];
+
 export interface Settings {
 	seekInterval: number;
 	longSeekInterval: number;
@@ -160,8 +254,10 @@ export interface Settings {
 	maskTitle: string;
 	/** Default SonicRoom server origin for "Cast to call". */
 	sonicroomUrl: string;
-	/** Default Web Speech rate for book reading (global; the reader slider persists here). */
+	/** Default reading rate for book reading (global; the reader slider persists here). */
 	ttsRate: number;
+	/** Selected TTS service for book reading (global). */
+	ttsService: TtsService;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -174,7 +270,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	autoplay: true,
 	maskTitle: '',
 	sonicroomUrl: '',
-	ttsRate: 1.0
+	ttsRate: 1.0,
+	ttsService: 'webspeech'
 };
 
 export const DEFAULT_EQ_BANDS: EQBand[] = [
