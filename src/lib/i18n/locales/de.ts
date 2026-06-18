@@ -43,6 +43,7 @@ export const de: Record<MessageKey, string> = {
 	'reader.seekUnitAnnounce': 'Springen um: {unit}',
 	'reader.progressAnnounce': '{pct} %, Kapitel {chapter} von {total}',
 	'reader.progressPercent': '{pct} %',
+	'reader.charactersRemaining': 'Noch {remaining} Zeichen übrig',
 	'reader.bookInfo': 'Buchinfo',
 	'reader.infoTitle': 'Titel',
 	'reader.infoLanguage': 'Sprache',

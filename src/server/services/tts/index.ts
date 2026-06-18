@@ -3,10 +3,10 @@
  * audio-based services (ElevenLabs, Azure key/edge, Google), keeping API keys
  * server-side. Web Speech is handled entirely in the browser and never reaches here.
  */
-import type { TtsAudioService, TtsVoice, ElevenVoiceSettings } from '$lib/types';
+import type { TtsAudioService, TtsVoice, ElevenVoiceSettings, TtsQuota } from '$lib/types';
 import { resolveCredential } from './credentials';
 import { TtsError } from './errors';
-import { elevenSynthesize, elevenVoices } from './elevenlabs';
+import { elevenSynthesize, elevenVoices, elevenSubscription } from './elevenlabs';
 import { azureSynthesize, azureVoices, edgeSynthesize, edgeVoices } from './azure';
 import { googleSynthesize, googleVoices } from './google';
 
@@ -77,6 +77,19 @@ export async function listVoices(service: TtsAudioService, lang: string): Promis
 		default:
 			throw new TtsError(400, 'Unknown TTS service');
 	}
+}
+
+/**
+ * Subscription character quota, for services that expose a usable per-key usage
+ * endpoint. Only ElevenLabs does (GET /v1/user/subscription); Azure and Google
+ * report usage only through cloud billing/metrics APIs that need ARM credentials
+ * (not the speech key), and azure-edge is keyless/free — all return null, meaning
+ * "no quota to announce". Throws TtsError if the ElevenLabs lookup itself fails.
+ */
+export async function getQuota(service: TtsAudioService): Promise<TtsQuota | null> {
+	if (service !== 'elevenlabs') return null;
+	const cred = await resolveCredential(service);
+	return elevenSubscription(cred.apiKey);
 }
 
 /** Lightweight connectivity/credential check used by the settings "Test" button. */

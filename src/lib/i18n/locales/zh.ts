@@ -43,6 +43,7 @@ export const zh: Record<MessageKey, string> = {
 	'reader.seekUnitAnnounce': '跳转单位：{unit}',
 	'reader.progressAnnounce': '{pct}%，第 {chapter} 章 / 共 {total} 章',
 	'reader.progressPercent': '{pct}%',
+	'reader.charactersRemaining': '剩余 {remaining} 个字符',
 	'reader.bookInfo': '书籍信息',
 	'reader.infoTitle': '标题',
 	'reader.infoLanguage': '语言',

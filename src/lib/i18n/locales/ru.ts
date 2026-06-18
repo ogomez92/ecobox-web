@@ -43,6 +43,7 @@ export const ru: Record<MessageKey, string> = {
 	'reader.seekUnitAnnounce': 'Переход по: {unit}',
 	'reader.progressAnnounce': '{pct} %, глава {chapter} из {total}',
 	'reader.progressPercent': '{pct} %',
+	'reader.charactersRemaining': 'Осталось символов: {remaining}',
 	'reader.bookInfo': 'О книге',
 	'reader.infoTitle': 'Название',
 	'reader.infoLanguage': 'Язык',

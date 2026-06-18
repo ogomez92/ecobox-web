@@ -98,6 +98,36 @@
 		setTimeout(() => {
 			progressAnnouncement = '';
 		}, 1000);
+		// For cloud services with a subscription character quota (currently
+		// ElevenLabs), also announce how many characters are left in the plan.
+		void announceCharactersRemaining();
+	}
+
+	// Quota readout for the active TTS service. Web Speech is local (no quota) and
+	// other cloud services (Azure/Google) expose usage only through cloud billing,
+	// so /api/tts/quota returns { supported: false } for them and we stay silent.
+	let quotaAnnouncement = $state('');
+	let quotaInFlight = false;
+	async function announceCharactersRemaining() {
+		const service = readerStore.service;
+		if (service === 'webspeech' || quotaInFlight) return;
+		quotaInFlight = true;
+		try {
+			const res = await fetch(`/api/tts/quota?service=${encodeURIComponent(service)}`);
+			if (!res.ok) return;
+			const data = (await res.json()) as { remaining?: number };
+			if (typeof data.remaining !== 'number') return; // service has no quota
+			quotaAnnouncement = t('reader.charactersRemaining', {
+				remaining: data.remaining.toLocaleString()
+			});
+			setTimeout(() => {
+				quotaAnnouncement = '';
+			}, 1500);
+		} catch {
+			// Non-fatal — pressing T still announced reading position.
+		} finally {
+			quotaInFlight = false;
+		}
 	}
 
 	async function loadBookmarks() {
@@ -527,6 +557,10 @@
 
 			<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 				{progressAnnouncement}
+			</div>
+
+			<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+				{quotaAnnouncement}
 			</div>
 		{/if}
 	</main>

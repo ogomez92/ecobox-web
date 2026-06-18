@@ -41,6 +41,7 @@ export const en = {
 	'reader.seekUnitAnnounce': 'Skip by: {unit}',
 	'reader.progressAnnounce': '{pct}%, chapter {chapter} of {total}',
 	'reader.progressPercent': '{pct}%',
+	'reader.charactersRemaining': '{remaining} characters remaining',
 	'reader.bookInfo': 'Book info',
 	'reader.infoTitle': 'Title',
 	'reader.infoLanguage': 'Language',

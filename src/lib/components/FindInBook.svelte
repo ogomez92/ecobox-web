@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import { readerStore, foldForSearch } from '$lib/stores/reader.svelte';
 	import type { Chunk } from '$lib/types';
@@ -11,22 +12,73 @@
 
 	let query = $state('');
 	let inputElement: HTMLInputElement | null = $state(null);
+	let resultsList: HTMLUListElement | null = $state(null);
 	let results = $state<Chunk[]>([]);
 	let total = $state(0);
 	let searched = $state(false);
 
-	function handleSubmit(e: Event) {
+	// The results are a WAI-ARIA listbox (role="listbox" + role="option"). Focus
+	// uses a roving tabindex: only the active option is tabbable (tabindex 0), the
+	// rest are -1, so Tab enters/leaves the whole list as a single stop and the
+	// arrow/Home/End keys move within it.
+	let activeIndex = $state(0);
+
+	async function handleSubmit(e: Event) {
 		e.preventDefault();
 		const r = readerStore.find(query);
 		results = r.results;
 		total = r.total;
 		searched = true;
+		// Land focus on the first hit so the list is immediately navigable. With no
+		// hits, focus stays in the input so the query can be edited.
+		activeIndex = 0;
+		await tick();
+		if (results.length > 0) focusOption(0);
 	}
 
 	function selectResult(chunk: Chunk) {
 		// Jump and begin reading from that sentence (stops any current speech).
 		readerStore.seekToChunk(chunk.i, true);
 		onclose();
+	}
+
+	function focusOption(i: number) {
+		resultsList?.querySelectorAll<HTMLElement>('[role="option"]')[i]?.focus();
+	}
+
+	// Move the roving focus, clamped to the list bounds.
+	function moveActive(i: number) {
+		if (results.length === 0) return;
+		activeIndex = Math.max(0, Math.min(i, results.length - 1));
+		focusOption(activeIndex);
+	}
+
+	// Keyboard nav while an option has focus: Up/Down step, Home/End jump to the
+	// first/last hit, Enter/Space select.
+	function onOptionKeydown(e: KeyboardEvent, index: number) {
+		switch (e.key) {
+			case 'ArrowDown':
+				e.preventDefault();
+				moveActive(index + 1);
+				break;
+			case 'ArrowUp':
+				e.preventDefault();
+				moveActive(index - 1);
+				break;
+			case 'Home':
+				e.preventDefault();
+				moveActive(0);
+				break;
+			case 'End':
+				e.preventDefault();
+				moveActive(results.length - 1);
+				break;
+			case 'Enter':
+			case ' ':
+				e.preventDefault();
+				selectResult(results[index]);
+				break;
+		}
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -124,21 +176,27 @@
 						{t('reader.showingFirst', { shown: results.length, total })}
 					</p>
 				{/if}
-				<ul class="overflow-y-auto flex-1 space-y-1" aria-label={t('reader.resultsList')}>
-					{#each results as chunk (chunk.i)}
-						<li>
-							<button
-								type="button"
-								onclick={() => selectResult(chunk)}
-								class="w-full text-left p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-							>
-								<span class="block text-xs text-gray-500 dark:text-gray-400">{label(chunk)}</span>
-								<span class="block text-sm text-gray-800 dark:text-gray-200">
-									{#each segments(chunk.text) as seg}{#if seg.match}<mark
-												class="bg-yellow-200 dark:bg-yellow-700 dark:text-white">{seg.text}</mark
-											>{:else}{seg.text}{/if}{/each}
-								</span>
-							</button>
+				<ul
+					bind:this={resultsList}
+					role="listbox"
+					class="overflow-y-auto flex-1 space-y-1"
+					aria-label={t('reader.resultsList')}
+				>
+					{#each results as chunk, i (chunk.i)}
+						<li
+							role="option"
+							aria-selected={i === activeIndex}
+							tabindex={i === activeIndex ? 0 : -1}
+							onclick={() => selectResult(chunk)}
+							onkeydown={(e) => onOptionKeydown(e, i)}
+							class="block p-2 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 aria-selected:bg-gray-100 dark:aria-selected:bg-gray-700"
+						>
+							<span class="block text-xs text-gray-500 dark:text-gray-400">{label(chunk)}</span>
+							<span class="block text-sm text-gray-800 dark:text-gray-200">
+								{#each segments(chunk.text) as seg}{#if seg.match}<mark
+											class="bg-yellow-200 dark:bg-yellow-700 dark:text-white">{seg.text}</mark
+										>{:else}{seg.text}{/if}{/each}
+							</span>
 						</li>
 					{/each}
 				</ul>

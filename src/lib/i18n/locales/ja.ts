@@ -43,6 +43,7 @@ export const ja: Record<MessageKey, string> = {
 	'reader.seekUnitAnnounce': 'スキップ単位: {unit}',
 	'reader.progressAnnounce': '{pct}%、第 {chapter} 章 / 全 {total} 章',
 	'reader.progressPercent': '{pct}%',
+	'reader.charactersRemaining': '残り {remaining} 文字',
 	'reader.bookInfo': '書籍情報',
 	'reader.infoTitle': 'タイトル',
 	'reader.infoLanguage': '言語',

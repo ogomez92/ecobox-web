@@ -1,5 +1,5 @@
 /** ElevenLabs TTS adapter. https://elevenlabs.io/docs/api-reference */
-import type { TtsVoice, ElevenVoiceSettings } from '$lib/types';
+import type { TtsVoice, ElevenVoiceSettings, TtsQuota } from '$lib/types';
 import { DEFAULT_ELEVEN_MODEL, ELEVEN_LANG_CODE_MODELS } from '$lib/types';
 import { TtsError } from './errors';
 
@@ -65,6 +65,38 @@ export async function elevenSynthesize(opts: {
 		throw new TtsError(res.status === 401 ? 401 : 502, `ElevenLabs error ${res.status}`);
 	}
 	return res.arrayBuffer();
+}
+
+/**
+ * Current subscription character usage/limit (GET /v1/user/subscription).
+ * Used to announce "characters remaining" in the reader. The same xi-api-key
+ * that synthesizes can read this — no extra scope needed.
+ */
+export async function elevenSubscription(apiKey: string): Promise<TtsQuota> {
+	if (!apiKey) throw new TtsError(400, 'ElevenLabs API key not configured');
+	let res: Response;
+	try {
+		res = await fetch(`${BASE}/user/subscription`, {
+			headers: { 'xi-api-key': apiKey },
+			signal: AbortSignal.timeout(TIMEOUT)
+		});
+	} catch {
+		throw new TtsError(503, 'ElevenLabs unreachable');
+	}
+	if (!res.ok) throw new TtsError(res.status === 401 ? 401 : 502, `ElevenLabs error ${res.status}`);
+	const data = (await res.json()) as {
+		character_count?: number;
+		character_limit?: number;
+		next_character_count_reset_unix?: number;
+	};
+	const used = Math.max(0, Number(data.character_count ?? 0));
+	const limit = Math.max(0, Number(data.character_limit ?? 0));
+	return {
+		used,
+		limit,
+		remaining: Math.max(0, limit - used),
+		resetUnix: data.next_character_count_reset_unix
+	};
 }
 
 export async function elevenVoices(apiKey: string): Promise<TtsVoice[]> {

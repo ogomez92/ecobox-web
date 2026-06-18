@@ -182,6 +182,23 @@ export type TtsService = 'webspeech' | 'elevenlabs' | 'azure' | 'azure-edge' | '
 /** Services that synthesize server-side and have a persisted credentials row. */
 export type TtsAudioService = Exclude<TtsService, 'webspeech'>;
 
+/**
+ * Subscription character quota for the cloud services that expose a usable
+ * per-key usage endpoint. Currently only ElevenLabs (GET /v1/user/subscription);
+ * Azure and Google report usage only through cloud billing/metrics APIs that need
+ * ARM credentials rather than the synthesis key, so they have no quota here.
+ */
+export interface TtsQuota {
+	/** Characters consumed in the current billing period. */
+	used: number;
+	/** Characters allowed in the current billing period. */
+	limit: number;
+	/** limit − used, clamped at 0. */
+	remaining: number;
+	/** Unix seconds when the count resets, when the provider reports it. */
+	resetUnix?: number;
+}
+
 /** A selectable voice, unified across providers (Web Speech voiceURI = id). */
 export interface TtsVoice {
 	id: string;
