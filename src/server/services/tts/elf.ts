@@ -18,6 +18,28 @@ import { TtsError } from './errors';
 
 const TIMEOUT_MS = 30000;
 
+/**
+ * Inline ECI directive prepended to the text of every synthesis to force the engine's
+ * phrase-prediction pass OFF. Phrase prediction guesses prosodic phrase boundaries
+ * (extra pauses / intonation resets) when the text lacks punctuation; ecobox speaks
+ * text as written, so we disable it.
+ *
+ * It is done here, in the text stream, rather than via `eciSetParam(eciPhrasePrediction, 0)`
+ * in the engine wrapper, because that param is INERT in this Linux ELF port: it round-trips
+ * through GetParam but synthesis is byte-identical whether it's 0 or 1. The inline `` `pp0 ``
+ * annotation, by contrast, genuinely changes the output (verified: shorter WAV, predicted
+ * pauses gone) — the engine honors it because it runs with `eciInputType=1`, the same
+ * backtick-annotation channel the pronunciation dictionary (elfDict.ts) rides on. This
+ * mirrors the upstream Eloquence driver, which embeds `` `pp1 ``/`` `pp0 `` in its byte
+ * stream. The trailing space terminates the directive.
+ *
+ * Like the engine's abbreviation-off policy, this is a fixed, non-configurable setting and
+ * is prepended AFTER the cache hash is computed (in the synthesize route), so it is NOT part
+ * of the unitHash — clear the TTS cache to re-synthesize ELF audio made before this landed
+ * (which still carries phrase prediction).
+ */
+const PHRASE_PREDICTION_OFF = '`pp0 ';
+
 /** Root of the shipped engine bundle (bin/ + lib/). */
 function elfDir(): string {
 	return env.ELF_DIR?.trim() || path.join(process.cwd(), 'elf');
@@ -122,9 +144,13 @@ export async function elfSynthesize(opts: {
 		paramFlag(args, '--breathiness', p.breathiness);
 	}
 
+	// Prepend the phrase-prediction-off directive (no-op on empty text so eci_synth's
+	// "nothing to say" early-return still fires for blank units).
+	const text = opts.text ? PHRASE_PREDICTION_OFF + opts.text : opts.text;
+
 	let synth;
 	try {
-		synth = await run(binPath(), args, Buffer.from(opts.text, 'utf8'));
+		synth = await run(binPath(), args, Buffer.from(text, 'utf8'));
 	} catch (e) {
 		if (e instanceof TtsError) throw e;
 		throw new TtsError(500, 'ELF synthesis failed');

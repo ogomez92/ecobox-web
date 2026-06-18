@@ -62,15 +62,21 @@ int engine_open(EciEngine *e,
     e->api.SetParam(e->h, eciSynthMode, 1);
     e->api.SetParam(e->h, eciInputType, 1);
 
-    /* ecobox policy: speak the text as written. Force OFF the engine's two
-     * "guessing" text passes and intentionally do NOT expose them as settings:
+    /* ecobox policy: speak the text as written.
      *   - eciDictionary=1 disables abbreviation expansion (both the built-in
      *     and any user abbreviation dictionary; "Dr."/"St."/"lbs." are read as
      *     written rather than expanded). It does NOT touch the main/root
-     *     pronunciation dictionaries.
-     *   - eciPhrasePrediction=0 disables phrase prediction.
-     * Values/polarity per the IBM 6.x ABI (0=enabled,1=disabled for the
-     * dictionary; 0=off for phrase prediction). */
+     *     pronunciation dictionaries. This one is load-bearing: the engine's
+     *     default is 0 (expansion on) and GetParam confirms the flip to 1.
+     *   - eciPhrasePrediction=0 is INERT in this port: GetParam round-trips the
+     *     value, but synthesis is byte-identical at 0 or 1, so this call does
+     *     nothing. Phrase prediction is actually disabled by prepending the
+     *     inline `pp0 directive to the input text in the adapter
+     *     (PHRASE_PREDICTION_OFF in src/server/services/tts/elf.ts), which the
+     *     engine honors via the eciInputType=1 backquote channel above. The
+     *     call is kept only as a belt-and-suspenders / intent marker in case a
+     *     future engine build starts honoring the param.
+     * Polarity per the IBM 6.x ABI (dictionary 0=enabled/1=disabled). */
     e->api.SetParam(e->h, eciDictionary, 1);
     e->api.SetParam(e->h, eciPhrasePrediction, 0);
 

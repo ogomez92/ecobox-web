@@ -67,18 +67,29 @@ and defaults to 100** (loudest) even when the other knobs are left at the preset
 ### Text handling
 
 The engine's two "guessing" text passes are forced **off** for every synthesis
-in `engine_open` (`src/eci/engine.c`) and are deliberately not configurable:
+and are deliberately not configurable:
 
-- `eciSetParam(eciDictionary, 1)` — disables abbreviation expansion, so `Dr.`,
-  `St.`, `lbs.` etc. are read as written rather than expanded. This affects only
-  the abbreviation dictionaries (internal + user), not the main/root
-  pronunciation dictionaries.
-- `eciSetParam(eciPhrasePrediction, 0)` — disables phrase prediction.
+- **Abbreviation expansion** — `eciSetParam(eciDictionary, 1)` in `engine_open`
+  (`src/eci/engine.c`), so `Dr.`, `St.`, `lbs.` etc. are read as written rather
+  than expanded. This affects only the abbreviation dictionaries (internal +
+  user), not the main/root pronunciation dictionaries. Polarity per the IBM 6.x
+  ABI: `0`=enabled, `1`=disabled. This one works — the engine's default is `0`
+  and `GetParam` confirms the flip to `1`.
+- **Phrase prediction** (guessed prosodic phrase breaks in unpunctuated text) —
+  disabled by prepending the inline ECI directive `` `pp0 `` to the input text in
+  the adapter (`PHRASE_PREDICTION_OFF` in `src/server/services/tts/elf.ts`). The
+  engine honors it through the `eciInputType=1` backquote channel, the same path
+  the pronunciation dictionary rides on. **`eciSetParam(eciPhrasePrediction, 0)`
+  does NOT work in this port** — `GetParam` round-trips the value but synthesis is
+  byte-identical at `0` or `1` (the `SetParam` call is left in `engine_open` only
+  as a belt-and-suspenders intent marker). The inline `` `pp0 `` genuinely changes
+  the output; this mirrors the upstream Eloquence driver, which embeds
+  `` `pp1 ``/`` `pp0 `` in its byte stream.
 
-Polarity follows the IBM 6.x ABI (dictionary `0`=enabled/`1`=disabled; phrase
-prediction `0`=off). `eciPhrasePrediction` is param `11` (see `src/eci/eci.h`).
-Because these are baked into the binary they are not part of the audio-cache
-key, so clear the TTS cache to re-synthesize already-cached audio.
+Neither setting is part of the audio-cache key (the abbreviation flag is baked
+into the binary; the `` `pp0 `` prefix is added after the cache hash is computed),
+so **clear the TTS cache to re-synthesize already-cached audio** — older ELF audio
+was synthesized with phrase prediction still on.
 
 ### Pronunciation dictionaries
 
