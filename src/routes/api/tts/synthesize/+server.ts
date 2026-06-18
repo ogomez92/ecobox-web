@@ -28,6 +28,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		model?: string;
 		voiceSettings?: ElevenVoiceSettings;
 		elfParams?: ElfVoiceParams;
+		rate?: number;
 		previousText?: string;
 		nextText?: string;
 		bookPath?: string;
@@ -45,6 +46,9 @@ export const POST: RequestHandler = async ({ request }) => {
 	const voiceSettings = body.service === 'elevenlabs' ? body.voiceSettings : undefined;
 	// ELF voice params only affect ELF output — fold them into its cache key too.
 	const elfParams = body.service === 'elf' ? body.elfParams : undefined;
+	// ELF bakes the reading rate into synthesis (others stretch client-side), so it
+	// changes the samples — fold it into ELF's cache key while leaving others' stable.
+	const rate = body.service === 'elf' ? body.rate : undefined;
 	const hash = unitHash({
 		service: body.service,
 		voiceId,
@@ -53,7 +57,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		previousText: body.previousText,
 		nextText: body.nextText,
 		voiceSettings,
-		elfParams
+		elfParams,
+		rate
 	});
 
 	// Cache hit → serve from disk (no provider call, no bill).
@@ -71,6 +76,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			model: body.model,
 			voiceSettings,
 			elfParams,
+			rate,
 			previousText: body.previousText,
 			nextText: body.nextText
 		});

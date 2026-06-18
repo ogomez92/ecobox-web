@@ -62,6 +62,18 @@ int engine_open(EciEngine *e,
     e->api.SetParam(e->h, eciSynthMode, 1);
     e->api.SetParam(e->h, eciInputType, 1);
 
+    /* ecobox policy: speak the text as written. Force OFF the engine's two
+     * "guessing" text passes and intentionally do NOT expose them as settings:
+     *   - eciDictionary=1 disables abbreviation expansion (both the built-in
+     *     and any user abbreviation dictionary; "Dr."/"St."/"lbs." are read as
+     *     written rather than expanded). It does NOT touch the main/root
+     *     pronunciation dictionaries.
+     *   - eciPhrasePrediction=0 disables phrase prediction.
+     * Values/polarity per the IBM 6.x ABI (0=enabled,1=disabled for the
+     * dictionary; 0=off for phrase prediction). */
+    e->api.SetParam(e->h, eciDictionary, 1);
+    e->api.SetParam(e->h, eciPhrasePrediction, 0);
+
     if (audio_cb)        e->api.RegisterCallback(e->h, audio_cb, cb_data);
     if (pcm_chunk_samples > 0 && pcm_chunk)
         e->api.SetOutputBuffer(e->h, pcm_chunk_samples, pcm_chunk);

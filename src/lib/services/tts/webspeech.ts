@@ -8,6 +8,7 @@ import type { TtsEngine, SynthRequest, TtsVoice } from './types';
 export class WebSpeechEngine implements TtsEngine {
 	readonly kind = 'webspeech' as const;
 	readonly unitMaxChars = 1; // sentinel: never group
+	readonly liveRate = false; // can't retune a live utterance — reader re-speaks
 
 	private native: SpeechSynthesisVoice[] = [];
 

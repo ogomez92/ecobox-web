@@ -33,8 +33,22 @@ bin/eci_synth --list                                                  # -> JSON 
 ```
 
 The adapter pipes the WAV through `ffmpeg` to MP3 (to match the audio/mpeg
-pipeline + on-disk cache). Rate is applied client-side via
-`<audio>.playbackRate`, so it is not baked into synthesis or the cache key.
+pipeline + on-disk cache).
+
+### Reading rate
+
+`eci_synth` accepts `--rate M`, a playback-speed multiplier (1.0 = the preset's
+natural pace). Unlike the other audio providers — which time-stretch the MP3
+client-side via `<audio>.playbackRate` — ELF bakes the speed into synthesis using
+the engine's native `eciSpeed`, so this formant voice stays crisp when sped up
+(client-side stretching smears consonants). `eciSpeed` is ~logarithmic in
+perceived rate, so the multiplier→eciSpeed map is an empirical fit
+(`rate_to_eci_speed` in `eci_synth.c`: `eciSpeed ≈ 50 + ln(M)/0.019`, clamped
+0..250) chosen so synthesized duration scales ~1/M over the reader's 0.5..5×
+range. Because rate now changes the samples, ecobox folds it into the on-disk
+audio-cache key for ELF (so changing speed re-synthesizes). To re-calibrate after
+an engine/voice change: synthesize a fixed phrase at several `--rate` values,
+measure WAV duration, and re-fit the `0.019` slope.
 
 ### Voice parameters
 
@@ -49,6 +63,22 @@ ecobox exposes these in Settings behind a "Customize voice" toggle and persists
 them on the `tts_credentials` row (`elf_*` columns). When customized, they fold
 into the audio-cache key so re-tuning re-synthesizes. **Volume is always applied
 and defaults to 100** (loudest) even when the other knobs are left at the preset.
+
+### Text handling
+
+The engine's two "guessing" text passes are forced **off** for every synthesis
+in `engine_open` (`src/eci/engine.c`) and are deliberately not configurable:
+
+- `eciSetParam(eciDictionary, 1)` — disables abbreviation expansion, so `Dr.`,
+  `St.`, `lbs.` etc. are read as written rather than expanded. This affects only
+  the abbreviation dictionaries (internal + user), not the main/root
+  pronunciation dictionaries.
+- `eciSetParam(eciPhrasePrediction, 0)` — disables phrase prediction.
+
+Polarity follows the IBM 6.x ABI (dictionary `0`=enabled/`1`=disabled; phrase
+prediction `0`=off). `eciPhrasePrediction` is param `11` (see `src/eci/eci.h`).
+Because these are baked into the binary they are not part of the audio-cache
+key, so clear the TTS cache to re-synthesize already-cached audio.
 
 The bundle location is `ELF_DIR` (`.env`), defaulting to `<cwd>/elf`.
 

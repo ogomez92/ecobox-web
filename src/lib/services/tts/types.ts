@@ -32,6 +32,13 @@ export interface TtsEngine {
 	readonly kind: 'webspeech' | 'audio';
 	/** Audio engines batch sentences up to this many characters; webspeech ignores it. */
 	readonly unitMaxChars: number;
+	/**
+	 * Whether a rate change can be applied to the *currently playing* unit live.
+	 * true  → the engine retunes in place (audio services: `<audio>.playbackRate`).
+	 * false → rate is baked into the unit, so the reader must re-speak to apply it
+	 *         (webspeech: `utterance.rate`; ELF: native `eciSpeed` synthesis).
+	 */
+	readonly liveRate: boolean;
 
 	/** Voices available for this engine (optionally filtered by language). */
 	listVoices(lang: string): Promise<TtsVoice[]>;

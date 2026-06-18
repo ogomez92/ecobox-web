@@ -22,6 +22,8 @@ export interface SynthesizeInput {
 	voiceSettings?: ElevenVoiceSettings;
 	/** ELF voice parameter overrides (only honored by the ELF service). */
 	elfParams?: ElfVoiceParams;
+	/** Reading-speed multiplier baked into synthesis by ELF (other services stretch client-side). */
+	rate?: number;
 	previousText?: string;
 	nextText?: string;
 }
@@ -62,7 +64,7 @@ export async function synthesize(input: SynthesizeInput): Promise<ArrayBuffer> {
 		case 'google':
 			return toArrayBuffer(await googleSynthesize({ apiKey: cred.apiKey, voiceId, text, lang: input.lang }));
 		case 'elf':
-			return toArrayBuffer(await elfSynthesize({ voiceId, text, params: input.elfParams }));
+			return toArrayBuffer(await elfSynthesize({ voiceId, text, params: input.elfParams, rate: input.rate }));
 		default:
 			throw new TtsError(400, 'Unknown TTS service');
 	}

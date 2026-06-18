@@ -70,18 +70,19 @@ typedef void       *ECIHand;
 #define ECI_ROMANIZERERROR     0x00001000
 #define ECI_SYNTHESIZING       0x00002000
 
-/* Engine-wide params (eciSetParam / eciGetParam). Gaps at 4, 6, 11 are
+/* Engine-wide params (eciSetParam / eciGetParam). Gaps at 4, 6 are
  * unused in ECI 6.x and must not be referenced. */
 enum ECIParam {
     eciSynthMode               = 0,
     eciInputType               = 1,
     eciTextMode                = 2,
-    eciDictionary              = 3,
+    eciDictionary              = 3,    /* 0=abbrev dicts used, 1=disabled */
     eciSampleRate              = 5,
     eciWantPhonemeIndices      = 7,
     eciRealWorldUnits          = 8,
     eciLanguageDialect         = 9,
     eciNumberMode              = 10,
+    eciPhrasePrediction        = 11,   /* 0=off, 1=on */
     eciWantWordIndex           = 12,
     eciNumDeviceBlocks         = 13,
     eciSizeDeviceBlocks        = 14,

@@ -2,7 +2,7 @@
 # Output: ../bin/eci_synth. Run `make` after a fresh checkout or arch change.
 CC      ?= cc
 CFLAGS  ?= -O2 -Wall -Wextra
-LDFLAGS ?= -ldl
+LDFLAGS ?= -ldl -lm
 SRC      = eci_synth.c eci/runtime.c eci/engine.c eci/languages.c eci/voices.c
 OUT      = ../bin/eci_synth
 

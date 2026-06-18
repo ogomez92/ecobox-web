@@ -91,16 +91,21 @@ function paramFlag(args: string[], flag: string, value: number | null | undefine
  * elfVoices() (e.g. "Reed-en-US"); when absent the engine defaults to Reed /
  * American English. `params`, when present, overrides the preset's voice knobs
  * (head size / pitch / inflection / roughness / breathiness / volume); when
- * absent the engine keeps the selected preset's own values. Rate is applied
- * client-side, so it isn't passed here.
+ * absent the engine keeps the selected preset's own values. `rate` is a
+ * playback-speed multiplier (1.0 = the preset's natural pace) baked into
+ * synthesis via the engine's native eciSpeed — unlike the other audio providers
+ * (which time-stretch client-side), so this formant voice stays crisp when sped
+ * up. Because it changes the samples, the caller folds it into the cache key.
  */
 export async function elfSynthesize(opts: {
 	voiceId: string;
 	text: string;
 	params?: ElfVoiceParams;
+	rate?: number;
 }): Promise<Buffer> {
 	const args = ['--lib-dir', libDir()];
 	if (opts.voiceId) args.push('--voice-id', opts.voiceId);
+	if (opts.rate != null && Number.isFinite(opts.rate)) args.push('--rate', String(opts.rate));
 	const p = opts.params;
 	// Volume is always applied and defaults to 100 (loudest) — even when the user
 	// hasn't customized the other knobs — so local ELF playback isn't quiet.

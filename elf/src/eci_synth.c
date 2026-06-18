@@ -22,9 +22,12 @@
  * takes a 0..100 value; when omitted, the preset's own value is kept:
  *   --head-size N --pitch N --inflection N --roughness N --breathiness N --volume N
  *
- * Rate is intentionally NOT applied here: ecobox adjusts playback speed
- * client-side via <audio>.playbackRate, which keeps the on-disk audio cache
- * independent of the chosen rate (mirroring the other audio providers).
+ * --rate M bakes the reading speed into synthesis (the engine's native eciSpeed)
+ * instead of time-stretching the audio client-side. M is a multiplier where 1.0
+ * is the preset's natural pace; it maps to eciSpeed (0..250). A formant voice
+ * stays crisp when sped up this way, unlike <audio>.playbackRate stretching.
+ * When --rate is omitted the preset's default pace is kept (no behavior change).
+ * Because rate now affects the samples, ecobox folds it into the audio-cache key.
  *
  * Copyright (C) 2026 -- ecobox, building on the GPL ECI speech-dispatcher wrapper.
  */
@@ -37,6 +40,7 @@
 #include <errno.h>
 #include <iconv.h>
 #include <limits.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -254,12 +258,27 @@ static int parse_pct(const char *s) {
     return (int)v;
 }
 
+/* Map a playback-rate multiplier (1.0 = the preset's natural pace = eciSpeed 50)
+ * to an ECI eciSpeed value (0..250). eciSpeed is ~logarithmic in perceived rate,
+ * so this is an empirical fit (ln(mult) ~ 0.019 per eciSpeed unit) chosen so the
+ * synthesized duration scales ~1/multiplier across the reader's 0.5..5x range;
+ * see elf/README.md. m=1.0 -> 50 (unchanged pace), m=2.2 -> ~92, m=5.0 -> ~135. */
+static int rate_to_eci_speed(double m) {
+    if (!(m > 0)) m = 1.0;
+    int s = (int)round(50.0 + log(m) / 0.019);
+    if (s < 0)   s = 0;
+    if (s > 250) s = 250;
+    return s;
+}
+
 int main(int argc, char **argv) {
     const char *lib_dir = getenv("ELF_LIB_DIR");
     const char *voice_id = NULL;
     int list = 0;
     /* Voice-param overrides; -1 == unset (keep the preset's own value). */
     int p_head = -1, p_pitch = -1, p_infl = -1, p_rough = -1, p_breath = -1, p_vol = -1;
+    /* Speech-rate multiplier; <0 == unset (keep the preset's default pace). */
+    double rate = -1.0;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--list")) list = 1;
@@ -271,6 +290,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--roughness") && i + 1 < argc) p_rough = parse_pct(argv[++i]);
         else if (!strcmp(argv[i], "--breathiness") && i + 1 < argc) p_breath = parse_pct(argv[++i]);
         else if (!strcmp(argv[i], "--volume") && i + 1 < argc) p_vol = parse_pct(argv[++i]);
+        else if (!strcmp(argv[i], "--rate") && i + 1 < argc) rate = strtod(argv[++i], NULL);
         else { fprintf(stderr, "eci_synth: unknown arg '%s'\n", argv[i]); return 2; }
     }
 
@@ -306,8 +326,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* Load the selected preset into slot 0; preset defaults for rate/pitch/vol
-     * (rate is applied client-side). */
+    /* Load the selected preset into slot 0; preset defaults for pitch/vol. The
+     * preset's default pace (eciSpeed 50) is kept unless --rate overrides it below. */
     voice_activate(&eng.api, eng.h, slot, INT_MIN, INT_MIN, INT_MIN, NULL);
 
     /* Apply any caller-supplied voice-param overrides on top of the preset.
@@ -318,6 +338,11 @@ int main(int argc, char **argv) {
     if (p_rough  >= 0) eng.api.SetVoiceParam(eng.h, ECI_ACTIVE_SLOT, eciRoughness,        p_rough);
     if (p_breath >= 0) eng.api.SetVoiceParam(eng.h, ECI_ACTIVE_SLOT, eciBreathiness,      p_breath);
     if (p_vol    >= 0) eng.api.SetVoiceParam(eng.h, ECI_ACTIVE_SLOT, eciVolume,           p_vol);
+
+    /* Native speech rate: ecobox bakes the reading speed into synthesis (eciSpeed)
+     * rather than time-stretching the audio client-side, so the formant voice stays
+     * crisp when sped up. Applied last so it wins; only when --rate was given. */
+    if (rate > 0) eng.api.SetVoiceParam(eng.h, ECI_ACTIVE_SLOT, eciSpeed, rate_to_eci_speed(rate));
 
     char *text = encode_for_dialect(utf8, in_len, dialect);
     free(utf8);

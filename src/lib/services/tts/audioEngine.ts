@@ -16,6 +16,10 @@ const MAX_CACHE = 8;
 
 export class AudioEngine implements TtsEngine {
 	readonly kind = 'audio' as const;
+	// ELF bakes the reading rate into synthesis (native eciSpeed), so it can't be
+	// retuned live and plays at playbackRate=1; the other (remote) audio services
+	// time-stretch the finished MP3 via playbackRate, which retunes instantly.
+	readonly liveRate: boolean;
 	// Batch sentences into synthesis units up to this many chars. Units still
 	// flush at every paragraph boundary, so this only merges *within* long
 	// paragraphs. Kept well under ElevenLabs' multilingual_v2 limit (10k chars);
@@ -29,6 +33,7 @@ export class AudioEngine implements TtsEngine {
 	constructor(service: TtsAudioService, audio: HTMLAudioElement | null) {
 		this.service = service;
 		this.audio = audio;
+		this.liveRate = service !== 'elf';
 	}
 
 	setAudio(audio: HTMLAudioElement | null) {
@@ -68,7 +73,8 @@ export class AudioEngine implements TtsEngine {
 				if (isCurrent()) onError(new Error('audio playback error'));
 			};
 			audio.src = url;
-			audio.playbackRate = req.rate;
+			// ELF bakes rate into synthesis, so play it untouched; others stretch here.
+			audio.playbackRate = this.service === 'elf' ? 1 : req.rate;
 			await audio.play();
 		} catch (e) {
 			if (isCurrent()) onError(e);
@@ -94,7 +100,9 @@ export class AudioEngine implements TtsEngine {
 	}
 
 	setRate(rate: number): void {
-		if (this.audio) this.audio.playbackRate = rate;
+		// ELF's rate is baked into synthesis (liveRate=false) — the reader re-speaks
+		// to apply a new rate, so don't touch playbackRate here.
+		if (this.service !== 'elf' && this.audio) this.audio.playbackRate = rate;
 	}
 
 	destroy(): void {
@@ -116,7 +124,10 @@ export class AudioEngine implements TtsEngine {
 		const ep = req.elfParams
 			? `${req.elfParams.headSize},${req.elfParams.pitch},${req.elfParams.inflection},${req.elfParams.roughness},${req.elfParams.breathiness},${req.elfParams.volume}`
 			: '';
-		return `${this.service}|${req.voiceId}|${req.model ?? ''}|${vs}|${ep}|${hash(req.text)}`;
+		// ELF bakes rate into the audio, so a rate change must miss the cache and
+		// re-synthesize; other services stretch the same MP3, so rate isn't in their key.
+		const rt = this.service === 'elf' ? `${req.rate}` : '';
+		return `${this.service}|${req.voiceId}|${req.model ?? ''}|${vs}|${ep}|${rt}|${hash(req.text)}`;
 	}
 
 	private ensure(req: SynthRequest): Promise<string> {
@@ -145,6 +156,7 @@ export class AudioEngine implements TtsEngine {
 				model: req.model,
 				voiceSettings: req.voiceSettings,
 				elfParams: req.elfParams,
+				rate: req.rate,
 				previousText: req.previousText,
 				nextText: req.nextText,
 				bookPath: req.bookPath

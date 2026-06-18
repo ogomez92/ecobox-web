@@ -479,13 +479,14 @@ class ReaderStore {
 	setRate(rate: number) {
 		this.rate = Math.min(5, Math.max(0.5, rate));
 		settingsStore.setTtsRate(this.rate);
-		if (this.engine?.kind === 'audio') {
-			// Audio retunes live — no re-synth, no debounce.
+		if (this.engine?.liveRate) {
+			// Retunes live (remote audio services via playbackRate) — no re-synth, no debounce.
 			this.engine.setRate(this.rate);
 			return;
 		}
-		// Web Speech can't retune a live utterance — debounce (the slider fires
-		// rapidly), then re-speak the current sentence (if playing) or a short
+		// Engines that bake rate into the unit (Web Speech's utterance.rate, ELF's
+		// native eciSpeed synthesis) can't retune a live unit — debounce (the slider
+		// fires rapidly), then re-speak the current sentence (if playing) or a short
 		// preview (if paused) so the new rate is always audible immediately.
 		if (this.rateRestartTimer) clearTimeout(this.rateRestartTimer);
 		this.rateRestartTimer = setTimeout(() => {
