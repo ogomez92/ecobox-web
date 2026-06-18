@@ -51,6 +51,8 @@ export interface BookInfo {
 	sourceWords: number;
 	/** Word count of the spoken (converted) text. */
 	mdWords: number;
+	/** Character count of the spoken (converted) text. */
+	mdChars: number;
 	/** Sentence chunks — the canonical reading positions. */
 	totalChunks: number;
 	/** Number of headings, i.e. chapters. */

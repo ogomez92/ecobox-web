@@ -1,13 +1,16 @@
+# pnpm 11.4+ gates native build scripts behind an explicit allow-list and exits 1
+# (ERR_PNPM_IGNORED_BUILDS) on any install/run until each is decided. These are
+# trusted and MUST build, so they're set true here:
+#   better-sqlite3 — native SQLite binding (node-gyp)
+#   esbuild        — platform bundler binary
+#   msedge-tts     — Edge read-aloud TTS postinstall
+# Keep them true after a pnpm bump — if pnpm rewrites these to "set this to true
+# or false", just set them back.
 allowBuilds:
-  better-sqlite3: set this to true or false
-  esbuild: set this to true or false
-  msedge-tts: set this to true or false
-# Dependencies whose install/build scripts are allowed to run. pnpm blocks build
-# scripts by default (supply-chain hardening); these are the ones this app needs:
-#   better-sqlite3 — compiles its native SQLite binding (node-gyp)
-#   esbuild        — fetches/links its platform binary
-#   msedge-tts     — postinstall for the Edge read-aloud TTS engine
-# Without this, `pnpm install`/`pnpm run build` abort with ERR_PNPM_IGNORED_BUILDS.
+  better-sqlite3: true
+  esbuild: true
+  msedge-tts: true
+
 onlyBuiltDependencies:
   - better-sqlite3
   - esbuild

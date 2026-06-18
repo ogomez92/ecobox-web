@@ -46,6 +46,7 @@ export const en = {
 	'reader.infoTitle': 'Title',
 	'reader.infoLanguage': 'Language',
 	'reader.infoWords': 'Words',
+	'reader.infoCharacters': 'Characters',
 	'reader.infoChapters': 'Chapters',
 	'reader.infoSentences': 'Sentences',
 	'reader.infoVerified': 'Verified',

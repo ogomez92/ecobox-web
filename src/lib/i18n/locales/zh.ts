@@ -48,6 +48,7 @@ export const zh: Record<MessageKey, string> = {
 	'reader.infoTitle': '标题',
 	'reader.infoLanguage': '语言',
 	'reader.infoWords': '字数',
+	'reader.infoCharacters': '字符数',
 	'reader.infoChapters': '章数',
 	'reader.infoSentences': '句数',
 	'reader.infoVerified': '已验证',

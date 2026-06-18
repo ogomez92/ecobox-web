@@ -566,7 +566,7 @@ class ReaderStore {
 		const q = foldForSearch(query.trim());
 		if (!q) return { results: [], total: 0 };
 		const matches = this.chunks.filter((c) => foldForSearch(c.text).includes(q));
-		return { results: matches.slice(0, 100), total: matches.length };
+		return { results: matches, total: matches.length };
 	}
 
 	// -------------------------------------------------------------------------

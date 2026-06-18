@@ -50,6 +50,9 @@ async function buildInfo(folderAbs: string): Promise<BookInfo> {
 	const chunks = parsed.chunks ?? [];
 	const chapters = chunks.reduce((n, c) => n + (c.type === 'heading' ? 1 : 0), 0);
 	const mdWordsFromChunks = chunks.reduce((n, c) => n + wordCount(c.text), 0);
+	// Character count is a display-only stat; the marker never stored it, so it's
+	// always derived from the live chunk text.
+	const mdChars = chunks.reduce((n, c) => n + c.text.length, 0);
 
 	const marker = await readBookMarker(folderAbs);
 	return {
@@ -59,6 +62,7 @@ async function buildInfo(folderAbs: string): Promise<BookInfo> {
 		verified: marker?.verified ?? false,
 		sourceWords: marker?.sourceWords ?? 0,
 		mdWords: marker?.mdWords ?? mdWordsFromChunks,
+		mdChars,
 		totalChunks: chunks.length,
 		chapters,
 		convertedAt: marker?.convertedAt ?? ''

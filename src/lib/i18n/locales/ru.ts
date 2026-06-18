@@ -48,6 +48,7 @@ export const ru: Record<MessageKey, string> = {
 	'reader.infoTitle': 'Название',
 	'reader.infoLanguage': 'Язык',
 	'reader.infoWords': 'Слов',
+	'reader.infoCharacters': 'Символов',
 	'reader.infoChapters': 'Глав',
 	'reader.infoSentences': 'Предложений',
 	'reader.infoVerified': 'Проверено',

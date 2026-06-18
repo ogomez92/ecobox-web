@@ -22,6 +22,53 @@
 
 	const dirty = $derived(localeInput.trim() !== info.locale && localeInput.trim().length > 0);
 
+	// The book facts render as a roving-tabindex listbox of read-only rows (mirroring
+	// FindInBook) so keyboard/screen-reader users can arrow through each stat. Only
+	// the active row is tabbable; Up/Down step, Home/End jump to the first/last.
+	let listElement: HTMLUListElement | null = $state(null);
+	let activeIndex = $state(0);
+
+	const facts = $derived([
+		{ label: t('reader.infoTitle'), value: info.title || '—' },
+		{ label: t('reader.infoWords'), value: info.mdWords.toLocaleString() },
+		{ label: t('reader.infoCharacters'), value: info.mdChars.toLocaleString() },
+		{ label: t('reader.infoChapters'), value: info.chapters.toLocaleString() },
+		{ label: t('reader.infoSentences'), value: info.totalChunks.toLocaleString() },
+		{ label: t('reader.infoVerified'), value: info.verified ? t('reader.infoYes') : t('reader.infoNo') },
+		{ label: t('reader.infoConverted'), value: formatDate(info.convertedAt) }
+	]);
+
+	function focusOption(i: number) {
+		listElement?.querySelectorAll<HTMLElement>('[role="option"]')[i]?.focus();
+	}
+
+	// Move the roving focus, clamped to the list bounds.
+	function moveActive(i: number) {
+		activeIndex = Math.max(0, Math.min(i, facts.length - 1));
+		focusOption(activeIndex);
+	}
+
+	function onOptionKeydown(e: KeyboardEvent, index: number) {
+		switch (e.key) {
+			case 'ArrowDown':
+				e.preventDefault();
+				moveActive(index + 1);
+				break;
+			case 'ArrowUp':
+				e.preventDefault();
+				moveActive(index - 1);
+				break;
+			case 'Home':
+				e.preventDefault();
+				moveActive(0);
+				break;
+			case 'End':
+				e.preventDefault();
+				moveActive(facts.length - 1);
+				break;
+		}
+	}
+
 	function sourceLabel(): string {
 		switch (info.localeSource) {
 			case 'detected':
@@ -72,7 +119,9 @@
 	}
 
 	$effect(() => {
-		inputElement?.focus();
+		// Land focus on the facts list when the dialog opens (e.g. via Ctrl+I) so it's
+		// immediately arrow-navigable; the language editor is a Tab away.
+		if (listElement) untrack(() => focusOption(0));
 	});
 </script>
 
@@ -99,34 +148,27 @@
 			{t('reader.bookInfo')}
 		</h2>
 
-		<dl class="space-y-3 text-sm">
-			<div class="flex justify-between gap-4">
-				<dt class="text-gray-500 dark:text-gray-400">{t('reader.infoTitle')}</dt>
-				<dd class="text-right font-medium text-gray-900 dark:text-gray-100 break-words">{info.title || '—'}</dd>
-			</div>
-			<div class="flex justify-between gap-4">
-				<dt class="text-gray-500 dark:text-gray-400">{t('reader.infoWords')}</dt>
-				<dd class="text-right font-medium text-gray-900 dark:text-gray-100">{info.mdWords.toLocaleString()}</dd>
-			</div>
-			<div class="flex justify-between gap-4">
-				<dt class="text-gray-500 dark:text-gray-400">{t('reader.infoChapters')}</dt>
-				<dd class="text-right font-medium text-gray-900 dark:text-gray-100">{info.chapters.toLocaleString()}</dd>
-			</div>
-			<div class="flex justify-between gap-4">
-				<dt class="text-gray-500 dark:text-gray-400">{t('reader.infoSentences')}</dt>
-				<dd class="text-right font-medium text-gray-900 dark:text-gray-100">{info.totalChunks.toLocaleString()}</dd>
-			</div>
-			<div class="flex justify-between gap-4">
-				<dt class="text-gray-500 dark:text-gray-400">{t('reader.infoVerified')}</dt>
-				<dd class="text-right font-medium text-gray-900 dark:text-gray-100">
-					{info.verified ? t('reader.infoYes') : t('reader.infoNo')}
-				</dd>
-			</div>
-			<div class="flex justify-between gap-4">
-				<dt class="text-gray-500 dark:text-gray-400">{t('reader.infoConverted')}</dt>
-				<dd class="text-right font-medium text-gray-900 dark:text-gray-100">{formatDate(info.convertedAt)}</dd>
-			</div>
-		</dl>
+		<ul
+			bind:this={listElement}
+			role="listbox"
+			aria-label={t('reader.bookInfo')}
+			aria-readonly="true"
+			class="space-y-1 text-sm"
+		>
+			{#each facts as fact, i (fact.label)}
+				<li
+					role="option"
+					aria-selected={i === activeIndex}
+					aria-label={`${fact.label}: ${fact.value}`}
+					tabindex={i === activeIndex ? 0 : -1}
+					onkeydown={(e) => onOptionKeydown(e, i)}
+					class="flex justify-between gap-4 p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 aria-selected:bg-gray-100 dark:aria-selected:bg-gray-700"
+				>
+					<span class="text-gray-500 dark:text-gray-400">{fact.label}</span>
+					<span class="text-right font-medium text-gray-900 dark:text-gray-100 break-words">{fact.value}</span>
+				</li>
+			{/each}
+		</ul>
 
 		<!-- Editable language -->
 		<div class="mt-5 pt-4 border-t border-gray-200 dark:border-gray-700">

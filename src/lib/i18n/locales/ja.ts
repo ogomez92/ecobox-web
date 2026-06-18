@@ -48,6 +48,7 @@ export const ja: Record<MessageKey, string> = {
 	'reader.infoTitle': 'タイトル',
 	'reader.infoLanguage': '言語',
 	'reader.infoWords': '単語数',
+	'reader.infoCharacters': '文字数',
 	'reader.infoChapters': '章数',
 	'reader.infoSentences': '文の数',
 	'reader.infoVerified': '検証済み',

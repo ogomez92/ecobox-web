@@ -191,12 +191,14 @@
 							onkeydown={(e) => onOptionKeydown(e, i)}
 							class="block p-2 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 aria-selected:bg-gray-100 dark:aria-selected:bg-gray-700"
 						>
-							<span class="block text-xs text-gray-500 dark:text-gray-400">{label(chunk)}</span>
 							<span class="block text-sm text-gray-800 dark:text-gray-200">
 								{#each segments(chunk.text) as seg}{#if seg.match}<mark
 											class="bg-yellow-200 dark:bg-yellow-700 dark:text-white">{seg.text}</mark
 										>{:else}{seg.text}{/if}{/each}
 							</span>
+							<span class="block text-xs text-gray-500 dark:text-gray-400 mt-0.5"
+								>{label(chunk)}</span
+							>
 						</li>
 					{/each}
 				</ul>

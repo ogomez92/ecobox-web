@@ -290,6 +290,15 @@
 			return;
 		}
 
+		// Ctrl/Cmd+I: open Book info (once loaded, and not stacked over another modal).
+		if (e.code === 'KeyI' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+			e.preventDefault();
+			if (bookInfo && !showFind && !showBookmarks && !showInfo && !showLangWarning) {
+				showInfo = true;
+			}
+			return;
+		}
+
 		// While a modal is open it owns the keyboard (find, bookmarks, info, warning).
 		if (showFind || showBookmarks || showInfo || showLangWarning) return;
 

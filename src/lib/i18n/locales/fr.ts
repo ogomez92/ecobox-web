@@ -48,6 +48,7 @@ export const fr: Record<MessageKey, string> = {
 	'reader.infoTitle': 'Titre',
 	'reader.infoLanguage': 'Langue',
 	'reader.infoWords': 'Mots',
+	'reader.infoCharacters': 'Caractères',
 	'reader.infoChapters': 'Chapitres',
 	'reader.infoSentences': 'Phrases',
 	'reader.infoVerified': 'Vérifié',

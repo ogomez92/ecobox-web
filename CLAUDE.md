@@ -41,9 +41,10 @@ This working directory (`/home/ecobox`) is **also the production install**. The 
 **IMPORTANT — a source change is NOT done until the service is restarted.** Editing `.svelte`/`.ts` and even running `vite build` does nothing visible: the running service keeps serving the *previous* `build/` until it restarts. After ANY source change in this repo, always run the full deploy sequence below before claiming the change works or asking the user to test. Do not skip the restart.
 
 ```bash
-# 1. Build. `npm` is DISABLED on this machine, and `pnpm run build` aborts on a
-#    deps-approval gate (ERR_PNPM_IGNORED_BUILDS). Invoke the binary directly:
-node_modules/.bin/vite build
+# 1. Build. `npm` is DISABLED on this machine; use pnpm. (pnpm 11.4+ gates native
+#    build scripts behind an allow-list — see "Native build approval" below. It's
+#    already approved, so `pnpm run build` works normally.)
+pnpm run build
 # 2. Restart the service so the new build/ is served (run as root; no sudo needed):
 systemctl restart ecobox
 # 3. Fix ownership — build/ and .svelte-kit/ are written as root and the service
@@ -51,24 +52,26 @@ systemctl restart ecobox
 chown -R ecobox:ecobox build .svelte-kit
 ```
 
-Type-checking has the same pnpm gate; run it directly too: `node_modules/.bin/svelte-kit sync && node_modules/.bin/svelte-check --tsconfig ./tsconfig.json`.
+Type-check with `pnpm run check`.
 
 **Verifying the live app:** the service listens on `PORT` from `.env` (currently **4923**), fronted by Caddy at `https://ecobox.oriolgomez.com`. Verify with `curl localhost:4923/...`. Do NOT use `localhost:3000` — that is an unrelated `gulp serve` process, not ecobox. Confirm the restart with `systemctl is-active ecobox`.
 
 Hot dev (`vite dev`) does not affect the running service — the service serves the last `build/` output.
 
-### Native module rebuild (better-sqlite3)
+### Native build approval (pnpm allow-list)
 
-`vite build` runs DB code during prerender analysis, so it fails with "Could not locate the bindings file" if `better-sqlite3`'s native binding isn't compiled for the current Node version (e.g. after a Node upgrade, or when pnpm skipped the unapproved build script). `pnpm rebuild better-sqlite3` may exit 0 without actually building. The reliable fix is to invoke the node-gyp bundled inside pnpm directly:
+pnpm 11.4+ refuses to run dependency install/build scripts unless they're explicitly approved, and exits 1 with `ERR_PNPM_IGNORED_BUILDS` on every `pnpm install`/`pnpm run *` until each is decided. Approval lives in `pnpm-workspace.yaml` under **`allowBuilds`** (a `pkg: true|false` map — this is the key pnpm actually gates on here; a matching `onlyBuiltDependencies` list sits alongside it). The trusted, must-build deps are already set `true`:
 
-```bash
-cd node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3
-GYP=$(find /root/.local/share/pnpm -name node-gyp.js -path '*bin*' | head -1)
-node "$GYP" rebuild --release
-cd /home/ecobox
+```yaml
+allowBuilds:
+  better-sqlite3: true   # native SQLite binding (node-gyp)
+  esbuild: true          # platform bundler binary
+  msedge-tts: true       # Edge read-aloud TTS postinstall
 ```
 
-Then run the normal build / `systemctl restart ecobox` / `chown -R ecobox:ecobox build .svelte-kit` sequence above. Verify the binding exists with `find node_modules/.pnpm/better-sqlite3@*/ -name '*.node'`.
+If a pnpm upgrade ever rewrites those values back to the placeholder `set this to true or false` (it regenerates the block as a prompt when something is unapproved), just set them to `true` again and re-run `pnpm install`.
+
+**better-sqlite3 binding:** `vite build` runs DB code during prerender, so it fails with "Could not locate the bindings file" if the native binding isn't compiled for the current Node version (e.g. after a Node upgrade). With the deps approved above, a plain `pnpm install` recompiles it (watch for the `gyp info ok` line). Because that install runs as root, **also `chown -R ecobox:ecobox node_modules`** afterward (alongside `build`/`.svelte-kit`) so the service can read it. Verify the binding exists with `find node_modules/.pnpm/better-sqlite3@*/ -name '*.node'`, or just hit a DB-backed endpoint (`curl -s -o /dev/null -w '%{http_code}' localhost:4923/api/settings` → 200).
 
 ## Architecture
 
