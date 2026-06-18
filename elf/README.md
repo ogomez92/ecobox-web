@@ -80,6 +80,25 @@ prediction `0`=off). `eciPhrasePrediction` is param `11` (see `src/eci/eci.h`).
 Because these are baked into the binary they are not part of the audio-cache
 key, so clear the TTS cache to re-synthesize already-cached audio.
 
+### Pronunciation dictionaries
+
+Custom pronunciations live in `lib/dictionaries/` as eloquence_threshold-style
+TSV files named by ECI langid: `<langid>main.dic`, `<langid>root.dic`,
+`<langid>abbr.dic` (e.g. `enumain.dic`, `espmain.dic`). Each line is
+`key<TAB>replacement`; the replacement may carry ECI backtick annotations
+(`` `1 `` stress, `` `[…] `` phonemes) which the engine interprets from input
+text.
+
+These are applied by **ecobox**, not the engine: the native `LoadDict`/`SetDict`
+path is non-functional in this port (entries are silently ignored, and loading
+an edited `.dic` segfaults `eci_synth`), so `src/server/services/tts/elfDict.ts`
+performs the substitution on the input text before synthesis. The dictionary is
+chosen by the **language of the voice in use** (parsed from the voiceId, e.g.
+`Reed-en-US` → `enu`), not the book's language. Matching is case-sensitive and
+whole-word; all three volumes apply. Edits are picked up live (mtime-checked) and
+re-synthesize via the audio cache automatically — no rebuild needed (these files
+are runtime data, not compiled into `eci_synth`).
+
 The bundle location is `ELF_DIR` (`.env`), defaulting to `<cwd>/elf`.
 
 ## Rebuilding `eci_synth`

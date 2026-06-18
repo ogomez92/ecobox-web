@@ -1,6 +1,7 @@
 import type { RequestHandler } from './$types';
 import { synthesize, TtsError } from '$server/services/tts';
 import { readCache, writeCache, unitHash } from '$server/services/tts/cache';
+import { applyElfDictionary } from '$server/services/tts/elfDict';
 import {
 	TTS_AUDIO_SERVICES,
 	type TtsAudioService,
@@ -39,7 +40,13 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	const voiceId = body.voiceId ?? '';
-	const text = body.text ?? '';
+	// ELF: apply the voice-language pronunciation dictionary (text-level substitution;
+	// the engine's own dict loader is non-functional). Keyed off the VOICE's language
+	// (from voiceId), not the book's lang. Done here — before the cache hash below — so
+	// the substituted text feeds both unitHash and synthesize, which makes the on-disk
+	// audio cache key reflect the dictionary automatically (edit a .dic → re-synthesis).
+	const rawText = body.text ?? '';
+	const text = body.service === 'elf' ? await applyElfDictionary(voiceId, rawText) : rawText;
 	const bookPath = body.bookPath?.trim();
 	// voice_settings only affect ElevenLabs output — fold them into the cache key
 	// there so re-tuning re-synthesizes, while other services' keys stay stable.

@@ -28,6 +28,10 @@ function binPath(): string {
 function libDir(): string {
 	return path.join(elfDir(), 'lib');
 }
+/** Where the per-language pronunciation `.dic` files live (see elfDict.ts). */
+export function dictionariesDir(): string {
+	return path.join(libDir(), 'dictionaries');
+}
 
 /** Run a command, optionally feeding stdin, and collect stdout. */
 function run(
