@@ -5,22 +5,27 @@
  */
 import {
 	TTS_AUDIO_SERVICES,
+	TTS_KEYLESS_SERVICES,
 	DEFAULT_ELEVEN_MODEL,
 	DEFAULT_ELEVEN_VOICE_SETTINGS,
+	DEFAULT_ELF_VOICE_PARAMS,
 	type TtsAudioService,
 	type TtsCredentialConfig,
-	type ElevenVoiceSettings
+	type ElevenVoiceSettings,
+	type ElfVoiceParams
 } from '$lib/types';
 
 function blank(service: TtsAudioService): TtsCredentialConfig {
 	return {
 		service,
-		configured: service === 'azure-edge',
+		configured: TTS_KEYLESS_SERVICES.includes(service),
 		region: '',
 		model: service === 'elevenlabs' ? DEFAULT_ELEVEN_MODEL : '',
 		voiceId: '',
 		enabled: false,
-		voiceSettings: { ...DEFAULT_ELEVEN_VOICE_SETTINGS }
+		voiceSettings: { ...DEFAULT_ELEVEN_VOICE_SETTINGS },
+		elfCustomize: false,
+		elfParams: { ...DEFAULT_ELF_VOICE_PARAMS }
 	};
 }
 
@@ -93,6 +98,20 @@ class TtsConfigStore {
 		const current = this.get(service);
 		this.replace({ ...current, voiceSettings: { ...current.voiceSettings, ...patch } });
 		return this.put(service, patch);
+	}
+
+	/** Toggle whether ELF voice-param overrides are applied (optimistic local update). */
+	setElfCustomize(service: TtsAudioService, elfCustomize: boolean) {
+		const current = this.get(service);
+		this.replace({ ...current, elfCustomize });
+		return this.put(service, { elfCustomize });
+	}
+
+	/** Patch one or more ELF voice params (optimistic local update). */
+	setElfParams(service: TtsAudioService, patch: Partial<ElfVoiceParams>) {
+		const current = this.get(service);
+		this.replace({ ...current, elfParams: { ...current.elfParams, ...patch } });
+		return this.put(service, { elfParams: patch });
 	}
 }
 

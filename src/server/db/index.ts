@@ -85,7 +85,14 @@ sqlite.exec(`
 		stability REAL,
 		similarity_boost REAL,
 		style REAL,
-		use_speaker_boost INTEGER
+		use_speaker_boost INTEGER,
+		elf_customize INTEGER,
+		elf_head_size INTEGER,
+		elf_pitch INTEGER,
+		elf_inflection INTEGER,
+		elf_roughness INTEGER,
+		elf_breathiness INTEGER,
+		elf_volume INTEGER
 	);
 
 	CREATE TABLE IF NOT EXISTS deletion_history (
@@ -119,7 +126,15 @@ for (const [col, type] of [
 	['stability', 'REAL'],
 	['similarity_boost', 'REAL'],
 	['style', 'REAL'],
-	['use_speaker_boost', 'INTEGER']
+	['use_speaker_boost', 'INTEGER'],
+	// ELF voice parameter overrides added after tts_credentials shipped.
+	['elf_customize', 'INTEGER'],
+	['elf_head_size', 'INTEGER'],
+	['elf_pitch', 'INTEGER'],
+	['elf_inflection', 'INTEGER'],
+	['elf_roughness', 'INTEGER'],
+	['elf_breathiness', 'INTEGER'],
+	['elf_volume', 'INTEGER']
 ] as const) {
 	if (!ttsCredentialColumns.some((c) => c.name === col)) {
 		sqlite.exec(`ALTER TABLE tts_credentials ADD COLUMN ${col} ${type}`);

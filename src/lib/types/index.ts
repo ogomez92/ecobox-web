@@ -179,8 +179,9 @@ export type EffectPreset = 'flat' | 'dialog' | 'bass' | 'treble' | 'custom';
  * TTS service the reader uses. `webspeech` is the local browser engine (no server
  * config). The rest synthesize server-side and have persisted per-service config.
  * `azure-edge` is the keyless "Edge read-aloud" mode (no API key, experimental).
+ * `elf` is a fully local engine bundled with the app (no API key, no network).
  */
-export type TtsService = 'webspeech' | 'elevenlabs' | 'azure' | 'azure-edge' | 'google';
+export type TtsService = 'webspeech' | 'elevenlabs' | 'azure' | 'azure-edge' | 'google' | 'elf';
 /** Services that synthesize server-side and have a persisted credentials row. */
 export type TtsAudioService = Exclude<TtsService, 'webspeech'>;
 
@@ -222,7 +223,45 @@ export interface TtsCredentialConfig {
 	enabled: boolean;
 	/** ElevenLabs voice_settings (ignored by other services). */
 	voiceSettings: ElevenVoiceSettings;
+	/** ELF: when true, `elfParams` override the voice preset's built-in knobs. */
+	elfCustomize: boolean;
+	/** ELF voice parameter overrides (ignored by other services). */
+	elfParams: ElfVoiceParams;
 }
+
+/**
+ * ELF (local engine) voice parameter overrides. Each is 0–100 and maps to an ECI
+ * voice knob; they override the selected voice preset's built-in values and are
+ * only applied when the service's `elfCustomize` flag is on.
+ */
+export interface ElfVoiceParams {
+	/** Vocal-tract size — lower is thinner/smaller, higher is fuller. */
+	headSize: number;
+	/** Pitch baseline — overall voice height. */
+	pitch: number;
+	/** Pitch fluctuation — intonation range (flat → expressive). */
+	inflection: number;
+	/** Rasp/gravel in the voice. */
+	roughness: number;
+	/** Aspiration/airiness in the voice. */
+	breathiness: number;
+	/** Output loudness. */
+	volume: number;
+}
+
+/**
+ * Neutral ELF starting point used to seed the sliders when a user first turns
+ * customization on. Volume defaults to 100 (loudest) — the ELF adapter also
+ * applies volume 100 by default even when customization is off.
+ */
+export const DEFAULT_ELF_VOICE_PARAMS: ElfVoiceParams = {
+	headSize: 50,
+	pitch: 65,
+	inflection: 30,
+	roughness: 0,
+	breathiness: 0,
+	volume: 100
+};
 
 /** Per-voice ElevenLabs rendering knobs — mirror the API's `voice_settings`. */
 export interface ElevenVoiceSettings {
@@ -244,7 +283,16 @@ export const DEFAULT_ELEVEN_VOICE_SETTINGS: ElevenVoiceSettings = {
 	useSpeakerBoost: true
 };
 
-export const TTS_AUDIO_SERVICES: TtsAudioService[] = ['elevenlabs', 'azure', 'azure-edge', 'google'];
+export const TTS_AUDIO_SERVICES: TtsAudioService[] = [
+	'elevenlabs',
+	'azure',
+	'azure-edge',
+	'google',
+	'elf'
+];
+
+/** Audio services that need no credentials (keyless / fully local). */
+export const TTS_KEYLESS_SERVICES: TtsAudioService[] = ['azure-edge', 'elf'];
 
 /** Known ElevenLabs model ids (default first). */
 export const ELEVEN_MODELS = [

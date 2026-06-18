@@ -1,4 +1,4 @@
-import type { TtsVoice, ElevenVoiceSettings } from '$lib/types';
+import type { TtsVoice, ElevenVoiceSettings, ElfVoiceParams } from '$lib/types';
 export type { TtsVoice };
 
 /** One synthesis request: the text of a unit plus the voice/rate/context to render it. */
@@ -11,6 +11,8 @@ export interface SynthRequest {
 	model?: string;
 	/** ElevenLabs voice_settings (ignored by other engines). */
 	voiceSettings?: ElevenVoiceSettings;
+	/** ELF voice param overrides (ignored by other engines). */
+	elfParams?: ElfVoiceParams;
 	/** ElevenLabs context — surrounding units' text (ignored by other engines). */
 	previousText?: string;
 	nextText?: string;

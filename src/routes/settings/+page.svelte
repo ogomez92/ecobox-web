@@ -2,6 +2,7 @@
 	import { onMount, onDestroy, tick } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import DeletionHistoryList from '$lib/components/DeletionHistoryList.svelte';
+	import VoiceLanguageTabs from '$lib/components/VoiceLanguageTabs.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { ttsConfigStore } from '$lib/stores/ttsConfig.svelte';
 	import { speakPreview, stopPreview } from '$lib/services/tts/preview';
@@ -12,7 +13,8 @@
 		ELEVEN_LANG_CODE_MODELS,
 		type TtsService,
 		type TtsAudioService,
-		type TtsVoice
+		type TtsVoice,
+		type ElfVoiceParams
 	} from '$lib/types';
 	import { goto } from '$app/navigation';
 
@@ -21,9 +23,21 @@
 
 	// Move focus to the back button on open so focus isn't stranded on whatever
 	// triggered the navigation (e.g. the Ctrl+, shortcut or the header gear).
+	// Exception: when arriving from the reader's "Change voice" button
+	// (/settings#tts-service), focus the provider selector instead.
 	let backButtonRef: HTMLButtonElement | null = $state(null);
 	onMount(() => {
-		tick().then(() => backButtonRef?.focus());
+		tick().then(() => {
+			if (typeof window !== 'undefined' && window.location.hash === '#tts-service') {
+				const svc = document.getElementById('tts-service');
+				if (svc) {
+					svc.scrollIntoView({ block: 'center' });
+					svc.focus();
+					return;
+				}
+			}
+			backButtonRef?.focus();
+		});
 	});
 
 	// 'system' means: don't pin a locale; use browser detection.
@@ -91,6 +105,31 @@
 		settingsStore.ttsService !== 'webspeech' ? (settingsStore.ttsService as TtsAudioService) : null
 	);
 	const currentTtsConfig = $derived(audioService ? ttsConfigStore.get(audioService) : null);
+
+	// Normalized voice lists for the language-tab picker ({ id, name, lang }).
+	const webSpeechVoiceOptions = $derived(
+		ttsVoices.map((v) => ({ id: v.voiceURI, name: `${v.name} (${v.lang})`, lang: v.lang }))
+	);
+	const serviceVoiceOptions = $derived(
+		ttsServiceVoices.map((v) => ({ id: v.id, name: v.name, lang: v.lang }))
+	);
+
+	// ELF (local engine) voice-parameter sliders — each 0..100, overriding the
+	// selected voice preset's built-in knob when "Customize voice" is on.
+	const elfParamFields = [
+		{ key: 'headSize', label: 'settings.ttsElfHeadSize' },
+		{ key: 'pitch', label: 'settings.ttsElfPitch' },
+		{ key: 'inflection', label: 'settings.ttsElfInflection' },
+		{ key: 'roughness', label: 'settings.ttsElfRoughness' },
+		{ key: 'breathiness', label: 'settings.ttsElfBreathiness' },
+		{ key: 'volume', label: 'settings.ttsElfVolume' }
+	] as const;
+
+	function setElfParam(key: keyof ElfVoiceParams, value: number) {
+		const patch: Partial<ElfVoiceParams> = {};
+		patch[key] = value;
+		ttsConfigStore.setElfParams('elf', patch);
+	}
 
 	// Voice preview ("Test voice"): speak a fixed sample at the chosen voice + the
 	// global speed. Server-synthesized services play through this hidden <audio>.
@@ -473,6 +512,7 @@
 						<option value="azure">{t('settings.ttsSvcAzure')}</option>
 						<option value="azure-edge">{t('settings.ttsSvcAzureEdge')}</option>
 						<option value="google">{t('settings.ttsSvcGoogle')}</option>
+						<option value="elf">{t('settings.ttsSvcElf')}</option>
 					</select>
 					<p id="tts-service-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
 						{t('settings.ttsServiceDesc')}
@@ -482,6 +522,8 @@
 				{#if audioService}
 					{#if audioService === 'azure-edge'}
 						<p class="text-sm text-amber-600 dark:text-amber-400">{t('settings.ttsEdgeNote')}</p>
+					{:else if audioService === 'elf'}
+						<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsElfNote')}</p>
 					{:else}
 						<div>
 							<label for="tts-api-key" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -628,6 +670,63 @@
 						</div>
 					{/if}
 
+					{#if audioService === 'elf'}
+						<!-- ELF voice parameters: a customize switch + per-knob sliders. -->
+						<div class="flex items-center justify-between py-2">
+							<div>
+								<span id="tts-elf-customize-label" class="text-gray-700 dark:text-gray-300">
+									{t('settings.ttsElfCustomize')}
+								</span>
+								<p id="tts-elf-customize-desc" class="text-sm text-gray-500 dark:text-gray-400">
+									{t('settings.ttsElfCustomizeDesc')}
+								</p>
+							</div>
+							<button
+								type="button"
+								onclick={() => ttsConfigStore.setElfCustomize('elf', !currentTtsConfig?.elfCustomize)}
+								class="relative w-12 h-6 rounded-full transition-colors shrink-0"
+								class:bg-primary-500={currentTtsConfig?.elfCustomize}
+								class:bg-gray-300={!currentTtsConfig?.elfCustomize}
+								class:dark:bg-gray-600={!currentTtsConfig?.elfCustomize}
+								role="switch"
+								aria-checked={currentTtsConfig?.elfCustomize ?? false}
+								aria-labelledby="tts-elf-customize-label"
+								aria-describedby="tts-elf-customize-desc"
+							>
+								<span
+									class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+									class:translate-x-0.5={!currentTtsConfig?.elfCustomize}
+									class:translate-x-6={currentTtsConfig?.elfCustomize}
+								></span>
+							</button>
+						</div>
+
+						{#if currentTtsConfig?.elfCustomize}
+							{#each elfParamFields as field (field.key)}
+								<div>
+									<label
+										for={`tts-elf-${field.key}`}
+										class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+									>
+										{t(field.label)}: {currentTtsConfig?.elfParams[field.key] ?? 0}
+									</label>
+									<input
+										id={`tts-elf-${field.key}`}
+										type="range"
+										min="0"
+										max="100"
+										step="1"
+										value={currentTtsConfig?.elfParams[field.key] ?? 0}
+										oninput={(e) =>
+											setElfParam(field.key, parseInt((e.target as HTMLInputElement).value, 10))}
+										aria-valuetext={`${currentTtsConfig?.elfParams[field.key] ?? 0}`}
+										class="w-full"
+									/>
+								</div>
+							{/each}
+						{/if}
+					{/if}
+
 					{#if audioService === 'azure'}
 						<div>
 							<label for="tts-region" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -645,24 +744,21 @@
 					{/if}
 
 					<div>
-						<label for="tts-svc-voice" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+						<p class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
 							{t('settings.ttsVoice')}
-						</label>
+						</p>
 						{#if voicesLoading}
 							<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsLoadingVoices')}</p>
-						{:else if ttsServiceVoices.length > 0}
-							<select
-								id="tts-svc-voice"
-								value={currentTtsConfig?.voiceId}
-								onchange={(e) => {
-									if (audioService) ttsConfigStore.setVoiceId(audioService, (e.target as HTMLSelectElement).value);
+						{:else if serviceVoiceOptions.length > 0}
+							<VoiceLanguageTabs
+								voices={serviceVoiceOptions}
+								selectedId={currentTtsConfig?.voiceId ?? null}
+								onSelect={(id) => {
+									if (audioService) ttsConfigStore.setVoiceId(audioService, id);
 								}}
-								class="input"
-							>
-								{#each ttsServiceVoices as v (v.id)}
-									<option value={v.id}>{v.name}</option>
-								{/each}
-							</select>
+								idPrefix="tts-svc-voice"
+								selectLabel={t('settings.ttsVoice')}
+							/>
 							<button
 								type="button"
 								class="btn-secondary mt-2 flex items-center gap-2"
@@ -695,22 +791,18 @@
 					</div>
 				{:else}
 					<!-- Web Speech (device): the voice list is device-local, so it's chosen here. -->
-					{#if ttsVoices.length > 0}
+					{#if webSpeechVoiceOptions.length > 0}
 						<div>
-							<label for="tts-voice" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+							<p class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
 								{t('settings.ttsVoice')}
-							</label>
-							<select
-								id="tts-voice"
-								value={ttsVoiceURI}
-								onchange={(e) => setTtsVoice((e.target as HTMLSelectElement).value)}
-								aria-describedby="tts-voice-desc"
-								class="input"
-							>
-								{#each ttsVoices as voice (voice.voiceURI)}
-									<option value={voice.voiceURI}>{voice.name} ({voice.lang})</option>
-								{/each}
-							</select>
+							</p>
+							<VoiceLanguageTabs
+								voices={webSpeechVoiceOptions}
+								selectedId={ttsVoiceURI}
+								onSelect={(id) => setTtsVoice(id)}
+								idPrefix="tts-device-voice"
+								selectLabel={t('settings.ttsVoice')}
+							/>
 							<button
 								type="button"
 								class="btn-secondary mt-2 flex items-center gap-2"
@@ -719,7 +811,7 @@
 								<Icon name="play" size={16} />
 								{t('reader.testVoice')}
 							</button>
-							<p id="tts-voice-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+							<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
 								{t('settings.ttsVoiceDesc')}
 							</p>
 						</div>

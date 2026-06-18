@@ -1,7 +1,12 @@
 import type { RequestHandler } from './$types';
 import { synthesize, TtsError } from '$server/services/tts';
 import { readCache, writeCache, unitHash } from '$server/services/tts/cache';
-import { TTS_AUDIO_SERVICES, type TtsAudioService, type ElevenVoiceSettings } from '$lib/types';
+import {
+	TTS_AUDIO_SERVICES,
+	type TtsAudioService,
+	type ElevenVoiceSettings,
+	type ElfVoiceParams
+} from '$lib/types';
 
 function isAudioService(s: unknown): s is TtsAudioService {
 	return typeof s === 'string' && (TTS_AUDIO_SERVICES as string[]).includes(s);
@@ -22,6 +27,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		lang?: string;
 		model?: string;
 		voiceSettings?: ElevenVoiceSettings;
+		elfParams?: ElfVoiceParams;
 		previousText?: string;
 		nextText?: string;
 		bookPath?: string;
@@ -37,6 +43,8 @@ export const POST: RequestHandler = async ({ request }) => {
 	// voice_settings only affect ElevenLabs output — fold them into the cache key
 	// there so re-tuning re-synthesizes, while other services' keys stay stable.
 	const voiceSettings = body.service === 'elevenlabs' ? body.voiceSettings : undefined;
+	// ELF voice params only affect ELF output — fold them into its cache key too.
+	const elfParams = body.service === 'elf' ? body.elfParams : undefined;
 	const hash = unitHash({
 		service: body.service,
 		voiceId,
@@ -44,7 +52,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		text,
 		previousText: body.previousText,
 		nextText: body.nextText,
-		voiceSettings
+		voiceSettings,
+		elfParams
 	});
 
 	// Cache hit → serve from disk (no provider call, no bill).
@@ -61,6 +70,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			lang: body.lang ?? 'en',
 			model: body.model,
 			voiceSettings,
+			elfParams,
 			previousText: body.previousText,
 			nextText: body.nextText
 		});

@@ -3,12 +3,13 @@
  * audio-based services (ElevenLabs, Azure key/edge, Google), keeping API keys
  * server-side. Web Speech is handled entirely in the browser and never reaches here.
  */
-import type { TtsAudioService, TtsVoice, ElevenVoiceSettings, TtsQuota } from '$lib/types';
+import type { TtsAudioService, TtsVoice, ElevenVoiceSettings, ElfVoiceParams, TtsQuota } from '$lib/types';
 import { resolveCredential } from './credentials';
 import { TtsError } from './errors';
 import { elevenSynthesize, elevenVoices, elevenSubscription } from './elevenlabs';
 import { azureSynthesize, azureVoices, edgeSynthesize, edgeVoices } from './azure';
 import { googleSynthesize, googleVoices } from './google';
+import { elfSynthesize, elfVoices } from './elf';
 
 export { TtsError } from './errors';
 
@@ -19,6 +20,8 @@ export interface SynthesizeInput {
 	lang: string;
 	model?: string;
 	voiceSettings?: ElevenVoiceSettings;
+	/** ELF voice parameter overrides (only honored by the ELF service). */
+	elfParams?: ElfVoiceParams;
 	previousText?: string;
 	nextText?: string;
 }
@@ -58,6 +61,8 @@ export async function synthesize(input: SynthesizeInput): Promise<ArrayBuffer> {
 			return toArrayBuffer(await edgeSynthesize({ voiceId, text }));
 		case 'google':
 			return toArrayBuffer(await googleSynthesize({ apiKey: cred.apiKey, voiceId, text, lang: input.lang }));
+		case 'elf':
+			return toArrayBuffer(await elfSynthesize({ voiceId, text, params: input.elfParams }));
 		default:
 			throw new TtsError(400, 'Unknown TTS service');
 	}
@@ -74,6 +79,8 @@ export async function listVoices(service: TtsAudioService, lang: string): Promis
 			return edgeVoices();
 		case 'google':
 			return googleVoices({ apiKey: cred.apiKey, lang });
+		case 'elf':
+			return elfVoices();
 		default:
 			throw new TtsError(400, 'Unknown TTS service');
 	}

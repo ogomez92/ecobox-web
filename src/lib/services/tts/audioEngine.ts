@@ -108,7 +108,15 @@ export class AudioEngine implements TtsEngine {
 	// --- internal: content-keyed synthesis cache ---
 
 	private key(req: SynthRequest): string {
-		return `${this.service}|${req.voiceId}|${req.model ?? ''}|${hash(req.text)}`;
+		// Fold in the tuning knobs that change the audio so re-tuning doesn't hit a
+		// stale in-memory entry (voiceSettings = ElevenLabs, elfParams = ELF).
+		const vs = req.voiceSettings
+			? `${req.voiceSettings.stability},${req.voiceSettings.similarityBoost},${req.voiceSettings.style},${req.voiceSettings.useSpeakerBoost ? 1 : 0}`
+			: '';
+		const ep = req.elfParams
+			? `${req.elfParams.headSize},${req.elfParams.pitch},${req.elfParams.inflection},${req.elfParams.roughness},${req.elfParams.breathiness},${req.elfParams.volume}`
+			: '';
+		return `${this.service}|${req.voiceId}|${req.model ?? ''}|${vs}|${ep}|${hash(req.text)}`;
 	}
 
 	private ensure(req: SynthRequest): Promise<string> {
@@ -136,6 +144,7 @@ export class AudioEngine implements TtsEngine {
 				lang: req.lang,
 				model: req.model,
 				voiceSettings: req.voiceSettings,
+				elfParams: req.elfParams,
 				previousText: req.previousText,
 				nextText: req.nextText,
 				bookPath: req.bookPath

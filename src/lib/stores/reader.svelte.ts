@@ -261,6 +261,7 @@ class ReaderStore {
 			rate: this.rate,
 			model: cfg?.model || undefined,
 			voiceSettings: isEleven ? cfg?.voiceSettings : undefined,
+			elfParams: this.service === 'elf' && cfg?.elfCustomize ? cfg.elfParams : undefined,
 			previousText: isEleven ? this.units[uIdx - 1]?.text?.slice(-400) : undefined,
 			nextText: isEleven ? this.units[uIdx + 1]?.text?.slice(0, 400) : undefined,
 			bookPath: this.bookFolderPath ?? undefined
@@ -544,7 +545,8 @@ class ReaderStore {
 			voiceId: this.voiceId ?? '',
 			rate: this.rate,
 			model: cfg?.model || undefined,
-			voiceSettings: this.service === 'elevenlabs' ? cfg?.voiceSettings : undefined
+			voiceSettings: this.service === 'elevenlabs' ? cfg?.voiceSettings : undefined,
+			elfParams: this.service === 'elf' && cfg?.elfCustomize ? cfg.elfParams : undefined
 		};
 		try {
 			await this.engine.speak(

@@ -64,7 +64,7 @@ export const bookBookmarks = sqliteTable('book_bookmarks', {
 });
 
 export const ttsCredentials = sqliteTable('tts_credentials', {
-	// 'elevenlabs' | 'azure' | 'azure-edge' | 'google'
+	// 'elevenlabs' | 'azure' | 'azure-edge' | 'google' | 'elf'
 	service: text('service').primaryKey(),
 	// SECRET — never serialized to the client (see /api/tts/config GET).
 	apiKey: text('api_key'),
@@ -76,7 +76,15 @@ export const ttsCredentials = sqliteTable('tts_credentials', {
 	stability: real('stability'),
 	similarityBoost: real('similarity_boost'),
 	style: real('style'),
-	useSpeakerBoost: integer('use_speaker_boost', { mode: 'boolean' })
+	useSpeakerBoost: integer('use_speaker_boost', { mode: 'boolean' }),
+	// ELF voice parameter overrides (null until the user customizes them).
+	elfCustomize: integer('elf_customize', { mode: 'boolean' }),
+	elfHeadSize: integer('elf_head_size'),
+	elfPitch: integer('elf_pitch'),
+	elfInflection: integer('elf_inflection'),
+	elfRoughness: integer('elf_roughness'),
+	elfBreathiness: integer('elf_breathiness'),
+	elfVolume: integer('elf_volume')
 });
 
 export const protectedPaths = sqliteTable('protected_paths', {

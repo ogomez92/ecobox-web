@@ -346,10 +346,6 @@
 	function onRateInput(e: Event) {
 		readerStore.setRate(parseFloat((e.target as HTMLInputElement).value));
 	}
-
-	function onVoiceChange(e: Event) {
-		readerStore.setVoice((e.target as HTMLSelectElement).value);
-	}
 </script>
 
 <svelte:window
@@ -458,36 +454,16 @@
 					/>
 				</div>
 
-				{#if readerStore.voices.length > 0}
-					<div>
-						<label for="voice-select" class="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-							{t('reader.voice')}
-						</label>
-						<select
-							id="voice-select"
-							value={readerStore.voiceId}
-							onchange={onVoiceChange}
-							class="input w-full"
-							aria-label={t('reader.voice')}
-						>
-							{#each readerStore.voices as voice (voice.id)}
-								<option value={voice.id}>{voice.name}</option>
-							{/each}
-						</select>
-						<button
-							type="button"
-							onclick={() => readerStore.testVoice()}
-							class="btn-secondary mt-2 flex items-center gap-2"
-						>
-							<Icon name="play" size={16} />
-							{t('reader.testVoice')}
-						</button>
-					</div>
-				{:else if readerStore.service !== 'webspeech'}
-					<p class="text-sm text-amber-600 dark:text-amber-400" role="status">
-						{t('reader.noVoices')}
-					</p>
-				{/if}
+				<!-- Voice selection lives in Settings (provider tabs + voice params).
+				     This jumps there with the provider selector focused on arrival. -->
+				<button
+					type="button"
+					onclick={() => goto('/settings#tts-service')}
+					class="btn-secondary flex items-center gap-2"
+				>
+					<Icon name="settings" size={16} />
+					{t('reader.changeVoice')}
+				</button>
 
 				<div class="flex flex-wrap justify-center gap-2">
 					<button
