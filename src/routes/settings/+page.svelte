@@ -449,35 +449,6 @@
 					</p>
 				</div>
 
-				{#if ttsVoices.length > 0}
-					<div>
-						<label for="tts-voice" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-							{t('settings.ttsVoice')}
-						</label>
-						<select
-							id="tts-voice"
-							value={ttsVoiceURI}
-							onchange={(e) => setTtsVoice((e.target as HTMLSelectElement).value)}
-							aria-describedby="tts-voice-desc"
-							class="input"
-						>
-							{#each ttsVoices as voice (voice.voiceURI)}
-								<option value={voice.voiceURI}>{voice.name} ({voice.lang})</option>
-							{/each}
-						</select>
-						<button
-							type="button"
-							class="btn-secondary mt-2 flex items-center gap-2"
-							onclick={previewDeviceVoice}
-						>
-							<Icon name="play" size={16} />
-							{t('reader.testVoice')}
-						</button>
-						<p id="tts-voice-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-							{t('settings.ttsVoiceDesc')}
-						</p>
-					</div>
-				{/if}
 			</div>
 		</fieldset>
 
@@ -722,6 +693,37 @@
 							</p>
 						{/if}
 					</div>
+				{:else}
+					<!-- Web Speech (device): the voice list is device-local, so it's chosen here. -->
+					{#if ttsVoices.length > 0}
+						<div>
+							<label for="tts-voice" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+								{t('settings.ttsVoice')}
+							</label>
+							<select
+								id="tts-voice"
+								value={ttsVoiceURI}
+								onchange={(e) => setTtsVoice((e.target as HTMLSelectElement).value)}
+								aria-describedby="tts-voice-desc"
+								class="input"
+							>
+								{#each ttsVoices as voice (voice.voiceURI)}
+									<option value={voice.voiceURI}>{voice.name} ({voice.lang})</option>
+								{/each}
+							</select>
+							<button
+								type="button"
+								class="btn-secondary mt-2 flex items-center gap-2"
+								onclick={previewDeviceVoice}
+							>
+								<Icon name="play" size={16} />
+								{t('reader.testVoice')}
+							</button>
+							<p id="tts-voice-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+								{t('settings.ttsVoiceDesc')}
+							</p>
+						</div>
+					{/if}
 				{/if}
 
 				<!-- Audio cache (disk) -->
