@@ -12,7 +12,7 @@ A self-hosted audiobook and media player web application. Stream your audio libr
 - Playback speed control (0.5x - 2x)
 - Sleep timer
 - Radio stream support (.radio files)
-- **Book reading (text-to-speech)** — convert EPUB/DOCX/TXT into books read aloud, using your browser's built-in voice (free, local) or a cloud voice service (ElevenLabs, Azure, Google)
+- **Book reading (text-to-speech)** — convert EPUB/DOCX/TXT into books read aloud, using your browser's built-in voice (free, local), a fully local on-server engine (ELF, or Piper with your own neural voices), or a cloud voice service (ElevenLabs, Azure, Google)
 - File upload and sync
 - Mobile-friendly interface
 
@@ -177,6 +177,29 @@ You choose how the narration is produced in **Settings → reading / TTS service
 
 The `webspeech` service uses your browser's built-in **Web Speech** voices. It's free, runs entirely on your device, and works out of the box — no keys, no accounts, nothing to configure. The available voices depend on your operating system and browser. Caveats: it can't reliably keep playing in the background or on the lock screen (a browser limitation, worst on iOS), and changing voice or speed mid-sentence re-reads the current sentence.
 
+**Fully local server voices (no internet, no API key)**
+
+Two engines synthesize on the server itself — no account, no key, nothing leaves the machine — and, unlike Web Speech, they support proper **background / lock-screen playback**:
+
+- **ELF** — a compact voice that ships built into Ecobox. Just pick it in **Settings → TTS service** and choose a voice (English, Spanish, French, German, Italian, Portuguese, Finnish).
+- **Piper** — a neural engine (more natural-sounding) that runs on-server. Ecobox ships the engine but **no voices** — you import the ones you want (see below).
+
+**Importing a Piper voice**
+
+A Piper voice is two files: the model (`<name>.onnx`) and its config (`<name>.onnx.json`). Download a pair from the [Piper voices catalogue](https://huggingface.co/rhasspy/piper-voices) (any quality — low / medium / high), or use your own, then:
+
+1. Open **Settings → Voices & AI services**.
+2. Set **Service** to **Piper (on this server)**.
+3. Click **Import voice…** and select **both** files at once — the `.onnx` *and* its `.onnx.json`.
+4. The voice appears in the list below — select it. No restart needed.
+
+Notes:
+
+- Select **both** files together; importing just one is rejected.
+- The model's filename must be plain — letters, numbers, `.`, `-`, `_`, no spaces. Rename the `.onnx` (and match its `.onnx.json`) if needed.
+- Multi-speaker voices work too — each speaker shows up as its own selectable voice.
+- Imported voices are stored under `data/piper-voices/` (override with the `PIPER_VOICES_DIR` env var), so they're never bundled with the app and survive upgrades. Remove one with the delete button next to it.
+
 **If you want higher-quality cloud voices**
 
 Server-synthesized services produce more natural narration and support proper **background / lock-screen playback**:
@@ -197,7 +220,7 @@ AZURE_SPEECH_REGION=...      # e.g. eastus
 GOOGLE_TTS_API_KEY=...
 ```
 
-**Which should I pick?** If you just want it to work for free, stick with the local Web Speech voice. If you want the best-sounding narration or reliable background playback on mobile, add an API key for one of the cloud services. You can switch services at any time without losing your reading position.
+**Which should I pick?** For zero setup, the local Web Speech voice or the built-in ELF engine work for free. For natural-sounding narration without any account or internet, import a **Piper** voice. For the best cloud voices (or if you'd rather not manage voice files), add an API key for one of the cloud services. All of them except Web Speech also handle background / lock-screen playback — and you can switch services at any time without losing your reading position.
 
 > Converting EPUB/DOCX requires the `pandoc` system binary (see Requirements). If it's missing, conversion of those formats fails safely and the original file is kept; TXT files don't need it.
 
