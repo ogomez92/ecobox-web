@@ -409,6 +409,18 @@ export const zh: Record<MessageKey, string> = {
 	'settings.ttsSvcAzureEdge': 'Azure Edge（无需 API 密钥）',
 	'settings.ttsSvcGoogle': 'Google',
 	'settings.ttsSvcElf': 'ELF（本服务器）',
+	'settings.ttsSvcPiper': 'Piper（本服务器）',
+	'settings.ttsPiperNote':
+		'在本服务器上合成的本地神经语音——无需 API 密钥，无需联网。不附带任何语音：请在下方导入 Piper 语音后再选择。',
+	'settings.ttsPiperImport': '导入语音…',
+	'settings.ttsPiperImporting': '导入中…',
+	'settings.ttsPiperImportHint':
+		'选择 Piper 语音：模型（.onnx）及其配置（.onnx.json）。请同时选择两个文件。可在 rhasspy/piper-voices 找到语音。',
+	'settings.ttsPiperImportNeedBoth': '请同时选择两个文件：.onnx 模型及其 .onnx.json 配置。',
+	'settings.ttsPiperImported': '语音已导入。',
+	'settings.ttsPiperImportError': '导入失败。',
+	'settings.ttsPiperNoVoices': '尚未导入任何语音。',
+	'settings.ttsPiperDelete': '删除语音',
 	'settings.ttsElfNote':
 		'在本服务器上本地合成的语音，无需 API 密钥，无需联网。请在下方选择语音。',
 	'settings.ttsLangTabsLabel': '语音语言',

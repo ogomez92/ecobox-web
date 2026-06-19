@@ -409,6 +409,19 @@ export const de: Record<MessageKey, string> = {
 	'settings.ttsSvcAzureEdge': 'Azure Edge (ohne API-Schlüssel)',
 	'settings.ttsSvcGoogle': 'Google',
 	'settings.ttsSvcElf': 'ELF (auf diesem Server)',
+	'settings.ttsSvcPiper': 'Piper (auf diesem Server)',
+	'settings.ttsPiperNote':
+		'Eine lokale neuronale Stimme, die auf diesem Server synthetisiert wird – kein API-Schlüssel, kein Internet. Es sind keine Stimmen enthalten: Importiere unten eine Piper-Stimme und wähle sie dann aus.',
+	'settings.ttsPiperImport': 'Stimme importieren…',
+	'settings.ttsPiperImporting': 'Wird importiert…',
+	'settings.ttsPiperImportHint':
+		'Wähle eine Piper-Stimme: das Modell (.onnx) und seine Konfiguration (.onnx.json). Wähle beide Dateien gleichzeitig aus. Stimmen findest du unter rhasspy/piper-voices.',
+	'settings.ttsPiperImportNeedBoth':
+		'Wähle beide Dateien: das .onnx-Modell und seine .onnx.json-Konfiguration.',
+	'settings.ttsPiperImported': 'Stimme importiert.',
+	'settings.ttsPiperImportError': 'Import fehlgeschlagen.',
+	'settings.ttsPiperNoVoices': 'Noch keine Stimmen importiert.',
+	'settings.ttsPiperDelete': 'Stimme entfernen',
 	'settings.ttsElfNote':
 		'Eine lokal auf diesem Server erzeugte Stimme — ohne API-Schlüssel und ohne Internet. Wählen Sie unten eine Stimme.',
 	'settings.ttsLangTabsLabel': 'Stimmsprachen',

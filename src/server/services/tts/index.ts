@@ -10,6 +10,7 @@ import { elevenSynthesize, elevenVoices, elevenSubscription } from './elevenlabs
 import { azureSynthesize, azureVoices, edgeSynthesize, edgeVoices } from './azure';
 import { googleSynthesize, googleVoices } from './google';
 import { elfSynthesize, elfVoices } from './elf';
+import { piperSynthesize, piperVoices } from './piper';
 
 export { TtsError } from './errors';
 
@@ -65,6 +66,9 @@ export async function synthesize(input: SynthesizeInput): Promise<ArrayBuffer> {
 			return toArrayBuffer(await googleSynthesize({ apiKey: cred.apiKey, voiceId, text, lang: input.lang }));
 		case 'elf':
 			return toArrayBuffer(await elfSynthesize({ voiceId, text, params: input.elfParams, rate: input.rate }));
+		case 'piper':
+			// Neural — rate is applied client-side (playbackRate), so it's not passed here.
+			return toArrayBuffer(await piperSynthesize({ voiceId, text }));
 		default:
 			throw new TtsError(400, 'Unknown TTS service');
 	}
@@ -83,6 +87,8 @@ export async function listVoices(service: TtsAudioService, lang: string): Promis
 			return googleVoices({ apiKey: cred.apiKey, lang });
 		case 'elf':
 			return elfVoices();
+		case 'piper':
+			return piperVoices();
 		default:
 			throw new TtsError(400, 'Unknown TTS service');
 	}

@@ -19,15 +19,19 @@ export const GET: RequestHandler = async ({ url }) => {
 		return json({ error: 'Invalid service' }, { status: 400 });
 	}
 
+	// Piper's voice list is user-imported and changes at runtime (import/delete), and
+	// listing it is just a local readdir — so don't cache it, or a freshly imported
+	// voice wouldn't appear (and a deleted one would linger) until the TTL expired.
+	const cacheable = service !== 'piper';
 	const key = `${service}:${lang}`;
-	const hit = cache.get(key);
+	const hit = cacheable ? cache.get(key) : undefined;
 	if (hit && Date.now() - hit.at < TTL) {
 		return json(hit.voices);
 	}
 
 	try {
 		const voices = await listVoices(service, lang);
-		cache.set(key, { at: Date.now(), voices });
+		if (cacheable) cache.set(key, { at: Date.now(), voices });
 		return json(voices);
 	} catch (err) {
 		const status = err instanceof TtsError ? err.status : 502;

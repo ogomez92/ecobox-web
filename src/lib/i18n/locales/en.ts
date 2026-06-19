@@ -409,6 +409,18 @@ export const en = {
 	'settings.ttsSvcElf': 'ELF (on this server)',
 	'settings.ttsElfNote':
 		'A local voice synthesized on this server — no API key, no internet. Pick a voice below.',
+	'settings.ttsSvcPiper': 'Piper (on this server)',
+	'settings.ttsPiperNote':
+		'A local neural voice synthesized on this server — no API key, no internet. No voices are bundled: import a Piper voice below, then pick it.',
+	'settings.ttsPiperImport': 'Import voice…',
+	'settings.ttsPiperImporting': 'Importing…',
+	'settings.ttsPiperImportHint':
+		'Choose a Piper voice: the model (.onnx) and its config (.onnx.json). Select both files at once. Find voices at rhasspy/piper-voices.',
+	'settings.ttsPiperImportNeedBoth': 'Select both files: the .onnx model and its .onnx.json config.',
+	'settings.ttsPiperImported': 'Voice imported.',
+	'settings.ttsPiperImportError': 'Import failed.',
+	'settings.ttsPiperNoVoices': 'No voices imported yet.',
+	'settings.ttsPiperDelete': 'Remove voice',
 	'settings.ttsLangTabsLabel': 'Voice languages',
 	'settings.ttsLangOther': 'Other languages',
 	'settings.ttsElfCustomize': 'Customize voice',

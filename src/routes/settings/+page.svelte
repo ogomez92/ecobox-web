@@ -101,6 +101,14 @@
 	let dbCleanupTotal = $state<number | null>(null);
 	let dbCleanupAnnouncement = $state('');
 
+	// --- Piper (local neural engine): user-imported voice models ---
+	let piperModels = $state<
+		{ stem: string; label: string; lang: string; speakers: number; bytes: number }[]
+	>([]);
+	let importingVoice = $state(false);
+	let importError = $state('');
+	let importAnnouncement = $state('');
+
 	const audioService = $derived(
 		settingsStore.ttsService !== 'webspeech' ? (settingsStore.ttsService as TtsAudioService) : null
 	);
@@ -166,6 +174,7 @@
 		if (settingsStore.ttsService !== 'webspeech') {
 			loadServiceVoices(settingsStore.ttsService as TtsAudioService);
 		}
+		if (settingsStore.ttsService === 'piper') loadPiperModels();
 	});
 
 	async function loadCacheSize() {
@@ -193,8 +202,66 @@
 		settingsStore.setTtsService(value);
 		testResult = null;
 		apiKeyInput = '';
+		importError = '';
 		ttsServiceVoices = [];
 		if (value !== 'webspeech') loadServiceVoices(value as TtsAudioService);
+		if (value === 'piper') loadPiperModels();
+	}
+
+	async function loadPiperModels() {
+		try {
+			const res = await fetch('/api/tts/piper/voices');
+			if (res.ok) piperModels = await res.json();
+		} catch {
+			// ignore — list stays as-is
+		}
+	}
+
+	/** Upload a Piper voice (the .onnx model + its .onnx.json config, picked together). */
+	async function importPiperVoices(fileList: FileList | null) {
+		importError = '';
+		if (!fileList || fileList.length === 0) return;
+		const files = Array.from(fileList);
+		const hasOnnx = files.some((f) => f.name.endsWith('.onnx'));
+		const hasJson = files.some((f) => f.name.endsWith('.json'));
+		if (!hasOnnx || !hasJson) {
+			importError = t('settings.ttsPiperImportNeedBoth');
+			return;
+		}
+		const form = new FormData();
+		for (const f of files) form.append('files', f);
+		importingVoice = true;
+		importAnnouncement = t('settings.ttsPiperImporting');
+		try {
+			const res = await fetch('/api/tts/piper/voices', { method: 'POST', body: form });
+			const data = await res.json().catch(() => ({}));
+			if (res.ok) {
+				importAnnouncement = t('settings.ttsPiperImported');
+				await loadPiperModels();
+				loadServiceVoices('piper');
+			} else {
+				importError = data?.error || t('settings.ttsPiperImportError');
+				importAnnouncement = importError;
+			}
+		} catch {
+			importError = t('settings.ttsPiperImportError');
+			importAnnouncement = importError;
+		}
+		importingVoice = false;
+	}
+
+	async function removePiperVoice(stem: string) {
+		try {
+			const res = await fetch(`/api/tts/piper/voices?stem=${encodeURIComponent(stem)}`, {
+				method: 'DELETE'
+			});
+			if (res.ok) {
+				await loadPiperModels();
+				loadServiceVoices('piper');
+			}
+		} catch {
+			// ignore
+		}
 	}
 
 	function saveApiKey() {
@@ -513,6 +580,7 @@
 						<option value="azure-edge">{t('settings.ttsSvcAzureEdge')}</option>
 						<option value="google">{t('settings.ttsSvcGoogle')}</option>
 						<option value="elf">{t('settings.ttsSvcElf')}</option>
+						<option value="piper">{t('settings.ttsSvcPiper')}</option>
 					</select>
 					<p id="tts-service-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
 						{t('settings.ttsServiceDesc')}
@@ -524,6 +592,8 @@
 						<p class="text-sm text-amber-600 dark:text-amber-400">{t('settings.ttsEdgeNote')}</p>
 					{:else if audioService === 'elf'}
 						<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsElfNote')}</p>
+					{:else if audioService === 'piper'}
+						<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsPiperNote')}</p>
 					{:else}
 						<div>
 							<label for="tts-api-key" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -725,6 +795,64 @@
 								</div>
 							{/each}
 						{/if}
+					{/if}
+
+					{#if audioService === 'piper'}
+						<!-- Piper voice management: import a model/config pair, list & remove imports. -->
+						<div>
+							<p class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+								{t('settings.ttsVoice')}
+							</p>
+							<label
+								class="btn-secondary inline-flex items-center gap-2 cursor-pointer"
+								class:opacity-50={importingVoice}
+							>
+								<Icon name="upload" size={16} />
+								{importingVoice ? t('settings.ttsPiperImporting') : t('settings.ttsPiperImport')}
+								<input
+									type="file"
+									multiple
+									accept=".onnx,.json,application/json,application/octet-stream"
+									class="sr-only"
+									disabled={importingVoice}
+									onchange={(e) => {
+										const el = e.currentTarget as HTMLInputElement;
+										importPiperVoices(el.files).finally(() => (el.value = ''));
+									}}
+								/>
+							</label>
+							<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsPiperImportHint')}</p>
+							{#if importError}
+								<p class="mt-1 text-sm text-red-600 dark:text-red-400">{importError}</p>
+							{/if}
+							<p class="sr-only" role="status" aria-live="polite">{importAnnouncement}</p>
+
+							{#if piperModels.length > 0}
+								<ul class="mt-3 space-y-2">
+									{#each piperModels as m (m.stem)}
+										<li class="flex items-center justify-between gap-2 text-sm">
+											<span class="min-w-0 text-gray-700 dark:text-gray-300">
+												<span class="truncate">{m.label}</span>
+												<span class="text-gray-500 dark:text-gray-400">
+													({m.lang || '—'}{m.speakers > 1 ? `, ${m.speakers} voices` : ''}, {formatBytes(m.bytes)})
+												</span>
+											</span>
+											<button
+												type="button"
+												class="shrink-0 text-red-600 dark:text-red-400 hover:underline inline-flex items-center gap-1"
+												onclick={() => removePiperVoice(m.stem)}
+												aria-label={`${t('settings.ttsPiperDelete')}: ${m.label}`}
+											>
+												<Icon name="trash" size={14} />
+												{t('settings.ttsPiperDelete')}
+											</button>
+										</li>
+									{/each}
+								</ul>
+							{:else}
+								<p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsPiperNoVoices')}</p>
+							{/if}
+						</div>
 					{/if}
 
 					{#if audioService === 'azure'}

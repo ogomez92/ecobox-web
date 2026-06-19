@@ -409,6 +409,19 @@ export const ja: Record<MessageKey, string> = {
 	'settings.ttsSvcAzureEdge': 'Azure Edge（API キー不要）',
 	'settings.ttsSvcGoogle': 'Google',
 	'settings.ttsSvcElf': 'ELF（このサーバー上）',
+	'settings.ttsSvcPiper': 'Piper（このサーバー上）',
+	'settings.ttsPiperNote':
+		'このサーバー上で合成されるローカルのニューラル音声です。APIキーもインターネットも不要。音声は同梱されていません。下からPiperの音声をインポートして選択してください。',
+	'settings.ttsPiperImport': '音声をインポート…',
+	'settings.ttsPiperImporting': 'インポート中…',
+	'settings.ttsPiperImportHint':
+		'Piperの音声を選択：モデル（.onnx）とその設定（.onnx.json）。両方のファイルを同時に選択してください。音声は rhasspy/piper-voices にあります。',
+	'settings.ttsPiperImportNeedBoth':
+		'両方のファイルを選択してください：.onnx モデルと .onnx.json 設定。',
+	'settings.ttsPiperImported': '音声をインポートしました。',
+	'settings.ttsPiperImportError': 'インポートに失敗しました。',
+	'settings.ttsPiperNoVoices': 'まだ音声がインポートされていません。',
+	'settings.ttsPiperDelete': '音声を削除',
 	'settings.ttsElfNote':
 		'このサーバー上でローカルに合成される音声です。API キーもインターネット接続も不要です。下から音声を選んでください。',
 	'settings.ttsLangTabsLabel': '音声の言語',

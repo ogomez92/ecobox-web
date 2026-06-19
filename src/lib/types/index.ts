@@ -179,9 +179,17 @@ export type EffectPreset = 'flat' | 'dialog' | 'bass' | 'treble' | 'custom';
  * TTS service the reader uses. `webspeech` is the local browser engine (no server
  * config). The rest synthesize server-side and have persisted per-service config.
  * `azure-edge` is the keyless "Edge read-aloud" mode (no API key, experimental).
- * `elf` is a fully local engine bundled with the app (no API key, no network).
+ * `elf` and `piper` are fully local engines bundled with the app (no API key, no
+ * network); `piper` is neural and reads user-imported voice models.
  */
-export type TtsService = 'webspeech' | 'elevenlabs' | 'azure' | 'azure-edge' | 'google' | 'elf';
+export type TtsService =
+	| 'webspeech'
+	| 'elevenlabs'
+	| 'azure'
+	| 'azure-edge'
+	| 'google'
+	| 'elf'
+	| 'piper';
 /** Services that synthesize server-side and have a persisted credentials row. */
 export type TtsAudioService = Exclude<TtsService, 'webspeech'>;
 
@@ -288,11 +296,12 @@ export const TTS_AUDIO_SERVICES: TtsAudioService[] = [
 	'azure',
 	'azure-edge',
 	'google',
-	'elf'
+	'elf',
+	'piper'
 ];
 
 /** Audio services that need no credentials (keyless / fully local). */
-export const TTS_KEYLESS_SERVICES: TtsAudioService[] = ['azure-edge', 'elf'];
+export const TTS_KEYLESS_SERVICES: TtsAudioService[] = ['azure-edge', 'elf', 'piper'];
 
 /** Known ElevenLabs model ids (default first). */
 export const ELEVEN_MODELS = [
