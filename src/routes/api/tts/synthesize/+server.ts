@@ -4,6 +4,7 @@ import { readCache, writeCache, unitHash } from '$server/services/tts/cache';
 import { applyElfDictionary } from '$server/services/tts/elfDict';
 import {
 	TTS_AUDIO_SERVICES,
+	bakesRate,
 	type TtsAudioService,
 	type ElevenVoiceSettings,
 	type ElfVoiceParams
@@ -53,9 +54,10 @@ export const POST: RequestHandler = async ({ request }) => {
 	const voiceSettings = body.service === 'elevenlabs' ? body.voiceSettings : undefined;
 	// ELF voice params only affect ELF output — fold them into its cache key too.
 	const elfParams = body.service === 'elf' ? body.elfParams : undefined;
-	// ELF bakes the reading rate into synthesis (others stretch client-side), so it
-	// changes the samples — fold it into ELF's cache key while leaving others' stable.
-	const rate = body.service === 'elf' ? body.rate : undefined;
+	// Local engines (ELF, Piper) bake the reading rate into synthesis (others stretch
+	// client-side), so rate changes the samples — fold it into their cache key, while
+	// leaving the stretch services' keys stable (one MP3 serves every speed).
+	const rate = bakesRate(body.service) ? body.rate : undefined;
 	const hash = unitHash({
 		service: body.service,
 		voiceId,

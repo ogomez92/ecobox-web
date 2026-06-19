@@ -5,7 +5,7 @@
  * playback. Upcoming units are prefetched into a small bounded, content-keyed cache.
  */
 import type { TtsEngine, SynthRequest, TtsVoice } from './types';
-import type { TtsAudioService } from '$lib/types';
+import { bakesRate, type TtsAudioService } from '$lib/types';
 
 interface CacheEntry {
 	url?: string;
@@ -16,9 +16,10 @@ const MAX_CACHE = 8;
 
 export class AudioEngine implements TtsEngine {
 	readonly kind = 'audio' as const;
-	// ELF bakes the reading rate into synthesis (native eciSpeed), so it can't be
-	// retuned live and plays at playbackRate=1; the other (remote) audio services
-	// time-stretch the finished MP3 via playbackRate, which retunes instantly.
+	// Local engines (ELF via eciSpeed, Piper via --length_scale) bake the reading rate
+	// into synthesis, so they can't be retuned live and play at playbackRate=1; the
+	// remote audio services time-stretch the finished MP3 via playbackRate, retuning
+	// instantly. See TTS_BAKED_RATE_SERVICES / bakesRate().
 	readonly liveRate: boolean;
 	// Batch sentences into synthesis units up to this many chars. Units still
 	// flush at every paragraph boundary, so this only merges *within* long
@@ -33,7 +34,7 @@ export class AudioEngine implements TtsEngine {
 	constructor(service: TtsAudioService, audio: HTMLAudioElement | null) {
 		this.service = service;
 		this.audio = audio;
-		this.liveRate = service !== 'elf';
+		this.liveRate = !bakesRate(service);
 	}
 
 	setAudio(audio: HTMLAudioElement | null) {
@@ -73,8 +74,9 @@ export class AudioEngine implements TtsEngine {
 				if (isCurrent()) onError(new Error('audio playback error'));
 			};
 			audio.src = url;
-			// ELF bakes rate into synthesis, so play it untouched; others stretch here.
-			audio.playbackRate = this.service === 'elf' ? 1 : req.rate;
+			// Baked-rate engines (ELF, Piper) already synthesized at the target rate, so
+			// play untouched; the remote services stretch the finished MP3 here.
+			audio.playbackRate = bakesRate(this.service) ? 1 : req.rate;
 			await audio.play();
 		} catch (e) {
 			if (isCurrent()) onError(e);
@@ -100,9 +102,9 @@ export class AudioEngine implements TtsEngine {
 	}
 
 	setRate(rate: number): void {
-		// ELF's rate is baked into synthesis (liveRate=false) — the reader re-speaks
-		// to apply a new rate, so don't touch playbackRate here.
-		if (this.service !== 'elf' && this.audio) this.audio.playbackRate = rate;
+		// Baked-rate engines (ELF, Piper) have rate baked into synthesis (liveRate=false)
+		// — the reader re-speaks to apply a new rate, so don't touch playbackRate here.
+		if (!bakesRate(this.service) && this.audio) this.audio.playbackRate = rate;
 	}
 
 	destroy(): void {
@@ -124,9 +126,9 @@ export class AudioEngine implements TtsEngine {
 		const ep = req.elfParams
 			? `${req.elfParams.headSize},${req.elfParams.pitch},${req.elfParams.inflection},${req.elfParams.roughness},${req.elfParams.breathiness},${req.elfParams.volume}`
 			: '';
-		// ELF bakes rate into the audio, so a rate change must miss the cache and
-		// re-synthesize; other services stretch the same MP3, so rate isn't in their key.
-		const rt = this.service === 'elf' ? `${req.rate}` : '';
+		// Baked-rate engines (ELF, Piper) bake rate into the audio, so a rate change must
+		// miss the cache and re-synthesize; stretch services reuse one MP3 across speeds.
+		const rt = bakesRate(this.service) ? `${req.rate}` : '';
 		return `${this.service}|${req.voiceId}|${req.model ?? ''}|${vs}|${ep}|${rt}|${hash(req.text)}`;
 	}
 

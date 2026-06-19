@@ -10,10 +10,14 @@
  *
  * Per synthesis unit we spawn `piper` once (text on stdin → WAV on stdout) and pipe
  * the WAV through ffmpeg to MP3, matching the audio/mpeg pipeline + on-disk cache the
- * other server-synthesized services use. Unlike ELF (a formant voice whose rate must
- * be baked into synthesis to stay crisp), Piper is neural and time-stretches cleanly,
- * so it uses the DEFAULT audio path: the reader sets <audio>.playbackRate and the rate
- * is NOT part of the cache key. Keyless, no network — it's in TTS_KEYLESS_SERVICES.
+ * other server-synthesized services use. Like ELF — and unlike the cloud services,
+ * which time-stretch the finished MP3 via <audio>.playbackRate — Piper BAKES the
+ * reading rate into synthesis through its native `--length_scale` (it re-paces the
+ * waveform instead of resampling it, so there are no stretch artifacts). Re-synthesis
+ * is free for a local engine, so this is higher fidelity; rate is therefore folded
+ * into the cache key and the reader re-speaks the current unit on a rate change. It's
+ * a local engine in both TTS_KEYLESS_SERVICES and TTS_BAKED_RATE_SERVICES — keyless,
+ * no network.
  */
 import fs from 'fs/promises';
 import path from 'path';
@@ -97,6 +101,8 @@ interface PiperConfig {
 	speaker_id_map?: Record<string, number>;
 	dataset?: string;
 	language?: { code?: string; family?: string; name_english?: string; name_native?: string };
+	/** The voice's natural pacing; rate scales relative to this (default 1.0). */
+	inference?: { length_scale?: number };
 }
 
 /** "en_US" → "en-US" (BCP-47-ish); falls back to the family or ''. */
@@ -190,10 +196,16 @@ export async function listPiperModels(): Promise<
 	return rows;
 }
 
-/** Resolve a voiceId ("<stem>" or "<stem>#<speaker>") to its files + speaker id. */
-async function resolveVoice(
-	voiceId: string
-): Promise<{ modelPath: string; configPath: string; speaker: number | null }> {
+/**
+ * Resolve a voiceId ("<stem>" or "<stem>#<speaker>") to its files, speaker id, and the
+ * voice's natural `length_scale` (so a rate multiplier scales relative to it).
+ */
+async function resolveVoice(voiceId: string): Promise<{
+	modelPath: string;
+	configPath: string;
+	speaker: number | null;
+	baseLengthScale: number;
+}> {
 	if (!voiceId) throw new TtsError(400, 'No Piper voice selected');
 	const hash = voiceId.lastIndexOf('#');
 	const stem = hash >= 0 ? voiceId.slice(0, hash) : voiceId;
@@ -205,23 +217,40 @@ async function resolveVoice(
 	} catch {
 		throw new TtsError(404, 'Piper voice not found — import it in Settings');
 	}
-	return { modelPath, configPath: configFile(stem), speaker: Number.isFinite(spk) ? spk : null };
+	const ls = (await readConfig(stem))?.inference?.length_scale;
+	const baseLengthScale = typeof ls === 'number' && Number.isFinite(ls) && ls > 0 ? ls : 1;
+	return {
+		modelPath,
+		configPath: configFile(stem),
+		speaker: Number.isFinite(spk) ? spk : null,
+		baseLengthScale
+	};
 }
 
 /**
- * Synthesize `text` → MP3 with the selected imported voice. Rate is intentionally
- * NOT applied here: Piper is neural and the reader stretches the MP3 client-side via
- * playbackRate (the default audio path), so the same synthesis serves every speed.
+ * Synthesize `text` → MP3 with the selected imported voice. The reading-rate
+ * multiplier (1.0 = the voice's natural pace) is baked into synthesis via Piper's
+ * native `--length_scale` — a duration multiplier, i.e. the inverse of speed — scaled
+ * from the voice's own default. This re-paces the waveform without resampling, so it
+ * stays artifact-free at any speed (no client-side time-stretch). The caller folds
+ * `rate` into the cache key since it changes the samples.
  */
-export async function piperSynthesize(opts: { voiceId: string; text: string }): Promise<Buffer> {
+export async function piperSynthesize(opts: {
+	voiceId: string;
+	text: string;
+	rate?: number;
+}): Promise<Buffer> {
 	// Piper reads one line of stdin per utterance and would emit one WAV per line;
 	// flatten newlines so a multi-sentence unit produces a single WAV.
 	const text = (opts.text || '').replace(/\s+/g, ' ').trim();
 	if (!text) throw new TtsError(400, 'No text to synthesize');
 
-	const { modelPath, configPath, speaker } = await resolveVoice(opts.voiceId);
+	const { modelPath, configPath, speaker, baseLengthScale } = await resolveVoice(opts.voiceId);
 	const args = ['-q', '-m', modelPath, '-c', configPath, '-f', '-', '--espeak_data', espeakDataDir()];
 	if (speaker != null) args.push('-s', String(speaker));
+	// length_scale = base / rate (faster speech → shorter phonemes → smaller scale).
+	const rate = opts.rate != null && Number.isFinite(opts.rate) && opts.rate > 0 ? opts.rate : 1;
+	args.push('--length_scale', (baseLengthScale / rate).toFixed(4));
 
 	let synth;
 	try {

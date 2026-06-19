@@ -303,6 +303,24 @@ export const TTS_AUDIO_SERVICES: TtsAudioService[] = [
 /** Audio services that need no credentials (keyless / fully local). */
 export const TTS_KEYLESS_SERVICES: TtsAudioService[] = ['azure-edge', 'elf', 'piper'];
 
+/**
+ * Services that bake the reading rate into synthesis — re-synthesizing the unit when
+ * the rate changes — instead of time-stretching the finished MP3 via
+ * `<audio>.playbackRate`. These are the fully local engines, where re-synthesis is
+ * free and higher-fidelity than stretching: ELF is a formant voice (stretching smears
+ * its consonants) and Piper is neural but re-paces natively via `--length_scale`. The
+ * remote/cloud services (ElevenLabs/Azure/azure-edge/Google) stretch instead, because
+ * re-synthesizing would re-bill or add latency. Rate is folded into the cache key only
+ * for these (a rate change must miss the cache); for stretch services one MP3 serves
+ * every speed. Also drives the engine's `liveRate` flag (false here → reader re-speaks).
+ */
+export const TTS_BAKED_RATE_SERVICES: TtsAudioService[] = ['elf', 'piper'];
+
+/** True when the service synthesizes at the requested rate (see TTS_BAKED_RATE_SERVICES). */
+export function bakesRate(service: TtsAudioService): boolean {
+	return TTS_BAKED_RATE_SERVICES.includes(service);
+}
+
 /** Known ElevenLabs model ids (default first). */
 export const ELEVEN_MODELS = [
 	'eleven_multilingual_v2',

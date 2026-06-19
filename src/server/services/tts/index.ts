@@ -67,8 +67,9 @@ export async function synthesize(input: SynthesizeInput): Promise<ArrayBuffer> {
 		case 'elf':
 			return toArrayBuffer(await elfSynthesize({ voiceId, text, params: input.elfParams, rate: input.rate }));
 		case 'piper':
-			// Neural — rate is applied client-side (playbackRate), so it's not passed here.
-			return toArrayBuffer(await piperSynthesize({ voiceId, text }));
+			// Local engine — bake the reading rate into synthesis (native --length_scale),
+			// like ELF, rather than time-stretching the finished MP3 client-side.
+			return toArrayBuffer(await piperSynthesize({ voiceId, text, rate: input.rate }));
 		default:
 			throw new TtsError(400, 'Unknown TTS service');
 	}
