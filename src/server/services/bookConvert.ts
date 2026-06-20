@@ -62,10 +62,17 @@ interface RawConversion {
 	/** Whether `locale` came from real detection ('detected') or a fallback ('default'). */
 	localeSource: 'detected' | 'default';
 	ok: boolean;
+	/** A concise, user-facing cause when ok=false (e.g. "pandoc is not installed"). */
+	reason?: string;
 }
 
-/** Convert a document to GFM markdown via pandoc. Never throws — ok=false on failure. */
-async function runPandoc(absInputPath: string): Promise<string | null> {
+/**
+ * Convert a document to GFM markdown via pandoc. Never throws; on failure returns
+ * `{ markdown: null }` plus a concise `reason` that distinguishes the cases that
+ * matter to the user — pandoc not installed, the document too large to convert (the
+ * memory-heavy path that can OOM on big EPUBs), or a pandoc read/parse error.
+ */
+async function runPandoc(absInputPath: string): Promise<{ markdown: string | null; reason?: string }> {
 	try {
 		const { stdout } = await execFileAsync(
 			'pandoc',
@@ -74,10 +81,19 @@ async function runPandoc(absInputPath: string): Promise<string | null> {
 			[absInputPath, '-t', 'gfm-raw_html', '--wrap=none'],
 			{ maxBuffer: 256 * 1024 * 1024 }
 		);
-		return stdout;
+		return { markdown: stdout };
 	} catch (err) {
 		console.error('pandoc conversion failed:', err);
-		return null;
+		const e = err as NodeJS.ErrnoException & { stderr?: string };
+		if (e.code === 'ENOENT') return { markdown: null, reason: 'pandoc is not installed on the server' };
+		// The exact code differs by Node version (…STDOUT_MAXBUFFER / …STDIO_MAXBUFFER),
+		// so match the family plus the message as a fallback.
+		if (/MAXBUFFER/.test(e.code ?? '') || /maxBuffer/i.test(e.message ?? ''))
+			return { markdown: null, reason: 'the document is too large to convert' };
+		// pandoc ran but exited non-zero (malformed/unsupported document) — surface its
+		// first line of output, which usually names the problem.
+		const firstLine = (e.stderr || e.message || '').split('\n').find((l) => l.trim())?.trim();
+		return { markdown: null, reason: firstLine ? `pandoc could not read it (${firstLine})` : 'pandoc could not read the document' };
 	}
 }
 
@@ -101,23 +117,29 @@ async function detectEpubLanguage(absInputPath: string): Promise<{ locale: strin
 
 const converters: Record<string, (absPath: string) => Promise<RawConversion>> = {
 	'.epub': async (absPath) => {
-		const markdown = await runPandoc(absPath);
+		const { markdown, reason } = await runPandoc(absPath);
 		const { locale, detected } = await detectEpubLanguage(absPath);
 		return {
 			markdown: markdown ?? '',
 			locale,
 			localeSource: detected ? 'detected' : 'default',
-			ok: markdown !== null
+			ok: markdown !== null,
+			reason
 		};
 	},
 	'.docx': async (absPath) => {
-		const markdown = await runPandoc(absPath);
+		const { markdown, reason } = await runPandoc(absPath);
 		// pandoc converts the text but we don't extract docx language → fall back.
-		return { markdown: markdown ?? '', locale: 'en', localeSource: 'default', ok: markdown !== null };
+		return { markdown: markdown ?? '', locale: 'en', localeSource: 'default', ok: markdown !== null, reason };
 	},
 	'.txt': async (absPath) => {
-		const markdown = await fs.readFile(absPath, 'utf-8');
-		return { markdown, locale: 'en', localeSource: 'default', ok: true };
+		try {
+			const markdown = await fs.readFile(absPath, 'utf-8');
+			return { markdown, locale: 'en', localeSource: 'default', ok: true };
+		} catch (err) {
+			console.error('txt read failed:', err);
+			return { markdown: '', locale: 'en', localeSource: 'default', ok: false, reason: 'could not read the text file' };
+		}
 	}
 };
 
@@ -137,20 +159,34 @@ export async function convertBook(relInputPath: string): Promise<ConvertResult> 
 		return { status: 'failed', mdWords: 0, sourceWords: 0, totalChunks: 0, reason: `Unsupported format ${ext}` };
 	}
 
-	const { markdown, locale, localeSource, ok: pandocOk } = await converter(absInput);
+	const { markdown, locale, localeSource, ok: pandocOk, reason: convReason } = await converter(absInput);
 	if (!pandocOk) {
-		// Conversion itself failed (pandoc missing/errored) — keep original untouched.
+		// Conversion itself failed (pandoc missing/errored, unreadable file) — keep the
+		// original untouched and tell the user the specific cause.
 		return {
 			status: 'failed',
 			mdWords: 0,
 			sourceWords: 0,
 			totalChunks: 0,
-			reason: 'Conversion failed (is pandoc installed?). Original kept.'
+			reason: convReason ?? 'pandoc could not convert the document (is pandoc installed?)'
 		};
 	}
 
 	const chunks = splitIntoChunks(markdown, locale);
 	const mdWords = chunks.reduce((sum, c) => sum + countWords(c.text), 0);
+
+	// No readable text came out (e.g. an image-only or all-boilerplate document):
+	// don't create an empty, unreadable book folder — keep the original so nothing
+	// is lost and the user can retry or convert it differently.
+	if (chunks.length === 0) {
+		return {
+			status: 'failed',
+			mdWords: 0,
+			sourceWords: 0,
+			totalChunks: 0,
+			reason: 'no readable text was found in the document'
+		};
+	}
 
 	let sourceWords = 0;
 	try {
@@ -166,14 +202,15 @@ export async function convertBook(relInputPath: string): Promise<ConvertResult> 
 	const title = path.basename(relInputPath, path.extname(relInputPath));
 	const folderRel = dir === '.' ? title : path.join(dir, title);
 	const folderAbs = resolvePath(folderRel);
-	await fs.mkdir(folderAbs, { recursive: true });
 
-	await fs.writeFile(path.join(folderAbs, 'book.md'), markdown, 'utf-8');
-	await fs.writeFile(
-		path.join(folderAbs, 'book.chunks.json'),
-		JSON.stringify({ title, locale, chunks }),
-		'utf-8'
-	);
+	// Note whether the folder already existed: on a write failure we only roll back a
+	// folder WE created, never one that holds pre-existing user content.
+	let folderPreexisted = true;
+	try {
+		await fs.access(folderAbs);
+	} catch {
+		folderPreexisted = false;
+	}
 
 	const marker: BookMarker = {
 		verified: passed,
@@ -184,11 +221,35 @@ export async function convertBook(relInputPath: string): Promise<ConvertResult> 
 		localeSource,
 		convertedAt: new Date().toISOString()
 	};
-	await fs.writeFile(path.join(folderAbs, BOOK_MARKER), JSON.stringify(marker), 'utf-8');
+
+	try {
+		await fs.mkdir(folderAbs, { recursive: true });
+		await fs.writeFile(path.join(folderAbs, 'book.md'), markdown, 'utf-8');
+		await fs.writeFile(
+			path.join(folderAbs, 'book.chunks.json'),
+			JSON.stringify({ title, locale, chunks }),
+			'utf-8'
+		);
+		await fs.writeFile(path.join(folderAbs, BOOK_MARKER), JSON.stringify(marker), 'utf-8');
+	} catch (err) {
+		console.error('Failed to write book folder:', err);
+		// Roll back a partially-written folder so a retry starts clean. The original
+		// source is still in place (we delete/move it only after this block succeeds).
+		if (!folderPreexisted) await fs.rm(folderAbs, { recursive: true, force: true }).catch(() => {});
+		return {
+			status: 'failed',
+			mdWords,
+			sourceWords,
+			totalChunks: chunks.length,
+			reason: 'could not write the book files (out of disk space or a permissions problem?)'
+		};
+	}
 
 	if (passed) {
-		// Verified — reclaim the original.
-		await fs.unlink(absInput);
+		// Verified — reclaim the original. A failure here is non-fatal: the book is
+		// already written, so log and keep the (now redundant) original rather than
+		// reporting the whole conversion as failed.
+		await fs.unlink(absInput).catch((err) => console.error('Failed to remove original after verify:', err));
 	} else {
 		// Unverified — retain the original inside the folder (hidden from listings).
 		try {

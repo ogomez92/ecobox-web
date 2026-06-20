@@ -25,6 +25,7 @@ import { spawn } from 'child_process';
 import type { TtsVoice } from '$lib/types';
 import { env } from '$env/dynamic/private';
 import { TtsError } from './errors';
+import { assertExecutable, assertFfmpeg } from './localEngine';
 
 // Neural synthesis loads the ONNX model on every spawn, so it's slower to start than
 // ELF's formant path — give it a generous ceiling (the disk cache makes it one-time).
@@ -84,7 +85,10 @@ function run(
 		child.stderr.on('data', (c: Buffer) => (errText += c.toString()));
 		child.on('error', (e) => {
 			clearTimeout(timer);
-			reject(new TtsError(500, `Piper: cannot run ${path.basename(cmd)} (${e.message})`));
+			// ENOENT means the binary itself is missing (the piper engine wasn't vendored
+			// for this arch, or ffmpeg isn't installed) — say so instead of "spawn … ENOENT".
+			const hint = (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'not found — is it installed?' : e.message;
+			reject(new TtsError(500, `Piper: cannot run ${path.basename(cmd)} (${hint})`));
 		});
 		child.on('close', (code) => {
 			clearTimeout(timer);
@@ -169,6 +173,29 @@ export async function piperVoices(): Promise<TtsVoice[]> {
 		}
 	}
 	return voices;
+}
+
+/**
+ * Activation preflight for the Settings "Test" button. Piper's voice list is built
+ * purely from files on disk, so listing voices alone never proves the engine can run
+ * — this confirms the vendored `piper` binary exists and is executable and that
+ * ffmpeg is installed, then reports whether any voices are imported (the engine is
+ * useless without one). Library-load failures at the wrong CPU arch still surface at
+ * first synthesis via the spawn-error path, but the common "binary/ffmpeg missing"
+ * and "no voices yet" cases are caught here. Never throws.
+ */
+export async function piperHealthCheck(): Promise<{ ok: boolean; message: string; voiceCount?: number }> {
+	try {
+		await assertExecutable(binPath(), 'Piper');
+		await assertFfmpeg('Piper');
+		const voices = await piperVoices();
+		if (voices.length === 0)
+			return { ok: false, message: 'Piper engine is ready, but no voices are imported yet.' };
+		return { ok: true, message: 'ok', voiceCount: voices.length };
+	} catch (e) {
+		if (e instanceof TtsError) return { ok: false, message: e.message };
+		return { ok: false, message: e instanceof Error ? e.message : 'Piper check failed.' };
+	}
 }
 
 /** Per-model management view (for the import/delete UI): one row per imported model. */

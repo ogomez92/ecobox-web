@@ -342,7 +342,9 @@
 					} else if (data.status === 'unverified') {
 						progressAnnouncement = t('upload.convertUnverified', { name: file.name });
 					} else {
-						progressAnnouncement = t('upload.convertFailed', { name: file.name });
+						// Surface the server's specific cause (pandoc missing, too large, etc.) when present.
+						const base = t('upload.convertFailed', { name: file.name });
+						progressAnnouncement = data.reason ? `${base} — ${data.reason}` : base;
 					}
 				} catch {
 					progressAnnouncement = t('upload.convertFailed', { name: file.name });

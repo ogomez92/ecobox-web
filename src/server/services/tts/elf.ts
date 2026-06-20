@@ -15,6 +15,7 @@ import { spawn } from 'child_process';
 import type { TtsVoice, ElfVoiceParams } from '$lib/types';
 import { env } from '$env/dynamic/private';
 import { TtsError } from './errors';
+import { assertExecutable, assertFfmpeg } from './localEngine';
 
 const TIMEOUT_MS = 30000;
 
@@ -74,7 +75,10 @@ function run(
 		child.stderr.on('data', (c: Buffer) => (errText += c.toString()));
 		child.on('error', (e) => {
 			clearTimeout(timer);
-			reject(new TtsError(500, `ELF: cannot run ${path.basename(cmd)} (${e.message})`));
+			// ENOENT means the binary itself is missing (eci_synth not built, or ffmpeg
+			// not installed) — say so plainly instead of leaking "spawn … ENOENT".
+			const hint = (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'not found — is it installed?' : e.message;
+			reject(new TtsError(500, `ELF: cannot run ${path.basename(cmd)} (${hint})`));
 		});
 		child.on('close', (code) => {
 			clearTimeout(timer);
@@ -102,6 +106,28 @@ export async function elfVoices(): Promise<TtsVoice[]> {
 		return JSON.parse(res.stdout.toString('utf8')) as TtsVoice[];
 	} catch {
 		throw new TtsError(500, 'ELF returned an unparseable voice list');
+	}
+}
+
+/**
+ * Activation preflight for the Settings "Test" button: confirm every dependency the
+ * ELF engine needs is in place, so a missing piece surfaces here rather than silently
+ * mid-read with a fallback to Web Speech. In order: the bundled `eci_synth` binary
+ * exists and is executable; ffmpeg (the WAV→MP3 transcoder) is installed; and the
+ * engine actually loads and enumerates voices — which exercises the native dylibs and
+ * so catches a missing system library (e.g. libc++). Reports the first failure's
+ * message; never throws.
+ */
+export async function elfHealthCheck(): Promise<{ ok: boolean; message: string; voiceCount?: number }> {
+	try {
+		await assertExecutable(binPath(), 'ELF');
+		await assertFfmpeg('ELF');
+		const voices = await elfVoices();
+		if (voices.length === 0) return { ok: false, message: 'ELF engine loaded but offers no voices.' };
+		return { ok: true, message: 'ok', voiceCount: voices.length };
+	} catch (e) {
+		if (e instanceof TtsError) return { ok: false, message: e.message };
+		return { ok: false, message: e instanceof Error ? e.message : 'ELF check failed.' };
 	}
 }
 

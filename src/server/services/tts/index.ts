@@ -9,8 +9,8 @@ import { TtsError } from './errors';
 import { elevenSynthesize, elevenVoices, elevenSubscription } from './elevenlabs';
 import { azureSynthesize, azureVoices, edgeSynthesize, edgeVoices } from './azure';
 import { googleSynthesize, googleVoices } from './google';
-import { elfSynthesize, elfVoices } from './elf';
-import { piperSynthesize, piperVoices } from './piper';
+import { elfSynthesize, elfVoices, elfHealthCheck } from './elf';
+import { piperSynthesize, piperVoices, piperHealthCheck } from './piper';
 
 export { TtsError } from './errors';
 
@@ -108,10 +108,20 @@ export async function getQuota(service: TtsAudioService): Promise<TtsQuota | nul
 	return elevenSubscription(cred.apiKey);
 }
 
-/** Lightweight connectivity/credential check used by the settings "Test" button. */
+/**
+ * Connectivity/credential/dependency check used by the settings "Test" button.
+ *
+ * The keyless local engines (ELF, Piper) get a deeper preflight than a voice list:
+ * because they're always reported "configured", a missing system dependency (the
+ * engine binary, ffmpeg, a shared library) would otherwise pass silently and only
+ * fail mid-read. Their health checks verify those deps and return a precise,
+ * actionable message. The cloud providers just list voices (which exercises the key).
+ */
 export async function validateService(
 	service: TtsAudioService
 ): Promise<{ ok: boolean; message: string; voiceCount?: number }> {
+	if (service === 'elf') return elfHealthCheck();
+	if (service === 'piper') return piperHealthCheck();
 	try {
 		const voices = await listVoices(service, '');
 		return { ok: true, message: 'ok', voiceCount: voices.length };

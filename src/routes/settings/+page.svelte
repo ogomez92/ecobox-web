@@ -40,6 +40,23 @@
 		});
 	});
 
+	/** Leave settings the same way the header back button does. */
+	function goBack() {
+		goto('/');
+	}
+
+	// Escape returns to the previous screen, so users don't have to reach for the back
+	// link. Skip it while focus is in a form control — there a native Escape already has
+	// meaning (close an open <select>, cancel/clear an input), and we don't want to yank
+	// the user off the page out from under that. Mirrors the file browser's field guard.
+	function handleWindowKeydown(e: KeyboardEvent) {
+		if (e.key !== 'Escape' || e.defaultPrevented) return;
+		const target = e.target as HTMLElement | null;
+		if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+		e.preventDefault();
+		goBack();
+	}
+
 	// 'system' means: don't pin a locale; use browser detection.
 	const languageValue = $derived<'system' | LocaleCode>(
 		i18n.isExplicit ? i18n.locale : 'system'
@@ -334,6 +351,8 @@
 	}
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+
 <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
 	<!-- Shared sink for server-synthesized voice previews (Test voice). -->
 	<audio bind:this={previewAudioEl} preload="auto" class="hidden"></audio>
@@ -343,7 +362,7 @@
 			<button
 				bind:this={backButtonRef}
 				type="button"
-				onclick={() => goto('/')}
+				onclick={goBack}
 				class="btn-ghost p-2"
 				aria-label={t('common.goBack')}
 			>
