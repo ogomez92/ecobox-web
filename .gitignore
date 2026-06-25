@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Piper engine virtualenv (piper-tts pip package; recreate per CLAUDE.md, not committed)
+/piper1/
+
 # Build output
 .svelte-kit/
 build/

@@ -1,8 +1,16 @@
 import { io, type Socket } from 'socket.io-client';
 import { Device } from 'mediasoup-client';
 import type { Transport, Producer } from 'mediasoup-client/types';
+import { env } from '$env/dynamic/public';
 import { audioEffects } from './audioEffects';
 import { settingsStore } from '$lib/stores/settings.svelte';
+
+// Shared secret authorizing a SonicRoom role:"caster" join (SonicRoom validates
+// it against its CASTER_TOKENS allowlist; an empty/missing token is rejected).
+// Read at runtime from PUBLIC_SONICROOM_CASTER_TOKEN — it reaches the browser by
+// necessity (the cast join runs client-side, like the TURN creds above), and the
+// app is gated by APP_PASSWORD. Must match SonicRoom's .env CASTER_TOKENS.
+const CASTER_TOKEN = env.PUBLIC_SONICROOM_CASTER_TOKEN ?? '';
 
 // ICE servers — COPY of SonicRoom's client/src/hooks/useMediasoup.ts ICE_SERVERS
 // (self-hosted coturn at turn.oriolgomez.com). Credentials are visible to the
@@ -108,14 +116,23 @@ class RoomCaster {
 		this.error = null;
 		this.roomName = target.roomName;
 
+		// TEMP cast diagnostics — logs which phase fails. Remove once cast is fixed.
+		let step = 'startCapture';
+		console.info('[cast] start →', target.serverUrl, 'room', target.roomName);
+
 		try {
 			// 1. Pristine stereo, post-effects capture from the WebAudio graph.
 			const stream = await audioEffects.startCapture();
 			const track = stream.getAudioTracks()[0];
+			console.info('[cast] step 1 capture ok — track:', track?.label, track?.readyState, {
+				enabled: track?.enabled,
+				muted: track?.muted
+			});
 			if (!track) throw new Error('No audio to cast (is something playing?)');
 
 			// 2. Connect to the SonicRoom signaling server (cross-origin; its CORS
 			//    is origin:"*").
+			step = 'socket-connect';
 			const socket = io(target.serverUrl, { transports: ['websocket'] });
 			this.socket = socket;
 			await new Promise<void>((resolve, reject) => {
@@ -123,24 +140,42 @@ class RoomCaster {
 				socket.on('connect_error', (e) => reject(e));
 			});
 
-			// 3. Join as a caster — the server forces SFU and returns its caps.
+			console.info('[cast] step 2 socket connected:', socket.id);
+
+			// 3. Join as a caster — the server forces SFU and returns its caps. The
+			//    casterToken authenticates this privileged join (SonicRoom rejects an
+			//    unauthenticated caster with error "invalid_caster").
+			step = 'join';
 			const joinRes = await this.emit<{
 				rtpCapabilities: Record<string, unknown>;
 				mode: string;
-			}>('join', { roomName: target.roomName, displayName, role: 'caster' });
+			}>('join', {
+				roomName: target.roomName,
+				displayName,
+				role: 'caster',
+				casterToken: CASTER_TOKEN
+			});
+			console.info('[cast] step 3 joined — mode:', joinRes.mode);
 
 			// 4. Load the device.
+			step = 'device-load';
 			const device = new Device();
 			await device.load({
 				routerRtpCapabilities: joinRes.rtpCapabilities as Parameters<
 					typeof device.load
 				>[0]['routerRtpCapabilities']
 			});
+			console.info(
+				'[cast] step 4 device loaded — canProduce(audio):',
+				device.canProduce('audio')
+			);
 
 			// 5. Send transport only — a caster never consumes or sets up P2P.
+			step = 'create-transport';
 			const sendRes = await this.emit<{ params: Record<string, unknown> }>('create-transport', {
 				direction: 'send'
 			});
+			console.info('[cast] step 5 transport params received');
 			const sendTransport = device.createSendTransport({
 				...(sendRes.params as Parameters<typeof device.createSendTransport>[0]),
 				iceServers: ICE_SERVERS
@@ -148,23 +183,42 @@ class RoomCaster {
 			this.sendTransport = sendTransport;
 
 			sendTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+				console.info('[cast] transport "connect" event — sending dtls to server');
 				this.emit('connect-transport', { direction: 'send', dtlsParameters })
-					.then(() => callback())
-					.catch((e) => errback(e as Error));
+					.then(() => {
+						console.info('[cast] connect-transport ok');
+						callback();
+					})
+					.catch((e) => {
+						console.error('[cast] connect-transport REJECTED:', e);
+						errback(e as Error);
+					});
 			});
 
 			sendTransport.on('produce', ({ kind, rtpParameters }, callback, errback) => {
+				console.info('[cast] transport "produce" event — kind:', kind);
 				this.emit<{ producerId: string }>('produce', {
 					kind,
 					rtpParameters,
 					source: 'music'
 				})
-					.then((res) => callback({ id: res.producerId }))
-					.catch((e) => errback(e as Error));
+					.then((res) => {
+						console.info('[cast] produce ack — producerId:', res.producerId);
+						callback({ id: res.producerId });
+					})
+					.catch((e) => {
+						console.error('[cast] produce REJECTED:', e);
+						errback(e as Error);
+					});
 			});
 
+			sendTransport.on('connectionstatechange', (s) =>
+				console.info('[cast] transport connectionstatechange:', s)
+			);
+
 			// If the SonicRoom server drops us, tear down cleanly.
-			socket.on('disconnect', () => {
+			socket.on('disconnect', (reason) => {
+				console.warn('[cast] socket disconnect — reason:', reason, 'status:', this.status);
 				if (this.status === 'casting' || this.status === 'connecting') {
 					this.teardown();
 					this.status = 'idle';
@@ -173,9 +227,11 @@ class RoomCaster {
 
 			// 6. Produce the stereo music track at hi-fi bitrate. Crucially we do
 			//    NOT force mono/64k here — that's the voice path only.
+			step = 'produce';
 			const opusCodec = device.rtpCapabilities.codecs?.find(
 				(c) => c.mimeType.toLowerCase() === 'audio/opus'
 			);
+			console.info('[cast] step 6 producing — opus codec found:', !!opusCodec);
 			this.producer = await sendTransport.produce({
 				track,
 				codecOptions: {
@@ -189,7 +245,9 @@ class RoomCaster {
 			});
 
 			this.status = 'casting';
+			console.info('[cast] casting started successfully');
 		} catch (err) {
+			console.error(`[cast] FAILED during step "${step}" —`, err);
 			this.error = err instanceof Error ? err.message : 'Failed to cast';
 			this.teardown();
 			this.status = 'error';

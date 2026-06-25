@@ -1,23 +1,30 @@
 /**
  * Piper TTS adapter — a second fully local, server-side engine (alongside ELF).
- * Piper is a neural (VITS) text-to-speech: ecobox vendors only the engine itself
- * under <PIPER_DIR> (the rhasspy/piper release — the `piper` executable plus its
- * bundled onnxruntime, espeak-ng phonemizer and `espeak-ng-data`). It ships NO
- * voices. The user imports voice models through Settings; each is a
+ * Piper is a neural (VITS) text-to-speech. The engine is the maintained
+ * OHF-Voice/piper1-gpl release, installed as the `piper-tts` pip package into a
+ * self-contained virtualenv under <PIPER_DIR>/venv (it bundles its own onnxruntime
+ * and an embedded espeak-ng phonemizer + data — no system espeak needed). It ships
+ * NO voices. The user imports voice models through Settings; each is a
  * `<name>.onnx` (the model) + `<name>.onnx.json` (its config) pair stored under
  * <PIPER_VOICES_DIR> (default: a `piper-voices` dir next to the SQLite db, so it
  * stays writable and out of the app bundle, like the on-disk audio cache).
  *
- * Per synthesis unit we spawn `piper` once (text on stdin → WAV on stdout) and pipe
- * the WAV through ffmpeg to MP3, matching the audio/mpeg pipeline + on-disk cache the
- * other server-synthesized services use. Like ELF — and unlike the cloud services,
- * which time-stretch the finished MP3 via <audio>.playbackRate — Piper BAKES the
- * reading rate into synthesis through its native `--length_scale` (it re-paces the
- * waveform instead of resampling it, so there are no stretch artifacts). Re-synthesis
- * is free for a local engine, so this is higher fidelity; rate is therefore folded
- * into the cache key and the reader re-speaks the current unit on a rate change. It's
- * a local engine in both TTS_KEYLESS_SERVICES and TTS_BAKED_RATE_SERVICES — keyless,
- * no network.
+ * Per synthesis unit we spawn the venv's `piper` CLI once (text on stdin → WAV on
+ * stdout via `-f -`) and pipe the WAV through ffmpeg to MP3, matching the audio/mpeg
+ * pipeline + on-disk cache the other server-synthesized services use. Like ELF — and
+ * unlike the cloud services, which time-stretch the finished MP3 via
+ * <audio>.playbackRate — Piper BAKES the reading rate into synthesis through its
+ * native `--length_scale` (it re-paces the waveform instead of resampling it, so
+ * there are no stretch artifacts). Re-synthesis is free for a local engine, so this
+ * is higher fidelity; rate is therefore folded into the cache key and the reader
+ * re-speaks the current unit on a rate change. It's a local engine in both
+ * TTS_KEYLESS_SERVICES and TTS_BAKED_RATE_SERVICES — keyless, no network.
+ *
+ * Engine upgrade note: we previously vendored the prebuilt rhasspy/piper 1.2.0 C++
+ * binary, but it aborts on voices built with Piper ≥1.3 ("Phonemes must be one
+ * codepoint") — e.g. newer multi-codepoint diphthong phonemes. piper1-gpl (the
+ * maintained successor) runs both old and new voices but ships only as a Python
+ * package, hence the venv. See CLAUDE.md for the one-time venv setup.
  */
 import fs from 'fs/promises';
 import path from 'path';
@@ -31,15 +38,13 @@ import { assertExecutable, assertFfmpeg } from './localEngine';
 // ELF's formant path — give it a generous ceiling (the disk cache makes it one-time).
 const TIMEOUT_MS = 60000;
 
-/** Root of the vendored engine bundle (the `piper` binary + its libs + espeak data). */
+/** Root of the engine install — contains the `venv/` with the `piper-tts` package. */
 function piperDir(): string {
-	return env.PIPER_DIR?.trim() || path.join(process.cwd(), 'piper');
+	return env.PIPER_DIR?.trim() || path.join(process.cwd(), 'piper1');
 }
+/** The `piper` CLI console script inside the venv (text on stdin → WAV on stdout). */
 function binPath(): string {
-	return path.join(piperDir(), 'piper');
-}
-function espeakDataDir(): string {
-	return path.join(piperDir(), 'espeak-ng-data');
+	return path.join(piperDir(), 'venv', 'bin', 'piper');
 }
 
 /** Where imported voice models (<stem>.onnx + <stem>.onnx.json) are stored. */
@@ -66,14 +71,10 @@ function configFile(stem: string): string {
 function run(
 	cmd: string,
 	args: string[],
-	stdin: Buffer | null,
-	extraEnv?: NodeJS.ProcessEnv
+	stdin: Buffer | null
 ): Promise<{ code: number | null; stdout: Buffer; stderr: string }> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(cmd, args, {
-			stdio: ['pipe', 'pipe', 'pipe'],
-			env: extraEnv ? { ...process.env, ...extraEnv } : process.env
-		});
+		const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
 		const out: Buffer[] = [];
 		let errText = '';
 		const timer = setTimeout(() => {
@@ -85,8 +86,8 @@ function run(
 		child.stderr.on('data', (c: Buffer) => (errText += c.toString()));
 		child.on('error', (e) => {
 			clearTimeout(timer);
-			// ENOENT means the binary itself is missing (the piper engine wasn't vendored
-			// for this arch, or ffmpeg isn't installed) — say so instead of "spawn … ENOENT".
+			// ENOENT means the executable itself is missing (the piper venv wasn't created
+			// — see CLAUDE.md — or ffmpeg isn't installed) — say so, not "spawn … ENOENT".
 			const hint = (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'not found — is it installed?' : e.message;
 			reject(new TtsError(500, `Piper: cannot run ${path.basename(cmd)} (${hint})`));
 		});
@@ -273,7 +274,9 @@ export async function piperSynthesize(opts: {
 	if (!text) throw new TtsError(400, 'No text to synthesize');
 
 	const { modelPath, configPath, speaker, baseLengthScale } = await resolveVoice(opts.voiceId);
-	const args = ['-q', '-m', modelPath, '-c', configPath, '-f', '-', '--espeak_data', espeakDataDir()];
+	// piper1-gpl CLI: model + config by path, WAV to stdout via `-f -`. Phonemization
+	// (espeak-ng) is embedded in the package, so there's no --espeak_data flag.
+	const args = ['-m', modelPath, '-c', configPath, '-f', '-'];
 	if (speaker != null) args.push('-s', String(speaker));
 	// length_scale = base / rate (faster speech → shorter phonemes → smaller scale).
 	const rate = opts.rate != null && Number.isFinite(opts.rate) && opts.rate > 0 ? opts.rate : 1;
@@ -281,8 +284,7 @@ export async function piperSynthesize(opts: {
 
 	let synth;
 	try {
-		// rpath should locate the bundled libs, but set LD_LIBRARY_PATH too as a backstop.
-		synth = await run(binPath(), args, Buffer.from(text, 'utf8'), { LD_LIBRARY_PATH: piperDir() });
+		synth = await run(binPath(), args, Buffer.from(text, 'utf8'));
 	} catch (e) {
 		if (e instanceof TtsError) throw e;
 		throw new TtsError(500, 'Piper synthesis failed');
