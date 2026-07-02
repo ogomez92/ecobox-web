@@ -1,6 +1,12 @@
 import type { Handle } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { AUTH_COOKIE, authEnabled, isAuthenticated } from '$server/auth';
+import {
+	AUTH_COOKIE,
+	authEnabled,
+	isAuthenticated,
+	passwordFromBasicAuth
+} from '$server/auth';
+import { clientKey, recordFailure, recordSuccess, retryAfter } from '$server/rateLimit';
 
 /**
  * Paths reachable WITHOUT the app password — the login page itself, the login
@@ -18,6 +24,18 @@ function isPublicPath(path: string): boolean {
 	);
 }
 
+/** 429 for a locked-out password guesser, with a standard `Retry-After`. */
+function tooManyAttempts(retryAfterSec: number): Response {
+	return new Response(JSON.stringify({ error: 'Too many attempts. Try again later.' }), {
+		status: 429,
+		headers: {
+			'content-type': 'application/json',
+			'cache-control': 'no-store',
+			'retry-after': String(retryAfterSec)
+		}
+	});
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
 
@@ -28,6 +46,17 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (authEnabled() && !isPublicPath(path)) {
 		const token = event.cookies.get(AUTH_COOKIE);
 		if (!isAuthenticated(event.request, token)) {
+			// Brute-force throttle. Only a *presented password* counts as a guess —
+			// a Basic-auth password that turned out wrong. A missing header or a
+			// stale/invalid cookie is not a guess (cookie tokens aren't guessable),
+			// so logged-out browsers and post-rotation stale cookies are unaffected.
+			const guess = passwordFromBasicAuth(event.request.headers.get('authorization'));
+			if (guess != null) {
+				const key = clientKey(event.request, event.getClientAddress);
+				const wait = retryAfter(key);
+				if (wait > 0) return tooManyAttempts(wait);
+				recordFailure(key);
+			}
 			if (path.startsWith('/api/')) {
 				return new Response(JSON.stringify({ error: 'Unauthorized' }), {
 					status: 401,
@@ -41,6 +70,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 				status: 302,
 				headers: { Location: dest.pathname + dest.search }
 			});
+		} else if (event.request.headers.get('authorization')) {
+			// A correct Basic-auth password clears any prior failures for this IP
+			// (e.g. the iOS app after the user fixes a mistyped password).
+			recordSuccess(clientKey(event.request, event.getClientAddress));
 		}
 	}
 

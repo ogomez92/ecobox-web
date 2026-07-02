@@ -22,7 +22,16 @@
 				window.location.href = redirect;
 				return;
 			}
-			errorMsg = res.status === 401 ? 'Incorrect password' : 'Something went wrong';
+			if (res.status === 429) {
+				const secs = Number(res.headers.get('retry-after')) || 0;
+				const mins = Math.ceil(secs / 60);
+				errorMsg =
+					secs > 90
+						? `Too many attempts. Try again in about ${mins} min.`
+						: 'Too many attempts. Try again in a moment.';
+			} else {
+				errorMsg = res.status === 401 ? 'Incorrect password' : 'Something went wrong';
+			}
 		} catch {
 			errorMsg = 'Network error';
 		} finally {
