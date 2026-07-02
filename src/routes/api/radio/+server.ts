@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { resolvePath } from '$server/services/files';
+import { resolvePath, resolveExistingPath } from '$server/services/files';
 import fs from 'node:fs/promises';
 
 export interface RadioStation {
@@ -61,7 +61,8 @@ export const GET: RequestHandler = async ({ url }) => {
 		throw error(400, 'Path parameter is required');
 	}
 
-	const resolvedPath = resolvePath(filePath);
+	// Real on-disk path (handles NFC/NFD accented names).
+	const resolvedPath = resolveExistingPath(filePath);
 
 	if (!resolvedPath.endsWith('.radio')) {
 		throw error(400, 'Not a radio file');

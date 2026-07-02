@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getFileStats, createReadStream, resolvePath } from '$server/services/files';
+import { getFileStats, createReadStream, resolveExistingPath, getRelativePath } from '$server/services/files';
 import { db } from '$server/db';
 import { protectedPaths } from '$server/db/schema';
 import { env } from '$env/dynamic/private';
@@ -65,17 +65,19 @@ export const GET: RequestHandler = async ({ params, request, cookies }) => {
 	}
 
 	try {
-		// Validate path (throws on traversal)
-		resolvePath(filePath);
+		// Canonicalize to the real on-disk path (also throws on traversal). Handles
+		// accented names stored decomposed (NFD) on disk vs. requested precomposed
+		// (NFC); both forms now resolve to the same file and the same ETag.
+		const realRel = getRelativePath(resolveExistingPath(filePath));
 
-		const stats = await getFileStats(filePath);
+		const stats = await getFileStats(realRel);
 		const { size } = stats;
 		const mtime = stats.mtime;
-		const ext = path.extname(filePath).toLowerCase();
+		const ext = path.extname(realRel).toLowerCase();
 		const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
 
 		// Generate ETag and Last-Modified
-		const etag = generateETag(filePath, size, mtime);
+		const etag = generateETag(realRel, size, mtime);
 		const lastModified = mtime.toUTCString();
 
 		// Check If-None-Match (ETag)
@@ -125,7 +127,7 @@ export const GET: RequestHandler = async ({ params, request, cookies }) => {
 				throw error(416, 'Range not satisfiable');
 			}
 
-			const stream = createReadStream(filePath, { start, end });
+			const stream = createReadStream(realRel, { start, end });
 			const readableStream = nodeStreamToWebStream(stream);
 
 			return new Response(readableStream, {
@@ -141,7 +143,7 @@ export const GET: RequestHandler = async ({ params, request, cookies }) => {
 		}
 
 		// Full file response
-		const stream = createReadStream(filePath);
+		const stream = createReadStream(realRel);
 		const readableStream = nodeStreamToWebStream(stream);
 
 		return new Response(readableStream, {

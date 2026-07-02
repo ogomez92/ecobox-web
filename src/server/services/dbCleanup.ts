@@ -14,7 +14,7 @@
  */
 import fs from 'fs';
 import { inArray } from 'drizzle-orm';
-import { resolvePath } from './files';
+import { resolveExistingPath } from './files';
 
 export interface CleanupSummary {
 	mediaMetadata: number;
@@ -48,8 +48,11 @@ export function findOrphanPaths(paths: string[], exists: (p: string) => boolean)
 
 /** Real on-disk existence for a media-relative path (follows symlinks like the rest of the app). */
 export function mediaPathExists(relativePath: string): boolean {
-	// resolvePath throws on traversal; let it propagate so the caller keeps the row.
-	return fs.existsSync(resolvePath(relativePath));
+	// resolveExistingPath throws on traversal; let it propagate so the caller keeps
+	// the row. It also matches the file under either Unicode normalization (NFC/NFD),
+	// so an accented path stored in one form isn't falsely judged missing — which
+	// would prune a valid playback-position / bookmark / favorite row.
+	return fs.existsSync(resolveExistingPath(relativePath));
 }
 
 /**

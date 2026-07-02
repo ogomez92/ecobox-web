@@ -17,7 +17,7 @@ import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import JSZip from 'jszip';
-import { resolvePath, getRelativePath, BOOK_MARKER } from './files';
+import { resolvePath, resolveExistingPath, getRelativePath, BOOK_MARKER } from './files';
 import { countWords, sourceWordCount, verifyPass } from './bookVerify';
 import { splitIntoChunks } from '$lib/utils/bookChunks';
 import type { BookLocaleSource } from '$lib/types';
@@ -152,7 +152,12 @@ const converters: Record<string, (absPath: string) => Promise<RawConversion>> = 
  * path can wrap this behind a background job at the route layer (dispatchConvert).
  */
 export async function convertBook(relInputPath: string): Promise<ConvertResult> {
-	const absInput = resolvePath(relInputPath);
+	// Canonicalize to the real on-disk name first, so pandoc, language detection, the
+	// verify move/delete, and the derived book-folder name all use bytes that actually
+	// exist on disk. Clients send NFC; accented filenames are often stored NFD (the
+	// "Te encontraré" case), and a byte-exact resolve would miss the file entirely.
+	const absInput = resolveExistingPath(relInputPath);
+	relInputPath = getRelativePath(absInput);
 	const ext = path.extname(relInputPath).toLowerCase();
 	const converter = converters[ext];
 	if (!converter) {

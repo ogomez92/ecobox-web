@@ -23,10 +23,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(400, 'Path is required');
 	}
 
-	const relPath = rawPath.normalize('NFC');
-
+	// No need to normalize here: convertBook canonicalizes the path against the real
+	// on-disk name (handles NFC/NFD accent differences) before touching it.
 	try {
-		const result = await dispatchConvert(relPath);
+		const result = await dispatchConvert(rawPath);
 		return json(result);
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : 'Conversion error';

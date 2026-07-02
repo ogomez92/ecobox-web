@@ -38,6 +38,20 @@ export function foldForSearch(s: string): string {
 	return s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
 }
 
+/**
+ * True when playback was blocked by the browser's autoplay policy (no user
+ * gesture — e.g. after a page refresh) rather than a real synthesis/engine
+ * failure. Web Speech reports it as a 'not-allowed' SpeechSynthesisErrorEvent;
+ * the <audio> element rejects play() with a NotAllowedError DOMException. In
+ * either case the user just needs to press Play, so we stay paused silently
+ * (mirroring the audio player, which ignores NotAllowedError).
+ */
+function isAutoplayBlocked(e: unknown): boolean {
+	if (!e || typeof e !== 'object') return false;
+	const err = e as { error?: string; name?: string };
+	return err.error === 'not-allowed' || err.name === 'NotAllowedError';
+}
+
 class ReaderStore {
 	bookFolderPath = $state<string | null>(null);
 	title = $state('');
@@ -68,6 +82,7 @@ class ReaderStore {
 	private lastPositionSaveTime = 0;
 	private rateRestartTimer: ReturnType<typeof setTimeout> | null = null;
 	private mediaSessionSetup = false;
+	private disarmResume: (() => void) | null = null;
 
 	get totalChunks(): number {
 		return this.chunks.length;
@@ -332,9 +347,20 @@ class ReaderStore {
 		}
 	}
 
-	private onSpeakError(token: number, _e: unknown) {
+	private onSpeakError(token: number, e: unknown) {
 		if (token !== this.speakToken) return;
 		this.isSynthesizing = false;
+		// Autoplay blocked (no user gesture, e.g. after a page refresh): don't surface
+		// an error or fall back to Web Speech (which can't autoplay either). Stay paused
+		// and resume from the saved position on the user's next interaction, mirroring
+		// the audio player. (Strongest right after a domain change, which resets the
+		// browser's per-origin autoplay grant.)
+		if (isAutoplayBlocked(e)) {
+			this.isPlaying = false;
+			this.setMediaSessionState('paused');
+			this.armResumeOnGesture();
+			return;
+		}
 		// An audio provider failed mid-read: fall back to Web Speech for the session.
 		if (this.engine?.kind === 'audio' && !this.fellBack) {
 			this.fellBack = true;
@@ -356,8 +382,31 @@ class ReaderStore {
 		return this.engine?.kind === 'audio' && this.resumeInPlace && !!this.audioEl?.src;
 	}
 
+	/**
+	 * After a page refresh there's no user gesture, so the browser blocks the
+	 * <audio> element / speechSynthesis from starting (autoplay policy — strongest
+	 * on a freshly-served origin, e.g. right after a domain change). Resume reading
+	 * from the saved position on the user's next interaction instead of staying
+	 * silently paused. One-shot; disarmed once playback starts or on destroy.
+	 */
+	private armResumeOnGesture() {
+		if (typeof window === 'undefined') return;
+		this.disarmResume?.();
+		const resume = () => {
+			this.disarmResume?.();
+			this.play();
+		};
+		// pointerdown covers mouse / touch / pen; keyboard users resume via Space.
+		window.addEventListener('pointerdown', resume, { once: true });
+		this.disarmResume = () => {
+			window.removeEventListener('pointerdown', resume);
+			this.disarmResume = null;
+		};
+	}
+
 	play() {
 		if (this.chunks.length === 0) return;
+		this.disarmResume?.();
 		this.error = null;
 		if (this.canResumeInPlace()) {
 			this.isPlaying = true;
@@ -370,6 +419,7 @@ class ReaderStore {
 
 	/** Pause. Web Speech cancels (re-speaks on resume); audio pauses in place. */
 	pause() {
+		this.disarmResume?.();
 		this.isPlaying = false;
 		if (this.engine?.kind === 'audio') {
 			this.resumeInPlace = true;
@@ -654,6 +704,7 @@ class ReaderStore {
 	}
 
 	destroy() {
+		this.disarmResume?.();
 		const wasSaved = this.positionSavedForNavigation;
 		const capturedIndex = this.currentChunkIndex;
 		this.positionSavedForNavigation = true;

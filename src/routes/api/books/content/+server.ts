@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { resolvePath } from '$server/services/files';
+import { resolveExistingPath } from '$server/services/files';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -12,10 +12,10 @@ export const GET: RequestHandler = async ({ url }) => {
 		throw error(400, 'Path is required');
 	}
 
-	const folderPath = rawPath.normalize('NFC');
-
 	try {
-		const abs = resolvePath(folderPath);
+		// resolveExistingPath tolerates NFC/NFD accent differences between the path the
+		// client sends and the real on-disk folder name (e.g. "Te encontraré").
+		const abs = resolveExistingPath(rawPath);
 		const raw = await fs.readFile(path.join(abs, 'book.chunks.json'), 'utf-8');
 		return json(JSON.parse(raw));
 	} catch (err) {

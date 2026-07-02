@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getFileStats, createReadStream, resolvePath } from '$server/services/files';
+import { getFileStats, createReadStream, resolveExistingPath, getRelativePath } from '$server/services/files';
 import { db } from '$server/db';
 import { protectedPaths } from '$server/db/schema';
 import { env } from '$env/dynamic/private';
@@ -39,13 +39,15 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 	}
 
 	try {
-		// Validate path
-		resolvePath(filePath);
+		// Canonicalize to the real on-disk path (also throws on traversal). Accented
+		// names are often stored decomposed (NFD) on disk while clients request them
+		// precomposed (NFC); resolveExistingPath bridges that so the file is found.
+		const realRel = getRelativePath(resolveExistingPath(filePath));
 
-		const { size } = await getFileStats(filePath);
-		const filename = path.basename(filePath);
+		const { size } = await getFileStats(realRel);
+		const filename = path.basename(realRel);
 
-		const stream = createReadStream(filePath);
+		const stream = createReadStream(realRel);
 		const readableStream = nodeStreamToWebStream(stream);
 
 		return new Response(readableStream, {

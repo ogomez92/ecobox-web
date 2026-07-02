@@ -33,6 +33,58 @@ export function getRelativePath(absolutePath: string): string {
 	return path.relative(mediaRoot, absolutePath);
 }
 
+/**
+ * Resolve a relative path to its REAL on-disk form, tolerating Unicode
+ * normalization differences (NFC vs NFD) between the requested name and the
+ * actual directory entry.
+ *
+ * Accented filenames are frequently stored decomposed (NFD — e.g. "encontraré"
+ * as `e` + U+0301) on disk, while browsers/clients send the precomposed (NFC,
+ * U+00E9) form. The filesystem matches bytes exactly, so an NFC request misses an
+ * NFD file and pandoc/readFile report "does not exist". This walks each path
+ * segment from MEDIA_ROOT and matches by NFC-normalized comparison, returning the
+ * bytes that actually exist on disk.
+ *
+ * If the path already exists as given, or no normalization-equal entry exists for
+ * some segment (e.g. a not-yet-created write target), the plain resolved path is
+ * returned unchanged — so callers still get the normal ENOENT. Goes through
+ * resolvePath, so the traversal gate always applies.
+ */
+export function resolveExistingPath(relativePath: string): string {
+	const resolved = resolvePath(relativePath);
+	if (fsSync.existsSync(resolved)) return resolved;
+
+	const mediaRoot = path.resolve(getMediaRoot());
+	const rel = path.relative(mediaRoot, resolved);
+	if (rel === '' || rel.startsWith('..')) return resolved;
+
+	const segments = rel.split(path.sep);
+	let current = mediaRoot;
+	for (let i = 0; i < segments.length; i++) {
+		const segment = segments[i];
+		const direct = path.join(current, segment);
+		if (fsSync.existsSync(direct)) {
+			current = direct;
+			continue;
+		}
+		let match: string | undefined;
+		try {
+			const wanted = segment.normalize('NFC');
+			match = fsSync.readdirSync(current).find((e) => e.normalize('NFC') === wanted);
+		} catch {
+			match = undefined; // `current` isn't a readable directory
+		}
+		if (match === undefined) {
+			// No on-disk match for this segment (e.g. a not-yet-created write target):
+			// keep the canonicalized prefix and append the requested remainder, so a write
+			// into an accented parent dir still lands in the real (NFD) directory.
+			return path.join(current, ...segments.slice(i));
+		}
+		current = path.join(current, match);
+	}
+	return current;
+}
+
 export async function listDirectory(relativePath: string = ''): Promise<FileEntry[]> {
 	const dirPath = resolvePath(relativePath);
 

@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { resolvePath } from '$server/services/files';
+import { resolveExistingPath } from '$server/services/files';
 import { db } from '$server/db';
 import { protectedPaths } from '$server/db/schema';
 import { env } from '$env/dynamic/private';
@@ -42,8 +42,8 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 	}
 
 	try {
-		// Validate and resolve path
-		const absolutePath = resolvePath(folderPath);
+		// Resolve to the real on-disk path (handles NFC/NFD accented folder names).
+		const absolutePath = resolveExistingPath(folderPath);
 
 		// Check that it's a directory
 		const stats = fs.statSync(absolutePath);

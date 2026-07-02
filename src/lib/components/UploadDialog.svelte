@@ -257,6 +257,11 @@
 			});
 
 			xhr.open('POST', `/api/upload/stream?path=${encodeURIComponent(filePath)}`);
+			// Always declare a Content-Type. SvelteKit's adapter-node treats a request
+			// with no Content-Type header as having no body (get_raw_body returns null),
+			// so files whose MIME the browser can't infer (File.type === '', e.g. .m4b)
+			// would otherwise fail server-side with "No file data provided".
+			xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
 			xhr.send(file);
 		});
 	}

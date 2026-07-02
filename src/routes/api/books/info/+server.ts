@@ -10,7 +10,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import fs from 'fs/promises';
 import path from 'path';
-import { resolvePath, BOOK_MARKER } from '$server/services/files';
+import { resolveExistingPath, BOOK_MARKER } from '$server/services/files';
 import { readBookMarker, type BookMarker } from '$server/services/bookConvert';
 import type { BookInfo, BookLocaleSource, Chunk } from '$lib/types';
 
@@ -28,7 +28,8 @@ function isValidLocale(s: string): boolean {
 function resolveBookFolder(rawPath: string | null): string {
 	if (!rawPath) throw error(400, 'Path is required');
 	try {
-		return resolvePath(rawPath.normalize('NFC'));
+		// Tolerate NFC/NFD accent differences between the client path and the on-disk name.
+		return resolveExistingPath(rawPath);
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : '';
 		if (msg.includes('traversal')) throw error(403, 'Forbidden');

@@ -528,10 +528,6 @@
 				</p>
 			{/if}
 
-			<div class="sr-only" role="status" aria-live="polite">
-				{readerStore.isPlaying ? t('reader.playing') : t('reader.paused')}
-			</div>
-
 			<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 				{seekUnitAnnouncement}
 			</div>

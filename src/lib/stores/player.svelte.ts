@@ -40,6 +40,7 @@ class PlayerStore {
 	private positionSavedForNavigation = false;
 	private switchingFiles = false; // Flag to prevent save during file switch
 	private lastPositionSaveTime = 0; // Track last save time for throttling
+	private disarmResume: (() => void) | null = null; // Removes the pending resume-on-gesture listener
 
 	get currentChapter(): Chapter | null {
 		if (this.currentChapterIndex >= 0 && this.currentChapterIndex < this.chapters.length) {
@@ -217,10 +218,9 @@ class PlayerStore {
 					this.audio.currentTime = startPosition;
 				}
 				if (settingsStore.autoplay) {
-					// Catch autoplay errors (browser blocks autoplay without user interaction)
-					this.audio.play().catch(() => {
-						// Silently ignore - user will need to click play manually
-					});
+					// Browser blocks autoplay without a user gesture (e.g. after a refresh).
+					// Resume from the saved position on the next interaction instead.
+					this.audio.play().catch(() => this.armResumeOnGesture());
 				}
 			}
 		}, { once: true });
@@ -362,9 +362,9 @@ class PlayerStore {
 						audio.currentTime = startPosition;
 					}
 					if (settingsStore.autoplay && !this.switchingFiles) {
-						audio.play().catch(() => {
-							// Silently ignore - user will need to click play manually
-						});
+						// Autoplay blocked (no gesture, e.g. after a refresh) → resume on the
+						// next interaction rather than sitting paused.
+						audio.play().catch(() => this.armResumeOnGesture());
 					} else if (this.switchingFiles && this.isPlaying) {
 						// Continue playing after file switch
 						audio.play().catch(() => {});
@@ -407,9 +407,7 @@ class PlayerStore {
 				// Wait for stream to be ready, then optionally autoplay
 				this.audio.addEventListener('canplay', () => {
 					if (this.audio && settingsStore.autoplay) {
-						this.audio.play().catch(() => {
-							// Silently ignore - user will need to click play manually
-						});
+						this.audio.play().catch(() => this.armResumeOnGesture());
 					}
 				}, { once: true });
 
@@ -422,7 +420,34 @@ class PlayerStore {
 		}
 	}
 
+	/**
+	 * After a page refresh there's no user gesture, so the browser blocks
+	 * audio.play() (autoplay policy — strongest on a freshly-served origin with no
+	 * media-engagement history, e.g. right after a domain change). Rather than
+	 * sitting silently paused, resume from the saved position on the user's very
+	 * next interaction anywhere on the page. One-shot and re-armed per load;
+	 * disarmed as soon as playback actually starts (see play()) or on destroy.
+	 */
+	private armResumeOnGesture() {
+		if (typeof window === 'undefined') return;
+		this.disarmResume?.();
+		const resume = () => {
+			this.disarmResume?.();
+			this.play();
+		};
+		// pointerdown covers mouse / touch / pen. Keyboard users already resume via
+		// Space (togglePlayPause), so we deliberately don't listen for keydown — that
+		// would double-fire with the page's own Space handler and cancel itself out.
+		window.addEventListener('pointerdown', resume, { once: true });
+		this.disarmResume = () => {
+			window.removeEventListener('pointerdown', resume);
+			this.disarmResume = null;
+		};
+	}
+
 	async play() {
+		// Playback is starting for real — drop any pending resume-on-gesture listener.
+		this.disarmResume?.();
 		// Call play() synchronously first — on iOS, awaiting anything before play()
 		// loses the user-gesture context from Media Session handlers (control center),
 		// causing play to fail when the app is backgrounded.
@@ -745,6 +770,8 @@ class PlayerStore {
 	}
 
 	destroy() {
+		// Drop any pending resume-on-gesture listener so it can't fire after teardown.
+		this.disarmResume?.();
 		// Block any further saves from queued events
 		const wasSavedForNavigation = this.positionSavedForNavigation;
 		this.positionSavedForNavigation = true; // Keep it true to block queued events

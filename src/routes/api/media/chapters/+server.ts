@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { resolvePath } from '$server/services/files';
+import { resolveExistingPath } from '$server/services/files';
 import { extractID3Chapters } from '$server/services/id3chapters';
 import { parseDaisyBook, isDaisyBook } from '$server/services/daisy';
 import path from 'path';
@@ -14,7 +14,8 @@ export const GET: RequestHandler = async ({ url }) => {
 	}
 
 	try {
-		const absolutePath = resolvePath(filePath);
+		// Real on-disk path (handles NFC/NFD accented names).
+		const absolutePath = resolveExistingPath(filePath);
 		const stats = await fs.stat(absolutePath);
 
 		if (stats.isDirectory()) {

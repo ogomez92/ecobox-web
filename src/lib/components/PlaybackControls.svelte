@@ -77,7 +77,7 @@
 		type="button"
 		onclick={ontoggle}
 		class="btn-primary w-16 h-16 sm:w-20 sm:h-20 rounded-full shadow-lg"
-		aria-label={isPlaying ? t('player.pause') : t('player.play')}
+		aria-label={t('player.playPause')}
 	>
 		<Icon name={isPlaying ? 'pause' : 'play'} size={32} />
 	</button>
