@@ -156,6 +156,12 @@
 		if (audioElement) {
 			playerStore.initialize(audioElement);
 
+			// Auto-advance to the next file in the folder when a single track ends
+			// (opt-in). Chaptered folders already auto-advance internally.
+			playerStore.onTrackEnded = () => {
+				if (settingsStore.autoAdvanceTracks) nextTrack();
+			};
+
 			// Check if this is a radio file
 			if (filePath.endsWith('.radio')) {
 				// Don't initialize audio effects for radio streams (CORS restrictions)
@@ -207,6 +213,7 @@
 		// Stop casting first — audioEffects.destroy() closes the context and would
 		// otherwise leave the caster producing a dead track.
 		if (roomCaster.isCasting) roomCaster.stop();
+		playerStore.onTrackEnded = null;
 		playerStore.destroy();
 		audioEffects.destroy();
 	});
@@ -235,6 +242,52 @@
 			goto(`/${focusParam}`);
 		}
 	}
+
+	// Audio files in the current file's folder, natural-sorted the same way the
+	// browser and chaptered playback order them.
+	async function loadFolderSiblings(): Promise<string[]> {
+		const slash = filePath.lastIndexOf('/');
+		const folder = slash >= 0 ? filePath.slice(0, slash) : '';
+		try {
+			const response = await fetch(`/api/files?path=${encodeURIComponent(folder)}`);
+			if (!response.ok) return [];
+			const data = await response.json();
+			const audioExtensions = ['.mp3', '.m4a', '.m4b', '.aac', '.ogg', '.opus', '.wav', '.flac'];
+			return (data.files as { name: string; path: string; isDirectory: boolean }[])
+				.filter((f) => !f.isDirectory && audioExtensions.some((ext) => f.name.toLowerCase().endsWith(ext)))
+				.map((f) => f.path)
+				.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+		} catch {
+			return [];
+		}
+	}
+
+	// Winamp-style next/previous track. Stays strictly within the current folder:
+	// never crosses a folder boundary and never wraps past the first/last file.
+	// Chaptered folders move by chapter (the whole folder is one unit); radio has
+	// no tracks. Reused by the `b`/`z` shortcuts and by auto-advance-on-finish.
+	async function switchTrack(direction: 1 | -1) {
+		if (isRadio) return;
+
+		if (playerStore.isChapteredPlayback) {
+			if (direction === 1) playerStore.nextChapter();
+			else playerStore.previousChapter();
+			return;
+		}
+
+		const siblings = await loadFolderSiblings();
+		const idx = siblings.indexOf(filePath);
+		if (idx === -1) return;
+		const targetIdx = idx + direction;
+		if (targetIdx < 0 || targetIdx >= siblings.length) return; // folder boundary — stop
+
+		// Keep playing across the switch even if the autoplay setting is off.
+		playerStore.playOnNextLoad = true;
+		goto(`/play/${siblings[targetIdx]}`);
+	}
+
+	const nextTrack = () => switchTrack(1);
+	const prevTrack = () => switchTrack(-1);
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.target instanceof HTMLInputElement) return;
@@ -279,6 +332,33 @@
 			e.preventDefault();
 			toggleSettingsPanel();
 			return;
+		}
+
+		// Winamp-style transport keys (opt-in). Bare keys only, so Ctrl/Cmd combos
+		// still work; when enabled, `b` means next-track and overrides add-bookmark.
+		if (settingsStore.winampShortcuts && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+			switch (e.code) {
+				case 'KeyX': // play — never pauses if already playing
+					e.preventDefault();
+					if (!playerStore.isPlaying) playerStore.play();
+					return;
+				case 'KeyC': // play / pause toggle
+					e.preventDefault();
+					playerStore.togglePlayPause();
+					return;
+				case 'KeyV': // stop == pause (keeps position; never seeks to 0)
+					e.preventDefault();
+					playerStore.pause();
+					return;
+				case 'KeyB': // next track (within folder)
+					e.preventDefault();
+					nextTrack();
+					return;
+				case 'KeyZ': // previous track (within folder)
+					e.preventDefault();
+					prevTrack();
+					return;
+			}
 		}
 
 		switch (e.code) {

@@ -8,6 +8,8 @@ const defaultSettings: Settings = {
 	radioResumeBehavior: 'ask',
 	theme: 'system',
 	autoplay: true,
+	winampShortcuts: false,
+	autoAdvanceTracks: false,
 	maskTitle: '',
 	sonicroomUrl: '',
 	ttsRate: 1.0,
@@ -22,6 +24,8 @@ class SettingsStore {
 	radioResumeBehavior = $state<'always' | 'never' | 'ask'>(defaultSettings.radioResumeBehavior);
 	theme = $state<'light' | 'dark' | 'system'>(defaultSettings.theme);
 	autoplay = $state(defaultSettings.autoplay);
+	winampShortcuts = $state(defaultSettings.winampShortcuts);
+	autoAdvanceTracks = $state(defaultSettings.autoAdvanceTracks);
 	maskTitle = $state(defaultSettings.maskTitle);
 	sonicroomUrl = $state(defaultSettings.sonicroomUrl);
 	ttsRate = $state(defaultSettings.ttsRate);
@@ -53,6 +57,8 @@ class SettingsStore {
 		if (settings.radioResumeBehavior !== undefined) this.radioResumeBehavior = settings.radioResumeBehavior;
 		if (settings.theme !== undefined) this.theme = settings.theme;
 		if (settings.autoplay !== undefined) this.autoplay = settings.autoplay;
+		if (settings.winampShortcuts !== undefined) this.winampShortcuts = settings.winampShortcuts;
+		if (settings.autoAdvanceTracks !== undefined) this.autoAdvanceTracks = settings.autoAdvanceTracks;
 		if (settings.maskTitle !== undefined) this.maskTitle = settings.maskTitle;
 		if (settings.sonicroomUrl !== undefined) this.sonicroomUrl = settings.sonicroomUrl;
 		if (settings.ttsRate !== undefined) this.ttsRate = settings.ttsRate;
@@ -68,6 +74,8 @@ class SettingsStore {
 			radioResumeBehavior: this.radioResumeBehavior,
 			theme: this.theme,
 			autoplay: this.autoplay,
+			winampShortcuts: this.winampShortcuts,
+			autoAdvanceTracks: this.autoAdvanceTracks,
 			maskTitle: this.maskTitle,
 			sonicroomUrl: this.sonicroomUrl,
 			ttsRate: this.ttsRate,
@@ -118,6 +126,16 @@ class SettingsStore {
 
 	setAutoplay(value: boolean) {
 		this.autoplay = value;
+		this.save();
+	}
+
+	setWinampShortcuts(value: boolean) {
+		this.winampShortcuts = value;
+		this.save();
+	}
+
+	setAutoAdvanceTracks(value: boolean) {
+		this.autoAdvanceTracks = value;
 		this.save();
 	}
 

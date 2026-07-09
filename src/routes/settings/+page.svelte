@@ -403,6 +403,56 @@
 					</button>
 				</div>
 
+				<div class="flex items-center justify-between py-2">
+					<div>
+						<span id="winamp-shortcuts-label" class="text-gray-700 dark:text-gray-300">{t('settings.winampShortcuts')}</span>
+						<p id="winamp-shortcuts-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.winampShortcutsDesc')}</p>
+					</div>
+					<button
+						type="button"
+						onclick={() => settingsStore.setWinampShortcuts(!settingsStore.winampShortcuts)}
+						class="relative w-12 h-6 rounded-full transition-colors"
+						class:bg-primary-500={settingsStore.winampShortcuts}
+						class:bg-gray-300={!settingsStore.winampShortcuts}
+						class:dark:bg-gray-600={!settingsStore.winampShortcuts}
+						role="switch"
+						aria-checked={settingsStore.winampShortcuts}
+						aria-labelledby="winamp-shortcuts-label"
+						aria-describedby="winamp-shortcuts-desc"
+					>
+						<span
+							class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+							class:translate-x-0.5={!settingsStore.winampShortcuts}
+							class:translate-x-6={settingsStore.winampShortcuts}
+						></span>
+					</button>
+				</div>
+
+				<div class="flex items-center justify-between py-2">
+					<div>
+						<span id="auto-advance-label" class="text-gray-700 dark:text-gray-300">{t('settings.autoAdvance')}</span>
+						<p id="auto-advance-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.autoAdvanceDesc')}</p>
+					</div>
+					<button
+						type="button"
+						onclick={() => settingsStore.setAutoAdvanceTracks(!settingsStore.autoAdvanceTracks)}
+						class="relative w-12 h-6 rounded-full transition-colors"
+						class:bg-primary-500={settingsStore.autoAdvanceTracks}
+						class:bg-gray-300={!settingsStore.autoAdvanceTracks}
+						class:dark:bg-gray-600={!settingsStore.autoAdvanceTracks}
+						role="switch"
+						aria-checked={settingsStore.autoAdvanceTracks}
+						aria-labelledby="auto-advance-label"
+						aria-describedby="auto-advance-desc"
+					>
+						<span
+							class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+							class:translate-x-0.5={!settingsStore.autoAdvanceTracks}
+							class:translate-x-6={settingsStore.autoAdvanceTracks}
+						></span>
+					</button>
+				</div>
+
 				<div>
 					<label for="seek-interval" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
 						{t('settings.seekInterval')}
@@ -1107,6 +1157,32 @@
 					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSeekEnd')}</span>
 					<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">0</kbd>
 				</div>
+
+				{#if settingsStore.winampShortcuts}
+					<p class="pt-3 mt-2 border-t border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-500 dark:text-gray-400">
+						{t('settings.winampShortcuts')}
+					</p>
+					<div class="flex justify-between py-1">
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbWinampPlay')}</span>
+						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">X</kbd>
+					</div>
+					<div class="flex justify-between py-1">
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbPlayPause')}</span>
+						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">C</kbd>
+					</div>
+					<div class="flex justify-between py-1">
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbWinampStop')}</span>
+						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">V</kbd>
+					</div>
+					<div class="flex justify-between py-1">
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbWinampNext')}</span>
+						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">B</kbd>
+					</div>
+					<div class="flex justify-between py-1">
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbWinampPrev')}</span>
+						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">Z</kbd>
+					</div>
+				{/if}
 			</div>
 		</section>
 	</main>

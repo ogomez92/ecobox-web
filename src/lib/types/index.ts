@@ -345,6 +345,10 @@ export interface Settings {
 	radioResumeBehavior: 'always' | 'never' | 'ask';
 	theme: 'light' | 'dark' | 'system';
 	autoplay: boolean;
+	/** Winamp-style transport keys (x/c/v/b/z) in the media player and book reader. Opt-in. */
+	winampShortcuts: boolean;
+	/** Auto-advance to the next file in the same folder when a single track finishes. Opt-in. */
+	autoAdvanceTracks: boolean;
 	maskTitle: string;
 	/** Default SonicRoom server origin for "Cast to call". */
 	sonicroomUrl: string;
@@ -362,6 +366,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	radioResumeBehavior: 'ask',
 	theme: 'system',
 	autoplay: true,
+	winampShortcuts: false,
+	autoAdvanceTracks: false,
 	maskTitle: '',
 	sonicroomUrl: '',
 	ttsRate: 1.0,

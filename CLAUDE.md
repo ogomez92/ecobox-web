@@ -150,6 +150,20 @@ systemctl restart ecobox
 - **Background / lock-screen playback** now works for the audio services (real `<audio>` element + MediaSession). Web Speech still can't background reliably (engine limitation, worst on iOS); its caveats: pause = `cancel()` + remembered index (engine `pause()` is unreliable); changing rate/voice mid-utterance re-speaks the current sentence (the API can't retune a live utterance — audio services retune live via `playbackRate`). Chrome's ~15s long-utterance cutoff is mitigated by sentence-sized chunks; the optional `pause()/resume()` keepalive pump was **removed** (re-add only if the cutoff actually shows up — see the `tts-keepalive-pump` auto-memory).
 - npm deps: `jszip`, `mammoth`, `msedge-tts` (all pure-JS, no native build).
 
+### Player keyboard shortcuts & track navigation
+Both players share a code-based `handleKeydown` (media: `PlaybackView.svelte`; reader: `ReaderView.svelte`) that bails on input/textarea focus and open modals. Two opt-in settings gate the new behavior (both default **false**, persisted like any setting — `winampShortcuts`, `autoAdvanceTracks`):
+
+- **`winampShortcuts`** — Winamp-style bare-key transport, active in the media player **and** the book reader. Handled in a dedicated block placed *before* the default `switch` (so it can override a default binding — e.g. media `b` is normally "add bookmark"), gated on the setting **and no modifier keys** (so Ctrl/Cmd combos and typing stay untouched):
+  - `x` = play — idempotent, **never pauses** if already playing (`if (!isPlaying) play()`).
+  - `c` = play/pause toggle.
+  - `v` = "stop" = `pause()` — keeps position, deliberately does **not** seek to 0.
+  - `b` = next track, `z` = previous track.
+- **`autoAdvanceTracks`** — when a single (non-chaptered, non-radio) file ends, play the next file in the **same folder**. Chaptered folders already auto-advance internally (`player.svelte.ts` `handleEnded`), so this only affects single files.
+
+**Next/previous track (media player)** lives in `PlaybackView.switchTrack(±1)`: it lists the current file's folder siblings via `/api/files` (audio-only, natural sort), finds the current file, and `goto()`s the neighbour. It **never crosses folder boundaries and never wraps** past the first/last file (no-op at the edge). Chaptered folders instead map `b`/`z` to `nextChapter`/`previousChapter` (stays within the folder unit); radio is a no-op. Auto-advance reuses this same helper via the store's **`onTrackEnded`** callback — the store owns "a track ended", the view owns routing + sibling listing. To keep playing across the switch regardless of the `autoplay` setting, set **`playerStore.playOnNextLoad = true`** before navigating (`loadFile` consumes it, one-shot). The play route (`/play/[...path]/+page.svelte`) wraps `<PlaybackView>` in `{#key filePath}` so a track switch fully remounts (onMount reloads + plays the new file).
+
+**Next/previous track (book reader)** — `b`/`z` navigate **by chapter**: `ReaderView.nextTrack()`/`prevTrack()` delegate to the reader store's `nextHeading()`/`prevHeading()` (chapters == heading chunks), which resume reading if we were already playing (mirrors the media player). The reader's `x`/`c`/`v` are fully functional too.
+
 ### Path safety
 All filesystem-touching API routes go through `resolvePath()` in `$server/services/files.ts`, which joins against `MEDIA_ROOT` and rejects traversal. New endpoints that take a user-supplied path **must** go through it; throw the resulting error as a 403 if the message contains `traversal` (see existing handlers for the pattern). The file service follows symlinks intentionally — `MEDIA_ROOT` may be a symlink tree.
 

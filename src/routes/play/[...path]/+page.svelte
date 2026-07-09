@@ -5,4 +5,8 @@
 	const filePath = $derived($page.params.path || '');
 </script>
 
-<PlaybackView {filePath} />
+<!-- Re-key on the path so switching tracks (Winamp b/z, auto-advance) fully
+     remounts the player: onMount reloads and plays the new file. -->
+{#key filePath}
+	<PlaybackView {filePath} />
+{/key}

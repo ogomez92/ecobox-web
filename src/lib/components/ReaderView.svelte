@@ -265,6 +265,15 @@
 		return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 	}
 
+	// Winamp b/z in the book reader navigate by chapter (heading). The reader store's
+	// heading nav resumes reading if we were already playing, mirroring the media player.
+	function nextTrack() {
+		readerStore.nextHeading();
+	}
+	function prevTrack() {
+		readerStore.prevHeading();
+	}
+
 	// Mirrors the media player (PlaybackView) shortcut model: code-based keys,
 	// Escape goes back, Space toggles, arrows navigate.
 	function handleKeydown(e: KeyboardEvent) {
@@ -305,6 +314,33 @@
 		// Form controls (rate slider, voice combo box) handle their own keys —
 		// critically Up/Down must adjust them, not navigate the book.
 		if (isFormTarget(e.target)) return;
+
+		// Winamp-style transport keys (opt-in). Bare keys only. x/c/v control
+		// playback; b/z move to the next/previous chapter (heading).
+		if (settingsStore.winampShortcuts && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+			switch (e.code) {
+				case 'KeyX': // play — never pauses if already playing
+					e.preventDefault();
+					if (!readerStore.isPlaying) readerStore.play();
+					return;
+				case 'KeyC': // play / pause toggle
+					e.preventDefault();
+					readerStore.togglePlayPause();
+					return;
+				case 'KeyV': // stop == pause (keeps the reading position)
+					e.preventDefault();
+					readerStore.pause();
+					return;
+				case 'KeyB': // next chapter (heading)
+					e.preventDefault();
+					nextTrack();
+					return;
+				case 'KeyZ': // previous chapter (heading)
+					e.preventDefault();
+					prevTrack();
+					return;
+			}
+		}
 
 		switch (e.code) {
 			case 'Space':

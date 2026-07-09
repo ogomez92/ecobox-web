@@ -42,6 +42,15 @@ class PlayerStore {
 	private lastPositionSaveTime = 0; // Track last save time for throttling
 	private disarmResume: (() => void) | null = null; // Removes the pending resume-on-gesture listener
 
+	// Force playback on the next loadFile even when autoplay is off — set by the
+	// view before a Winamp next/prev-track switch or auto-advance so the new track
+	// keeps playing. One-shot: consumed (reset to false) on the next load.
+	playOnNextLoad = false;
+	// Fired when a single (non-chaptered, non-radio) track reaches its end, so the
+	// view can auto-advance to the next file in the folder when the user opted in.
+	// Real next/prev-track navigation lives in the view (it owns routing + siblings).
+	onTrackEnded: (() => void) | null = null;
+
 	get currentChapter(): Chapter | null {
 		if (this.currentChapterIndex >= 0 && this.currentChapterIndex < this.chapters.length) {
 			return this.chapters[this.currentChapterIndex];
@@ -217,7 +226,10 @@ class PlayerStore {
 				if (startPosition > 0) {
 					this.audio.currentTime = startPosition;
 				}
-				if (settingsStore.autoplay) {
+				// Play if autoplay is on, or if a track switch asked us to keep playing.
+				const shouldPlay = settingsStore.autoplay || this.playOnNextLoad;
+				this.playOnNextLoad = false;
+				if (shouldPlay) {
 					// Browser blocks autoplay without a user gesture (e.g. after a refresh).
 					// Resume from the saved position on the next interaction instead.
 					this.audio.play().catch(() => this.armResumeOnGesture());
@@ -677,6 +689,10 @@ class PlayerStore {
 				this.updateCurrentChapter();
 				this.updateMediaSessionMetadata();
 			}
+		} else if (!this.isChapteredPlayback && !this.isRadioStream) {
+			// Single regular file ended. Let the view auto-advance to the next file
+			// in the folder when the user enabled it (radio streams never "end").
+			this.onTrackEnded?.();
 		}
 	}
 
