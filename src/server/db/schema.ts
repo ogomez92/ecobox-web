@@ -40,6 +40,19 @@ export const chapteredBookmarks = sqliteTable('chaptered_bookmarks', {
 		.$defaultFn(() => new Date())
 });
 
+/**
+ * Cached audio durations, keyed by media-root-relative path. `size`/`mtime` are
+ * the cache key proper, so a replaced or edited file re-parses rather than
+ * serving a stale length. Distinct from `mediaMetadata.duration`, which is the
+ * user-facing row (position, favorite) and only exists once a file is played.
+ */
+export const mediaDurations = sqliteTable('media_durations', {
+	path: text('path').primaryKey(),
+	duration: real('duration').notNull(),
+	size: integer('size').notNull(),
+	mtime: integer('mtime').notNull()
+});
+
 export const settings = sqliteTable('settings', {
 	key: text('key').primaryKey(),
 	value: text('value').notNull()
@@ -114,6 +127,8 @@ export type ChapteredMetadata = typeof chapteredMetadata.$inferSelect;
 export type NewChapteredMetadata = typeof chapteredMetadata.$inferInsert;
 export type ChapteredBookmark = typeof chapteredBookmarks.$inferSelect;
 export type NewChapteredBookmark = typeof chapteredBookmarks.$inferInsert;
+export type MediaDuration = typeof mediaDurations.$inferSelect;
+export type NewMediaDuration = typeof mediaDurations.$inferInsert;
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
 export type BookMetadata = typeof bookMetadata.$inferSelect;

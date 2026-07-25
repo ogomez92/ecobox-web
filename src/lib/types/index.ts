@@ -63,9 +63,32 @@ export interface BookInfo {
 
 export interface Chapter {
 	title: string;
+	/**
+	 * Start of the chapter on the book's timeline. For a single file that is simply
+	 * the offset within it; for a multi-file book (DAISY, chaptered folder) it is
+	 * absolute across the whole book, i.e. `file.startTime + fileStartTime`.
+	 */
 	startTime: number;
 	endTime?: number;
 	filePath?: string; // For multi-file chapters (DAISY)
+	/**
+	 * Offset of the chapter *within* `filePath` — what a player seeks to once that
+	 * file is loaded. Absent for single-file chapters, where `startTime` already is
+	 * the in-file offset.
+	 */
+	fileStartTime?: number;
+	/** DAISY heading depth (1–6), for rendering a nested table of contents. */
+	level?: number;
+}
+
+/** One audio file of a multi-file book, placed on the book's timeline. */
+export interface ChapteredFile {
+	/** Path relative to MEDIA_ROOT — ready for `/api/media/<path>`. */
+	path: string;
+	/** Length in seconds; 0 when it could not be determined. */
+	duration: number;
+	/** Absolute offset of this file's start on the book timeline. */
+	startTime: number;
 }
 
 export interface DaisyBook {
@@ -74,6 +97,8 @@ export interface DaisyBook {
 	narrator?: string;
 	totalDuration: number;
 	chapters: Chapter[];
+	/** Playback order, with each file's duration and place on the timeline. */
+	files: ChapteredFile[];
 	volumes?: DaisyVolume[];
 }
 
@@ -81,6 +106,33 @@ export interface DaisyVolume {
 	name: string;
 	path: string;
 	chapters: Chapter[];
+}
+
+/** A bookmark inside a multi-file book: a file plus an offset within it. */
+export interface ChapteredBookmark {
+	id: number;
+	folderPath: string;
+	filePath: string;
+	time: number;
+	label: string | null;
+	createdAt?: string | number;
+}
+
+/** Response of `GET /api/chaptered/book` — everything needed to open a book. */
+export interface ChapteredBookManifest {
+	/** `'file'` means the path is a plain audio file, not a book folder. */
+	type: 'daisy' | 'chaptered' | 'file';
+	title?: string;
+	author?: string;
+	totalDuration?: number;
+	files?: ChapteredFile[];
+	chapters?: Chapter[];
+	metadata?: {
+		currentFilePath: string | null;
+		currentFilePosition: number;
+		totalDuration: number | null;
+	};
+	bookmarks?: ChapteredBookmark[];
 }
 
 export interface RadioStation {

@@ -128,9 +128,26 @@ src/
 
 - **`.mp3`** → `$server/services/id3chapters.ts` (ID3v2.3/2.4 `CHAP` frames) → `type:'id3'`.
 - **MP4 family** (`.m4b`, `.m4a`, `.mp4`, `.m4v`, `.mov`) → `$server/services/mp4chapters.ts` → `type:'mp4'`. Two layouts, tried in that order: the **QuickTime chapter track** (the audiobook standard — the audio `trak` carries `tref/chap` pointing at a text `trak` whose samples are the titles, timed by `stts`/`stsz`/`stsc`/`stco`|`co64`), then **Nero `moov/udta/chpl`**. A lone `text`-handler track with no `tref/chap` is accepted as a fallback; `sbtl`/`subp` subtitle tracks are never treated as chapters. Titles decode UTF-16 via BOM, else UTF-8. Verified against `ffprobe` across the whole library (74 files, exact match on counts, start times, and titles).
-- **Folders** → DAISY (`type:'daisy'`) or plain chaptered (`type:'chaptered'`).
+- **Folders** → DAISY (`type:'daisy'`) or plain chaptered (`type:'chaptered'`), via `getChapteredBook()` in `$server/services/daisy.ts`. See "Multi-file books" below.
 
 Everything is read positionally through a file descriptor — `moov` usually sits behind a multi-GB `mdat`, and only the *text* track's sample table is parsed, so a 1 GB m4b answers in ~2 ms. A malformed container returns `[]` rather than throwing: missing chapters must never break playback. Adding a new container means adding a branch here — **no client change is needed**, since clients only consume `chapters` and ignore `type`.
+
+### Multi-file books (DAISY / chaptered folders)
+
+A chapter in a multi-file book needs **two** times, and mixing them up seeks to the wrong place:
+
+- `startTime` — absolute on the book timeline (what "you are 3h12m into the book" means).
+- `fileStartTime` — offset **within `filePath`**, i.e. what the player seeks to after loading that file.
+
+The invariant is `startTime === file.startTime + fileStartTime`, and `files[]` (playback order, each with `duration` and `startTime`) is what lets a client place a file on the timeline without measuring audio. It matters most when several chapters share one long MP3 — routine in DAISY 2.02 — where clip times are the only thing telling them apart.
+
+`parseVolume()` builds all of this in one pass over the SMILs: each `<par>`'s id maps to the audio clip that starts there, `ncc:totalElapsedTime` anchors each SMIL on the timeline, and clip-begin/clip-end give both file durations and the book total (cross-checked against `ncc:totalTime`). **No audio is decoded for a DAISY book** — a 52-file, 8-hour book parses in ~15 ms — and the result is cached per folder, keyed on the navigation file's size+mtime. Navigation files are decoded by their declared encoding (`<?xml encoding>` / `ncc:charset`, falling back to windows-1252 when UTF-8 yields replacement chars): DAISY 2.02 is routinely windows-1252, and reading it as UTF-8 is what turned "Capítulo" into "Cap<?>tulo".
+
+Folders **without** navigation (plain `.CHAPTERED`) have no clip times, so durations come from `$server/services/audioDuration.ts` — `music-metadata` over a Blob (so it can seek) with a 6-wide pool, cached in `media_durations` keyed by path + size + mtime.
+
+**`GET /api/chaptered/book?path=…`** is the one-round-trip open: chapters, `files[]`, the saved position and the bookmarks in a single response (a plain file answers `{type:'file'}`, so one request also decides *how* to open a path). `/api/media/chapters` still serves the same book data for anything that only wants chapters.
+
+**`/api/chaptered/bookmarks`** (GET/POST/DELETE) stores bookmarks as file + offset in `chaptered_bookmarks`; a bare time would be ambiguous across 50 files. `/api/bookmarks` remains for single files.
 
 ### Book reading (TTS)
 - **Conversion** (`POST /api/books/convert {path}`, `$server/services/bookConvert.ts`): pandoc converts epub/docx → GFM markdown (txt is read as-is); the markdown is stripped to plain text and sentence-split with `Intl.Segmenter` (`$lib/utils/bookChunks.ts`) into `book.chunks.json`. Requires the **`pandoc`** system binary (`apt install pandoc`); if pandoc is missing/errors, conversion **fails safe** and the original is kept. Conversion runs synchronously (v1); the `dispatchConvert` seam in the route is where v2 can wrap OCR in a background job. Triggered automatically after upload (`UploadDialog`) and via the "Convert" action in the file browser (`ActionsDropdown` → `FileExplorer.handleConvert`) for files that arrive by other means.
@@ -196,7 +213,8 @@ The four breakdown fields are mode-independent and are what the upload dialog us
 - `media_metadata` — playback position, duration, favorites
 - `bookmarks` — time-stamped bookmarks for single files
 - `chaptered_metadata` — playback state for multi-file chaptered content
-- `chaptered_bookmarks` — bookmarks within chaptered folders
+- `chaptered_bookmarks` — bookmarks within chaptered folders (file + offset in that file)
+- `media_durations` — cached audio durations, invalidated by size + mtime (never user data; safe to delete)
 - `settings` — key-value settings storage
 - `book_metadata` — reading position (current chunk index) for converted books
 

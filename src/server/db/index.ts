@@ -54,6 +54,18 @@ sqlite.exec(`
 		created_at INTEGER NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS protected_paths (
+		path TEXT PRIMARY KEY,
+		created_at INTEGER NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS media_durations (
+		path TEXT PRIMARY KEY,
+		duration REAL NOT NULL,
+		size INTEGER NOT NULL,
+		mtime INTEGER NOT NULL
+	);
+
 	CREATE TABLE IF NOT EXISTS settings (
 		key TEXT PRIMARY KEY,
 		value TEXT NOT NULL

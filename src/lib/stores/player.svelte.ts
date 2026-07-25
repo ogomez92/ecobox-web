@@ -1,4 +1,4 @@
-import type { Chapter } from '$lib/types';
+import type { Chapter, ChapteredBookManifest, ChapteredFile } from '$lib/types';
 import { settingsStore } from './settings.svelte';
 import { audioEffects } from '$lib/services/audioEffects';
 import { t } from '$lib/i18n/index.svelte';
@@ -22,9 +22,17 @@ class PlayerStore {
 	// Chaptered folder / DAISY state
 	isChapteredPlayback = $state(false);
 	chapteredFolderPath = $state<string | null>(null);
-	chapteredFiles = $state<string[]>([]); // Ordered list of audio files
+	/** The book's files in playback order, each with its duration and timeline offset. */
+	chapteredFileList = $state<ChapteredFile[]>([]);
 	currentFileIndex = $state(-1);
 	chapteredTotalDuration = $state(0);
+
+	/** Just the paths, in playback order. */
+	chapteredFiles = $derived(this.chapteredFileList.map((file) => file.path));
+	/** Where each file starts on the book timeline — what makes positions absolute. */
+	private fileStartTimes = $derived(
+		new Map(this.chapteredFileList.map((file) => [file.path, file.startTime]))
+	);
 
 	// Radio stream state
 	isRadioStream = $state(false);
@@ -259,7 +267,15 @@ class PlayerStore {
 		}
 	}
 
-	async loadChapteredFolder(folderPath: string) {
+	/**
+	 * Open a DAISY book or chaptered folder.
+	 *
+	 * The manifest (`/api/chaptered/book`) carries chapters, the ordered files with
+	 * their durations and timeline offsets, and the saved position in one response.
+	 * Callers that already fetched it — the play page does, to decide between a file
+	 * and a book — pass it in rather than making the server parse the book twice.
+	 */
+	async loadChapteredFolder(folderPath: string, manifest?: ChapteredBookManifest) {
 		if (!this.audio) return;
 
 		// Reset navigation save flag for new file
@@ -274,82 +290,37 @@ class PlayerStore {
 		this.isRadioStream = false;
 		this.radioStreamUrl = null;
 
-		let startFilePath: string | null = null;
-		let startPosition = 0;
-
-		// Load saved chaptered metadata (folder-level position)
-		try {
-			const response = await fetch(`/api/chaptered/metadata?path=${encodeURIComponent(folderPath)}`);
-			if (response.ok) {
-				const metadata = await response.json();
-				if (metadata.currentFilePath) {
-					startFilePath = metadata.currentFilePath;
-					startPosition = metadata.currentFilePosition || 0;
-				}
-				if (metadata.totalDuration) {
-					this.chapteredTotalDuration = metadata.totalDuration;
-				}
-			}
-		} catch {
-			// Ignore metadata loading errors
-		}
-
-		// Load chapters (this also returns file list for DAISY)
-		try {
-			const response = await fetch(`/api/media/chapters?path=${encodeURIComponent(folderPath)}`);
-			if (response.ok) {
-				const data = await response.json();
-				if (data.chapters && data.chapters.length > 0) {
-					this.chapters = data.chapters;
-
-					// Extract unique file paths from chapters
-					const files = data.chapters
-						.filter((ch: Chapter) => ch.filePath)
-						.map((ch: Chapter) => ch.filePath as string);
-					this.chapteredFiles = [...new Set(files)] as string[];
-
-					if (data.totalDuration) {
-						this.chapteredTotalDuration = data.totalDuration;
-					}
-					if (data.title) {
-						this.currentTitle = data.title;
-					}
-				}
-			}
-		} catch {
-			// Ignore chapter loading errors
-		}
-
-		// If no chapters with files, try to get audio files directly
-		if (this.chapteredFiles.length === 0) {
+		let book = manifest;
+		if (!book) {
 			try {
-				const response = await fetch(`/api/files?path=${encodeURIComponent(folderPath)}`);
-				if (response.ok) {
-					const data = await response.json();
-					const audioExtensions = ['.mp3', '.m4a', '.m4b', '.wav', '.aac', '.flac'];
-					this.chapteredFiles = data.files
-						.filter((f: { name: string; isDirectory: boolean }) =>
-							!f.isDirectory && audioExtensions.some(ext => f.name.toLowerCase().endsWith(ext)))
-						.map((f: { path: string }) => f.path)
-						.sort((a: string, b: string) => a.localeCompare(b, undefined, { numeric: true }));
-				}
+				const response = await fetch(`/api/chaptered/book?path=${encodeURIComponent(folderPath)}`);
+				if (response.ok) book = await response.json();
 			} catch {
-				// Ignore errors
+				// Fall through to the empty-book error below
 			}
 		}
 
-		if (this.chapteredFiles.length === 0) {
+		this.chapteredFileList = book?.files ?? [];
+		if (this.chapteredFileList.length === 0) {
 			this.error = t('player.noFiles');
 			return;
 		}
 
-		// Determine which file to start with
-		if (!startFilePath || !this.chapteredFiles.includes(startFilePath)) {
-			startFilePath = this.chapteredFiles[0];
+		this.chapters = book?.chapters ?? [];
+		this.chapteredTotalDuration = book?.totalDuration || book?.metadata?.totalDuration || 0;
+		if (book?.title) this.currentTitle = book.title;
+
+		// Resume where the book was left, as long as that file is still part of it.
+		const saved = book?.metadata;
+		const files = this.chapteredFiles;
+		let startFilePath = saved?.currentFilePath ?? null;
+		let startPosition = saved?.currentFilePosition ?? 0;
+		if (!startFilePath || !files.includes(startFilePath)) {
+			startFilePath = files[0];
 			startPosition = 0;
 		}
 
-		this.currentFileIndex = this.chapteredFiles.indexOf(startFilePath);
+		this.currentFileIndex = files.indexOf(startFilePath);
 
 		// Load the starting file
 		await this.loadFileInternal(startFilePath, startPosition);
@@ -571,25 +542,11 @@ class PlayerStore {
 			return;
 		}
 
-		// For chaptered playback, calculate absolute time across all files
-		let absoluteTime = this.currentTime;
-		if (this.isChapteredPlayback && this.currentFile) {
-			const fileStartTime = this.getFileStartTime(this.currentFile);
-			absoluteTime = fileStartTime + this.currentTime;
-		}
+		// Chapter starts are absolute across the book, so the position has to be too.
+		const absoluteTime = this.absoluteTime;
 
 		for (let i = this.chapters.length - 1; i >= 0; i--) {
-			const chapter = this.chapters[i];
-			// For chaptered playback, also check if we're in the right file
-			if (this.isChapteredPlayback && chapter.filePath && chapter.filePath !== this.currentFile) {
-				// Check if this chapter is in an earlier file
-				const chapterFileIndex = this.chapteredFiles.indexOf(chapter.filePath);
-				if (chapterFileIndex > this.currentFileIndex) {
-					continue; // Chapter is in a later file, skip
-				}
-			}
-
-			if (absoluteTime >= chapter.startTime) {
+			if (absoluteTime >= this.chapters[i].startTime) {
 				if (this.currentChapterIndex !== i) {
 					this.currentChapterIndex = i;
 					this.updateMediaSessionMetadata();
@@ -604,59 +561,68 @@ class PlayerStore {
 		if (index < 0 || index >= this.chapters.length) return;
 
 		const chapter = this.chapters[index];
+		// The server gives the in-file offset directly; subtracting the file's own
+		// start is the fallback for chapter data that predates it.
+		const positionInFile = Math.max(
+			0,
+			chapter.fileStartTime ?? chapter.startTime - this.getFileStartTime(chapter.filePath)
+		);
 
-		// Check if this chapter is in a different file (DAISY/chaptered playback)
-		if (this.isChapteredPlayback && chapter.filePath) {
-			const currentFilePath = this.currentFile;
-
-			// Need to switch files?
-			if (chapter.filePath !== currentFilePath) {
-				// Save position first
-				await this.saveChapteredPosition();
-
-				// Calculate position within the target file
-				// For DAISY, startTime is absolute across all files, we need file-relative time
-				const fileStartTime = this.getFileStartTime(chapter.filePath);
-				const positionInFile = chapter.startTime - fileStartTime;
-
-				// Update file index
-				this.currentFileIndex = this.chapteredFiles.indexOf(chapter.filePath);
-
-				// Switch files
-				this.switchingFiles = true;
-				await this.loadFileInternal(chapter.filePath, Math.max(0, positionInFile));
-				this.switchingFiles = false;
-
-				this.currentChapterIndex = index;
-				this.updateMediaSessionMetadata();
-				return;
-			}
+		if (!this.isChapteredPlayback) {
+			this.seek(chapter.startTime);
+			return;
 		}
 
-		// Same file - just seek
-		// For chaptered playback, convert absolute time to file-relative time
-		let seekTime = chapter.startTime;
-		if (this.isChapteredPlayback && chapter.filePath) {
-			const fileStartTime = this.getFileStartTime(chapter.filePath);
-			seekTime = chapter.startTime - fileStartTime;
-		}
-
-		this.seek(Math.max(0, seekTime));
+		await this.seekToBookPosition(chapter.filePath, positionInFile);
+		this.currentChapterIndex = index;
+		this.updateMediaSessionMetadata();
 	}
 
-	// Get the cumulative start time of a file in the chaptered sequence
-	private getFileStartTime(filePath: string): number {
-		// Find the first chapter of this file to get its start time offset
-		for (const chapter of this.chapters) {
-			if (chapter.filePath === filePath) {
-				// Look for the minimum startTime for this file
-				const fileChapters = this.chapters.filter(ch => ch.filePath === filePath);
-				if (fileChapters.length > 0) {
-					return Math.min(...fileChapters.map(ch => ch.startTime));
-				}
-			}
+	/**
+	 * Jump to an offset inside one specific file of the book, switching files when
+	 * needed. Chapters and bookmarks both address positions this way — a file plus
+	 * an offset in it — because a bare time means nothing across a multi-file book.
+	 */
+	async seekToBookPosition(filePath: string | undefined, positionInFile: number) {
+		const target = Math.max(0, positionInFile);
+
+		if (!this.isChapteredPlayback || !filePath || filePath === this.currentFile) {
+			this.seek(target);
+			return;
 		}
-		return 0;
+
+		const index = this.chapteredFiles.indexOf(filePath);
+		if (index < 0) return;
+
+		await this.saveChapteredPosition();
+		this.currentFileIndex = index;
+
+		this.switchingFiles = true;
+		await this.loadFileInternal(filePath, target);
+		this.switchingFiles = false;
+
+		this.updateCurrentChapter();
+		this.updateMediaSessionMetadata();
+	}
+
+	/** Where a file begins on the book timeline (0 for single-file playback). */
+	private getFileStartTime(filePath?: string): number {
+		if (!filePath) return 0;
+		return this.fileStartTimes.get(filePath) ?? 0;
+	}
+
+	/**
+	 * Position on the book's timeline: the offset inside the current file plus
+	 * everything before it. Equals `currentTime` for ordinary single-file playback.
+	 */
+	get absoluteTime(): number {
+		return this.absoluteTimeFor(this.currentFile, this.currentTime);
+	}
+
+	/** Place an offset inside one of the book's files on the book timeline. */
+	absoluteTimeFor(filePath: string | null | undefined, timeInFile: number): number {
+		if (!this.isChapteredPlayback) return timeInFile;
+		return this.getFileStartTime(filePath ?? undefined) + timeInFile;
 	}
 
 	previousChapter() {
@@ -665,10 +631,8 @@ class PlayerStore {
 		const chapter = this.currentChapter;
 
 		if (this.isChapteredPlayback && chapter) {
-			// For chaptered playback, calculate time into current chapter
-			const fileStartTime = this.currentFile ? this.getFileStartTime(this.currentFile) : 0;
-			const absoluteTime = fileStartTime + this.currentTime;
-			const timeIntoChapter = absoluteTime - chapter.startTime;
+			// Both sides of this comparison live on the book timeline.
+			const timeIntoChapter = this.absoluteTime - chapter.startTime;
 
 			if (timeIntoChapter > 3) {
 				this.seekToChapter(this.currentChapterIndex);
@@ -837,7 +801,7 @@ class PlayerStore {
 		// Reset chaptered state
 		this.isChapteredPlayback = false;
 		this.chapteredFolderPath = null;
-		this.chapteredFiles = [];
+		this.chapteredFileList = [];
 		this.currentFileIndex = -1;
 		this.chapteredTotalDuration = 0;
 		this.switchingFiles = false;

@@ -4,36 +4,18 @@ import { listDirectory, deleteFile } from '$server/services/files';
 import { recordDeletion } from '$server/services/deletionHistory';
 import { purgeCacheForPath } from '$server/services/tts/cache';
 import { db } from '$server/db';
-import { protectedPaths, bookBookmarks } from '$server/db/schema';
+import { bookBookmarks } from '$server/db/schema';
 import { eq, or, sql } from 'drizzle-orm';
-import { env } from '$env/dynamic/private';
-
-// Check if a path or any of its ancestors is protected
-function isPathProtected(path: string, protectedSet: Set<string>): boolean {
-	if (!path) return false;
-
-	// Check exact path
-	if (protectedSet.has(path)) return true;
-
-	// Check ancestors
-	const pathParts = path.split('/').filter(Boolean);
-	for (let i = 1; i <= pathParts.length; i++) {
-		const ancestorPath = pathParts.slice(0, i).join('/');
-		if (protectedSet.has(ancestorPath)) return true;
-	}
-
-	return false;
-}
+import { getProtectedSet, isPathProtected, isUnlocked } from '$server/services/protection';
 
 export const GET: RequestHandler = async ({ url, cookies }) => {
 	const path = url.searchParams.get('path') || '';
 
 	// Check if user is unlocked
-	const unlocked = cookies.get('unlocked') === env.PROTECT_KEYWORD;
+	const unlocked = isUnlocked(cookies);
 
 	// Get protected paths
-	const protectedList = await db.select().from(protectedPaths);
-	const protectedSet = new Set(protectedList.map(p => p.path));
+	const protectedSet = await getProtectedSet();
 
 	// If not unlocked and trying to access a protected path, pretend it doesn't exist
 	if (!unlocked && path && isPathProtected(path, protectedSet)) {

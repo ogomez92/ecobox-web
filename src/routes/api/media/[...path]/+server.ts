@@ -1,9 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getFileStats, createReadStream, resolveExistingPath, getRelativePath } from '$server/services/files';
-import { db } from '$server/db';
-import { protectedPaths } from '$server/db/schema';
-import { env } from '$env/dynamic/private';
+import { isPathHidden } from '$server/services/protection';
 import path from 'path';
 import crypto from 'crypto';
 
@@ -17,23 +15,6 @@ const MIME_TYPES: Record<string, string> = {
 	'.wav': 'audio/wav',
 	'.flac': 'audio/flac'
 };
-
-// Check if a path or any of its ancestors is protected
-function isPathProtected(filePath: string, protectedSet: Set<string>): boolean {
-	if (!filePath) return false;
-
-	// Check exact path
-	if (protectedSet.has(filePath)) return true;
-
-	// Check ancestors
-	const pathParts = filePath.split('/').filter(Boolean);
-	for (let i = 1; i <= pathParts.length; i++) {
-		const ancestorPath = pathParts.slice(0, i).join('/');
-		if (protectedSet.has(ancestorPath)) return true;
-	}
-
-	return false;
-}
 
 // Generate ETag from file path, size, and mtime
 function generateETag(filePath: string, size: number, mtime: Date): string {
@@ -51,17 +32,9 @@ export const GET: RequestHandler = async ({ params, request, cookies }) => {
 		throw error(400, 'Path is required');
 	}
 
-	// Check if user is unlocked
-	const unlocked = cookies.get('unlocked') === env.PROTECT_KEYWORD;
-
-	// Check if path is protected
-	if (!unlocked) {
-		const protectedList = await db.select().from(protectedPaths);
-		const protectedSet = new Set(protectedList.map(p => p.path));
-
-		if (isPathProtected(filePath, protectedSet)) {
-			throw error(404, 'File not found');
-		}
+	// Protected content stays invisible to a locked session
+	if (await isPathHidden(filePath, cookies)) {
+		throw error(404, 'File not found');
 	}
 
 	try {

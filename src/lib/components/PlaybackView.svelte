@@ -18,7 +18,13 @@
 	import { roomCaster } from '$lib/services/roomCaster.svelte';
 	import { formatDuration } from '$lib/utils/format';
 	import { t } from '$lib/i18n/index.svelte';
-	import type { Bookmark } from '$server/db/schema';
+	import type { ChapteredBookManifest } from '$lib/types';
+
+	/**
+	 * Either flavour of audio bookmark. Single files store a time against the file;
+	 * a multi-file book stores it against one file *of* the book, hence `filePath`.
+	 */
+	type PlaybackBookmark = { id: number; time: number; label: string | null; filePath?: string };
 
 	interface Props {
 		filePath: string;
@@ -37,16 +43,20 @@
 	let showSleepTimer = $state(false);
 	let showEffects = $state(false);
 	let showCast = $state(false);
-	let bookmarks = $state<Bookmark[]>([]);
+	let bookmarks = $state<PlaybackBookmark[]>([]);
 
 	// Presentation rows for the shared BookmarkList (keyed by bookmark id; time → detail).
+	// A book's bookmarks are shown at their position in the book, not in their file.
 	const bookmarkEntries = $derived(
-		bookmarks.map((b) => ({
-			id: b.id,
-			label: b.label ?? '',
-			detail: formatDuration(b.time),
-			deleteAria: t('bookmarks.deleteAt', { time: formatDuration(b.time) })
-		}))
+		bookmarks.map((b) => {
+			const shown = formatDuration(playerStore.absoluteTimeFor(b.filePath, b.time));
+			return {
+				id: b.id,
+				label: b.label ?? '',
+				detail: shown,
+				deleteAria: t('bookmarks.deleteAt', { time: shown })
+			};
+		})
 	);
 
 	// Sleep timer state
@@ -73,10 +83,17 @@
 	// media has none (or they load late), the arrows fall back to time seeking.
 	const isChapterSeek = $derived(seekUnitIndex === CHAPTER_UNIT_INDEX && hasChapters);
 
+	// Bookmarks in a multi-file book live in their own table: a bare time would be
+	// ambiguous across 50 files, so each row also records the file it points into.
+	const bookmarksEndpoint = $derived(
+		playerStore.isChapteredPlayback ? '/api/chaptered/bookmarks' : '/api/bookmarks'
+	);
+
 	async function loadBookmarks() {
 		if (!filePath) return;
+		const path = playerStore.chapteredFolderPath ?? filePath;
 		try {
-			const response = await fetch(`/api/bookmarks?path=${encodeURIComponent(filePath)}`);
+			const response = await fetch(`${bookmarksEndpoint}?path=${encodeURIComponent(path)}`);
 			if (response.ok) {
 				bookmarks = await response.json();
 			}
@@ -88,18 +105,29 @@
 	async function addBookmark(label?: string) {
 		if (!filePath) return;
 		const time = playerStore.currentTime;
-		const formatted = formatDuration(time);
+		// The label reads as a position in the *book*, not in whichever file is loaded.
+		const formatted = formatDuration(playerStore.absoluteTimeFor(playerStore.currentFile, time));
 		bookmarkAnnouncement = t('bookmarks.added', { time: formatted });
 		setTimeout(() => { bookmarkAnnouncement = ''; }, 100);
-		try {
-			const response = await fetch('/api/bookmarks', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
+
+		const body = playerStore.isChapteredPlayback
+			? {
+					folderPath: playerStore.chapteredFolderPath,
+					filePath: playerStore.currentFile,
+					time,
+					label: label || t('bookmarks.bookmarkAt', { time: formatted })
+				}
+			: {
 					mediaPath: filePath,
 					time,
 					label: label || t('bookmarks.bookmarkAt', { time: formatted })
-				})
+				};
+
+		try {
+			const response = await fetch(bookmarksEndpoint, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
 			});
 			if (response.ok) {
 				await loadBookmarks();
@@ -123,7 +151,7 @@
 
 	async function deleteBookmark(id: number) {
 		try {
-			const response = await fetch(`/api/bookmarks?id=${id}`, { method: 'DELETE' });
+			const response = await fetch(`${bookmarksEndpoint}?id=${id}`, { method: 'DELETE' });
 			if (response.ok) {
 				await loadBookmarks();
 			}
@@ -178,14 +206,16 @@
 				// Initialize audio effects chain (connects Web Audio API to the audio element)
 				await audioEffects.initialize(audioElement);
 
-				// Check if this is a folder (DAISY/chaptered) by querying the chapters API
-				const isFolder = await checkIfChapteredFolder(filePath);
-				if (isFolder) {
-					playerStore.loadChapteredFolder(filePath);
+				// One request answers both "is this a book folder?" and "what's inside",
+				// so opening a DAISY book never makes the server parse it twice.
+				const manifest = await loadBookManifest(filePath);
+				if (manifest && manifest.type !== 'file') {
+					await playerStore.loadChapteredFolder(filePath, manifest);
+					bookmarks = manifest.bookmarks ?? [];
 				} else {
 					playerStore.loadFile(filePath);
+					loadBookmarks();
 				}
-				loadBookmarks();
 			}
 		}
 
@@ -199,17 +229,14 @@
 		});
 	});
 
-	async function checkIfChapteredFolder(path: string): Promise<boolean> {
+	async function loadBookManifest(path: string): Promise<ChapteredBookManifest | null> {
 		try {
-			const response = await fetch(`/api/media/chapters?path=${encodeURIComponent(path)}`);
-			if (response.ok) {
-				const data = await response.json();
-				return data.type === 'daisy' || data.type === 'chaptered';
-			}
+			const response = await fetch(`/api/chaptered/book?path=${encodeURIComponent(path)}`);
+			if (response.ok) return await response.json();
 		} catch {
-			// Ignore errors
+			// Treat an unreachable manifest as "ordinary file"
 		}
-		return false;
+		return null;
 	}
 
 	onDestroy(() => {
@@ -912,7 +939,8 @@
 		bookmarks={bookmarkEntries}
 		onselect={(id: number) => {
 			const b = bookmarks.find((x) => x.id === id);
-			if (b) playerStore.seek(b.time);
+			// Switches files first when the bookmark lives in another part of the book.
+			if (b) playerStore.seekToBookPosition(b.filePath, b.time);
 		}}
 		ondelete={deleteBookmark}
 		onclose={() => {

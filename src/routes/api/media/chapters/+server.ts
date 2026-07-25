@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 import { resolveExistingPath } from '$server/services/files';
 import { extractID3Chapters } from '$server/services/id3chapters';
 import { extractMP4Chapters } from '$server/services/mp4chapters';
-import { parseDaisyBook, isDaisyBook } from '$server/services/daisy';
+import { getChapteredBook } from '$server/services/daisy';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -23,23 +23,27 @@ export const GET: RequestHandler = async ({ url }) => {
 		const stats = await fs.stat(absolutePath);
 
 		if (stats.isDirectory()) {
-			// Check if it's a DAISY book
-			if (await isDaisyBook(absolutePath)) {
-				const book = await parseDaisyBook(absolutePath);
-				if (book) {
-					return json({
-						type: 'daisy',
-						title: book.title,
-						chapters: book.chapters,
-						totalDuration: book.totalDuration
-					});
-				}
+			// DAISY book, or a plain chaptered folder read in file order. `files`
+			// carries the playback order with each file's place on the timeline, so a
+			// client never has to probe durations file by file.
+			const book = await getChapteredBook(absolutePath);
+			if (book) {
+				return json({
+					type: book.type,
+					title: book.title,
+					author: book.author,
+					chapters: book.chapters,
+					files: book.files,
+					totalDuration: book.totalDuration
+				});
 			}
 
-			// Regular chaptered folder - no chapters, just files
+			// A folder with no audio in it at all.
 			return json({
 				type: 'chaptered',
-				chapters: []
+				chapters: [],
+				files: [],
+				totalDuration: 0
 			});
 		}
 
