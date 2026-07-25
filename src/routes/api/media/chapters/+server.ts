@@ -2,9 +2,13 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { resolveExistingPath } from '$server/services/files';
 import { extractID3Chapters } from '$server/services/id3chapters';
+import { extractMP4Chapters } from '$server/services/mp4chapters';
 import { parseDaisyBook, isDaisyBook } from '$server/services/daisy';
 import path from 'path';
 import fs from 'fs/promises';
+
+/** Containers whose chapters live in an MP4 atom tree. */
+const MP4_EXTENSIONS = new Set(['.m4b', '.m4a', '.mp4', '.m4v', '.mov']);
 
 export const GET: RequestHandler = async ({ url }) => {
 	const filePath = url.searchParams.get('path');
@@ -39,12 +43,21 @@ export const GET: RequestHandler = async ({ url }) => {
 			});
 		}
 
-		// Single audio file - try to extract ID3 chapters
+		// Single audio file - try to extract embedded chapters
 		const ext = path.extname(absolutePath).toLowerCase();
 		if (ext === '.mp3') {
 			const chapters = extractID3Chapters(absolutePath);
 			return json({
 				type: 'id3',
+				chapters
+			});
+		}
+
+		// MP4 family (.m4b audiobooks, .m4a, .mp4): QuickTime chapter track or Nero chpl
+		if (MP4_EXTENSIONS.has(ext)) {
+			const chapters = extractMP4Chapters(absolutePath);
+			return json({
+				type: 'mp4',
 				chapters
 			});
 		}

@@ -113,15 +113,24 @@ src/
 │   └── settings/         # Settings page
 └── server/
     ├── db/             # Drizzle schema + connection singleton
-    └── services/       # files.ts, daisy.ts, id3chapters.ts
+    └── services/       # files.ts, daisy.ts, id3chapters.ts, mp4chapters.ts
 ```
 
 ### Media Types
-- **Single files**: Regular audio files (.mp3, .m4a, .m4b, etc.)
+- **Single files**: Regular audio files (.mp3, .m4a, .m4b, etc.). Embedded chapters are extracted server-side — see "Embedded chapters" below.
 - **Chaptered folders**: Directories with `.CHAPTERED` marker file — treated as a single playable unit, files become chapters in order. The marker is preserved across uploads (negotiate refuses to delete it).
 - **DAISY books**: Detected by `ncc.html` / `ncc.xml` / `Navigation.xml`.
 - **Radio files**: `.radio` files containing JSON `{url, name, username?, password?}`.
 - **Books (TTS)**: Folders with a `.BOOK` marker, containing `book.md` + `book.chunks.json`. Created by converting an uploaded `.epub` / `.docx` / `.txt` (v1; PDF + OCR are v2). Routed to `/read/[...path]` (NOT `/play`) and read aloud via a pluggable TTS engine — the browser's Web Speech API by default, or a server-synthesized service (ElevenLabs/Azure/Google) played through an `<audio>` element. Position is a chunk (sentence) index, not seconds. See the "Book reading" section below.
+
+### Embedded chapters
+`GET /api/media/chapters?path=…` is the single source of chapters for every client (web player **and** the iOS app, which can't parse remote bytes locally — see `ios_app/AGENTS.md`). It dispatches on what the path is:
+
+- **`.mp3`** → `$server/services/id3chapters.ts` (ID3v2.3/2.4 `CHAP` frames) → `type:'id3'`.
+- **MP4 family** (`.m4b`, `.m4a`, `.mp4`, `.m4v`, `.mov`) → `$server/services/mp4chapters.ts` → `type:'mp4'`. Two layouts, tried in that order: the **QuickTime chapter track** (the audiobook standard — the audio `trak` carries `tref/chap` pointing at a text `trak` whose samples are the titles, timed by `stts`/`stsz`/`stsc`/`stco`|`co64`), then **Nero `moov/udta/chpl`**. A lone `text`-handler track with no `tref/chap` is accepted as a fallback; `sbtl`/`subp` subtitle tracks are never treated as chapters. Titles decode UTF-16 via BOM, else UTF-8. Verified against `ffprobe` across the whole library (74 files, exact match on counts, start times, and titles).
+- **Folders** → DAISY (`type:'daisy'`) or plain chaptered (`type:'chaptered'`).
+
+Everything is read positionally through a file descriptor — `moov` usually sits behind a multi-GB `mdat`, and only the *text* track's sample table is parsed, so a 1 GB m4b answers in ~2 ms. A malformed container returns `[]` rather than throwing: missing chapters must never break playback. Adding a new container means adding a branch here — **no client change is needed**, since clients only consume `chapters` and ignore `type`.
 
 ### Book reading (TTS)
 - **Conversion** (`POST /api/books/convert {path}`, `$server/services/bookConvert.ts`): pandoc converts epub/docx → GFM markdown (txt is read as-is); the markdown is stripped to plain text and sentence-split with `Intl.Segmenter` (`$lib/utils/bookChunks.ts`) into `book.chunks.json`. Requires the **`pandoc`** system binary (`apt install pandoc`); if pandoc is missing/errors, conversion **fails safe** and the original is kept. Conversion runs synchronously (v1); the `dispatchConvert` seam in the route is where v2 can wrap OCR in a background job. Triggered automatically after upload (`UploadDialog`) and via the "Convert" action in the file browser (`ActionsDropdown` → `FileExplorer.handleConvert`) for files that arrive by other means.
@@ -163,6 +172,10 @@ Both players share a code-based `handleKeydown` (media: `PlaybackView.svelte`; r
 **Next/previous track (media player)** lives in `PlaybackView.switchTrack(±1)`: it lists the current file's folder siblings via `/api/files` (audio-only, natural sort), finds the current file, and `goto()`s the neighbour. It **never crosses folder boundaries and never wraps** past the first/last file (no-op at the edge). Chaptered folders instead map `b`/`z` to `nextChapter`/`previousChapter` (stays within the folder unit); radio is a no-op. Auto-advance reuses this same helper via the store's **`onTrackEnded`** callback — the store owns "a track ended", the view owns routing + sibling listing. To keep playing across the switch regardless of the `autoplay` setting, set **`playerStore.playOnNextLoad = true`** before navigating (`loadFile` consumes it, one-shot). The play route (`/play/[...path]/+page.svelte`) wraps `<PlaybackView>` in `{#key filePath}` so a track switch fully remounts (onMount reloads + plays the new file).
 
 **Next/previous track (book reader)** — `b`/`z` navigate **by chapter**: `ReaderView.nextTrack()`/`prevTrack()` delegate to the reader store's `nextHeading()`/`prevHeading()` (chapters == heading chunks), which resume reading if we were already playing (mirrors the media player). The reader's `x`/`c`/`v` are fully functional too.
+
+**Chapter navigation (media player)** — the Chapters button sits beside the bookmark ("markers") buttons in the footer and appears whenever `playerStore.chapters.length > 0` (embedded chapters, DAISY, or a chaptered folder alike). `ChapterList` mirrors `BookmarkList`'s listbox pattern: roving tabindex, Up/Down/Home/End, Enter/Space to jump, Escape to close, focus opening on the *playing* chapter and returning to the button on close (`aria-selected` marks the current chapter, not merely the focused row). Shortcut: **`c`** opens the list. With `winampShortcuts` on, bare `c` is play/pause and is claimed by the Winamp block first — **`Shift+C`** always reaches the chapter list, so it stays keyboard-reachable either way.
+
+**Chapter as a seek unit** — when the media has chapters, the seek-unit radio group gains a **"Chapter"** option after the time units (index `CHAPTER_UNIT_INDEX === SEEK_UNITS.length`; `seekUnitIndex` persists to `localStorage['ecobox-seek-unit-index']` as before). With it selected, `ArrowLeft`/`ArrowRight` and the inner transport buttons call `previousChapter()`/`nextChapter()` instead of `seekRelative(±seconds)` — `PlaybackControls` takes optional `seekLabel`/`seekBackAria`/`seekForwardAria` overrides for the non-numeric badge. Selection degrades safely: `isChapterSeek` requires chapters to actually exist, so a file without them falls back to time seeking (a saved chapter index doesn't strand the arrows).
 
 ### Path safety
 All filesystem-touching API routes go through `resolvePath()` in `$server/services/files.ts`, which joins against `MEDIA_ROOT` and rejects traversal. New endpoints that take a user-supplied path **must** go through it; throw the resulting error as a 403 if the message contains `traversal` (see existing handlers for the pattern). The file service follows symlinks intentionally — `MEDIA_ROOT` may be a symlink tree.

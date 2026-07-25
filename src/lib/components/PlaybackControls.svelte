@@ -17,6 +17,14 @@
 		onlongseekforward: () => void;
 		playButtonRef?: HTMLButtonElement | null;
 		isRadio?: boolean;
+		/**
+		 * Overrides for the inner seek buttons when the seek unit isn't a number of
+		 * seconds (currently: seeking by chapter). Left undefined, the buttons keep
+		 * showing `seekInterval` and its "skip N seconds" labels.
+		 */
+		seekLabel?: string;
+		seekBackAria?: string;
+		seekForwardAria?: string;
 	}
 
 	let {
@@ -31,7 +39,10 @@
 		onlongseekback,
 		onlongseekforward,
 		playButtonRef = $bindable(null),
-		isRadio = false
+		isRadio = false,
+		seekLabel = undefined,
+		seekBackAria = undefined,
+		seekForwardAria = undefined
 	}: Props = $props();
 
 	function cycleSpeed() {
@@ -63,11 +74,11 @@
 			type="button"
 			onclick={onseekback}
 			class="btn-ghost p-3 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
-			aria-label={t('player.skipBack', { n: seekInterval })}
+			aria-label={seekBackAria ?? t('player.skipBack', { n: seekInterval })}
 		>
 			<span class="relative">
 				<Icon name="skip-back" size={28} />
-				<span class="absolute -bottom-1 left-1/2 -translate-x-1/2 text-xs font-medium">{seekInterval}</span>
+				<span class="absolute -bottom-1 left-1/2 -translate-x-1/2 text-xs font-medium">{seekLabel ?? seekInterval}</span>
 			</span>
 		</button>
 	{/if}
@@ -96,11 +107,11 @@
 			type="button"
 			onclick={onseekforward}
 			class="btn-ghost p-3 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
-			aria-label={t('player.skipForward', { n: seekInterval })}
+			aria-label={seekForwardAria ?? t('player.skipForward', { n: seekInterval })}
 		>
 			<span class="relative">
 				<Icon name="skip-forward" size={28} />
-				<span class="absolute -bottom-1 left-1/2 -translate-x-1/2 text-xs font-medium">{seekInterval}</span>
+				<span class="absolute -bottom-1 left-1/2 -translate-x-1/2 text-xs font-medium">{seekLabel ?? seekInterval}</span>
 			</span>
 		</button>
 

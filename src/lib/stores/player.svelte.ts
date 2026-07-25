@@ -128,6 +128,10 @@ class PlayerStore {
 		});
 
 		this.audio.addEventListener('error', () => {
+			// A deliberate radio teardown (see stopRadioStream) drops the src, which
+			// fires a synthetic error with no real failure — ignore it. Genuine stream
+			// errors always keep the src attribute set.
+			if (this.isRadioStream && !this.audio?.getAttribute('src')) return;
 			this.isLoading = false;
 			this.error = t('player.loadFailed');
 		});
@@ -460,6 +464,14 @@ class PlayerStore {
 	async play() {
 		// Playback is starting for real — drop any pending resume-on-gesture listener.
 		this.disarmResume?.();
+		// Live streams ALWAYS (re)connect at the live edge on play — never resume from
+		// a stale buffer (which would replay old audio with a growing delay). Reassigning
+		// src + load() forces a fresh connection each time play is pressed. Only the
+		// user-gesture play() path hits this; initial autoplay runs through loadRadio.
+		if (this.isRadioStream && this.audio && this.radioStreamUrl) {
+			this.audio.src = this.radioStreamUrl;
+			this.audio.load();
+		}
 		// Call play() synchronously first — on iOS, awaiting anything before play()
 		// loses the user-gesture context from Media Session handlers (control center),
 		// causing play to fail when the app is backgrounded.
@@ -478,7 +490,26 @@ class PlayerStore {
 	}
 
 	pause() {
+		// A live stream must never truly "pause": a paused <audio> stream holds a stale
+		// buffer that plays back with a growing delay when resumed. Tear the stream down
+		// so the next play() reconnects at the live edge (see play()).
+		if (this.isRadioStream) {
+			this.stopRadioStream();
+			return;
+		}
 		this.audio?.pause();
+	}
+
+	// Fully stop a live stream: pause, then drop the source so the browser closes the
+	// connection and discards the buffer. removeAttribute (not src='') yields a clean
+	// NETWORK_EMPTY state; src='' would resolve to the page URL and error.
+	private stopRadioStream() {
+		if (!this.audio) return;
+		this.audio.pause();
+		this.audio.removeAttribute('src');
+		this.audio.load();
+		this.isPlaying = false;
+		this.isLoading = false;
 	}
 
 	togglePlayPause() {

@@ -29,6 +29,7 @@
 	let audioElement: HTMLAudioElement | null = $state(null);
 	let playButtonRef: HTMLButtonElement | null = $state(null);
 	let settingsButtonRef: HTMLButtonElement | null = $state(null);
+	let chaptersButtonRef: HTMLButtonElement | null = $state(null);
 	let showChapters = $state(false);
 	let showSettings = $state(false);
 	let showBookmarks = $state(false);
@@ -55,8 +56,11 @@
 
 	// Seek unit system - matches settings page options
 	const SEEK_UNITS = [1, 5, 30, 60, 300, 900, 1800, 3600]; // 1s, 5s, 30s, 1m, 5m, 15m, 30m, 60m
+	// One index past the time units means "seek by chapter" — offered only while
+	// the current media actually has chapters (see hasChapters).
+	const CHAPTER_UNIT_INDEX = SEEK_UNITS.length;
 	let seekUnitIndex = $state(1); // Default to 5 seconds
-	const seekUnit = $derived(SEEK_UNITS[seekUnitIndex]);
+	const seekUnit = $derived(SEEK_UNITS[Math.min(seekUnitIndex, SEEK_UNITS.length - 1)]);
 	let seekUnitAnnouncement = $state('');
 	let timeInfoAnnouncement = $state('');
 	let bookmarkAnnouncement = $state('');
@@ -64,6 +68,10 @@
 	const title = $derived(playerStore.currentTitle);
 	const chapterTitle = $derived(playerStore.currentChapter?.title);
 	const isRadio = $derived(playerStore.isRadioStream);
+	const hasChapters = $derived(!isRadio && playerStore.chapters.length > 0);
+	// Chapter seeking stays selectable only as long as chapters exist; if the
+	// media has none (or they load late), the arrows fall back to time seeking.
+	const isChapterSeek = $derived(seekUnitIndex === CHAPTER_UNIT_INDEX && hasChapters);
 
 	async function loadBookmarks() {
 		if (!filePath) return;
@@ -145,7 +153,7 @@
 			const saved = localStorage.getItem('ecobox-seek-unit-index');
 			if (saved !== null) {
 				const idx = parseInt(saved, 10);
-				if (idx >= 0 && idx < SEEK_UNITS.length) {
+				if (idx >= 0 && idx <= CHAPTER_UNIT_INDEX) {
 					seekUnitIndex = idx;
 				}
 			}
@@ -289,6 +297,28 @@
 	const nextTrack = () => switchTrack(1);
 	const prevTrack = () => switchTrack(-1);
 
+	// The arrow keys and the inner transport buttons both seek by the selected
+	// unit — which is a chapter jump when "Chapter" is the chosen unit.
+	function seekBackward() {
+		if (isChapterSeek) playerStore.previousChapter();
+		else playerStore.seekRelative(-seekUnit);
+	}
+
+	function seekForward() {
+		if (isChapterSeek) playerStore.nextChapter();
+		else playerStore.seekRelative(seekUnit);
+	}
+
+	function openChapters() {
+		if (!hasChapters) return;
+		showChapters = true;
+	}
+
+	function closeChapters() {
+		showChapters = false;
+		requestAnimationFrame(() => chaptersButtonRef?.focus());
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.target instanceof HTMLInputElement) return;
 
@@ -306,7 +336,7 @@
 				requestAnimationFrame(() => playButtonRef?.focus());
 				return;
 			}
-			if (showChapters) { showChapters = false; return; }
+			if (showChapters) { closeChapters(); return; }
 			if (showSleepTimer) { showSleepTimer = false; return; }
 			if (showSettings) { closeSettingsPanel(); return; }
 			handleBack();
@@ -372,19 +402,19 @@
 			case 'ArrowLeft':
 				if (isRadio) return;
 				e.preventDefault();
-				playerStore.seekRelative(-seekUnit);
+				seekBackward();
 				break;
 			case 'ArrowRight':
 				if (isRadio) return;
 				e.preventDefault();
-				playerStore.seekRelative(seekUnit);
+				seekForward();
 				break;
 
 			// Up/Down: change seek unit (not for radio)
 			case 'ArrowUp':
 				if (isRadio) return;
 				e.preventDefault();
-				if (seekUnitIndex < SEEK_UNITS.length - 1) {
+				if (seekUnitIndex < (hasChapters ? CHAPTER_UNIT_INDEX : SEEK_UNITS.length - 1)) {
 					seekUnitIndex++;
 					announceSeekUnit();
 				}
@@ -403,6 +433,15 @@
 				if (isRadio) return;
 				e.preventDefault();
 				showGoToTime = true;
+				break;
+
+			// C: Open the chapter list (when the media has chapters). With Winamp
+			// shortcuts on, bare `c` is play/pause and is handled above — Shift+C
+			// still reaches here, so chapters stay keyboard-reachable either way.
+			case 'KeyC':
+				if (isRadio || !hasChapters) return;
+				e.preventDefault();
+				openChapters();
 				break;
 
 			// M: Add bookmark; Shift+M: Open bookmarks list
@@ -483,7 +522,8 @@
 	}
 
 	function announceSeekUnit() {
-		seekUnitAnnouncement = t('player.seekUnitAnnounce', { unit: formatSeekUnitLong(seekUnit) });
+		const unit = isChapterSeek ? t('chapters.seekUnit') : formatSeekUnitLong(seekUnit);
+		seekUnitAnnouncement = t('player.seekUnitAnnounce', { unit });
 		// Clear after a moment so repeat announcements work
 		setTimeout(() => {
 			seekUnitAnnouncement = '';
@@ -667,6 +707,26 @@
 								</span>
 							</label>
 						{/each}
+
+						<!-- Chapter jump, offered alongside the time units when the media has chapters -->
+						{#if hasChapters}
+							<label class="cursor-pointer">
+								<input
+									type="radio"
+									name="seek-unit"
+									value={CHAPTER_UNIT_INDEX}
+									checked={seekUnitIndex === CHAPTER_UNIT_INDEX}
+									onchange={() => { seekUnitIndex = CHAPTER_UNIT_INDEX; announceSeekUnit(); }}
+									class="sr-only peer"
+								/>
+								<span class="inline-block px-2.5 py-1 rounded-full text-sm transition-colors
+									peer-checked:bg-blue-600 peer-checked:text-white
+									bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400
+									hover:bg-gray-200 dark:hover:bg-gray-600">
+									{t('chapters.seekUnit')}
+								</span>
+							</label>
+						{/if}
 					</div>
 				</fieldset>
 			{/if}
@@ -690,10 +750,13 @@
 				playbackRate={playerStore.playbackRate}
 				seekInterval={seekUnit}
 				longSeekInterval={playerStore.longSeekInterval}
+				seekLabel={isChapterSeek ? t('chapters.seekUnitShort') : undefined}
+				seekBackAria={isChapterSeek ? t('chapters.previous') : undefined}
+				seekForwardAria={isChapterSeek ? t('chapters.next') : undefined}
 				ontoggle={() => playerStore.togglePlayPause()}
 				onratechange={(rate) => playerStore.setPlaybackRate(rate)}
-				onseekback={() => playerStore.seekRelative(-seekUnit)}
-				onseekforward={() => playerStore.seekRelative(seekUnit)}
+				onseekback={seekBackward}
+				onseekforward={seekForward}
 				onlongseekback={() => playerStore.seekRelative(-playerStore.longSeekInterval)}
 				onlongseekforward={() => playerStore.seekRelative(playerStore.longSeekInterval)}
 				bind:playButtonRef
@@ -728,11 +791,16 @@
 	<!-- Bottom actions -->
 	<footer class="px-4 pb-safe-bottom">
 		<div class="flex justify-center gap-2 sm:gap-4 py-4 max-w-2xl mx-auto flex-wrap">
-			{#if !isRadio && playerStore.chapters.length > 0}
+			{#if hasChapters}
+				{@const chapterCount = t(playerStore.chapters.length === 1 ? 'chapters.countOne' : 'chapters.countOther', { n: playerStore.chapters.length })}
 				<button
+					bind:this={chaptersButtonRef}
 					type="button"
-					onclick={() => showChapters = true}
+					onclick={openChapters}
 					class="btn-secondary"
+					aria-label={t('chapters.openListAria', { count: chapterCount })}
+					aria-haspopup="dialog"
+					aria-expanded={showChapters}
 				>
 					<Icon name="menu" size={20} class="mr-2" />
 					{t('chapters.button', { count: playerStore.chapters.length })}
@@ -834,7 +902,7 @@
 		chapters={playerStore.chapters}
 		currentChapterIndex={playerStore.currentChapterIndex}
 		onselect={(index: number) => playerStore.seekToChapter(index)}
-		onclose={() => showChapters = false}
+		onclose={closeChapters}
 	/>
 {/if}
 
