@@ -1,7 +1,8 @@
-import { error } from '@sveltejs/kit';
+import { error, isHttpError } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getFileStats, createReadStream, resolveExistingPath, getRelativePath } from '$server/services/files';
 import { isPathHidden } from '$server/services/protection';
+import { ifRangeMatches, parseRangeHeader } from '$server/services/httpRange';
 import path from 'path';
 import crypto from 'crypto';
 
@@ -86,33 +87,49 @@ export const GET: RequestHandler = async ({ params, request, cookies }) => {
 
 		const rangeHeader = request.headers.get('range');
 
-		if (rangeHeader) {
-			// Parse range header
-			const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-			if (!match) {
-				throw error(416, 'Invalid range');
+		// RFC 7233 §3.2 — an `If-Range` that no longer matches means the client is
+		// holding a stale copy (typically a file deleted and re-uploaded at the same
+		// path). Answering the range anyway lets it splice bytes from two different
+		// files together, which shows up as a decode failure part-way through
+		// playback. Ignore the range and send the whole current representation.
+		const ifRange = request.headers.get('if-range');
+		const rangeIsUsable = !ifRange || ifRangeMatches(ifRange, etag, mtime);
+
+		if (rangeHeader && rangeIsUsable) {
+			const range = parseRangeHeader(rangeHeader, size);
+
+			if (range === null) {
+				// 416 must advertise the real length so the client can retry sanely.
+				// Returned directly rather than thrown: the catch below would other-
+				// wise have to re-derive the status from an exception.
+				return new Response(null, {
+					status: 416,
+					headers: {
+						'Content-Range': `bytes */${size}`,
+						'Accept-Ranges': 'bytes',
+						...cacheHeaders
+					}
+				});
 			}
 
-			const start = parseInt(match[1], 10);
-			const end = match[2] ? parseInt(match[2], 10) : size - 1;
+			// `undefined` means the header wasn't a byte range we understand; §3.1
+			// says to ignore it and fall through to the full-body response.
+			if (range) {
+				const { start, end } = range;
+				const stream = createReadStream(realRel, { start, end });
+				const readableStream = nodeStreamToWebStream(stream);
 
-			if (start >= size || end >= size || start > end) {
-				throw error(416, 'Range not satisfiable');
+				return new Response(readableStream, {
+					status: 206,
+					headers: {
+						'Content-Type': mimeType,
+						'Content-Length': String(end - start + 1),
+						'Content-Range': `bytes ${start}-${end}/${size}`,
+						'Accept-Ranges': 'bytes',
+						...cacheHeaders
+					}
+				});
 			}
-
-			const stream = createReadStream(realRel, { start, end });
-			const readableStream = nodeStreamToWebStream(stream);
-
-			return new Response(readableStream, {
-				status: 206,
-				headers: {
-					'Content-Type': mimeType,
-					'Content-Length': String(end - start + 1),
-					'Content-Range': `bytes ${start}-${end}/${size}`,
-					'Accept-Ranges': 'bytes',
-					...cacheHeaders
-				}
-			});
 		}
 
 		// Full file response
@@ -129,10 +146,16 @@ export const GET: RequestHandler = async ({ params, request, cookies }) => {
 			}
 		});
 	} catch (err) {
+		// A status we raised deliberately must pass through untouched — otherwise
+		// every intentional 4xx in this handler reaches the client as a 500.
+		if (isHttpError(err)) {
+			throw err;
+		}
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
 			throw error(404, 'File not found');
 		}
-		if ((err as Error).message.includes('traversal')) {
+		// `message` isn't guaranteed to exist on a thrown non-Error.
+		if (String((err as Error)?.message ?? '').includes('traversal')) {
 			throw error(403, 'Access denied');
 		}
 		throw error(500, 'Failed to stream file');

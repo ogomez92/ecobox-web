@@ -64,7 +64,7 @@ bundle), so they survive deploys and are never chowned with the engine.
 
 Type-check with `pnpm run check`.
 
-**Verifying the live app:** the service listens on `PORT` from `.env` (currently **4923**), fronted by Caddy at `https://media.oriolgomez.com`. Verify with `curl localhost:4923/...`. Do NOT use `localhost:3000` — that is an unrelated `gulp serve` process, not ecobox. Confirm the restart with `systemctl is-active ecobox`.
+**Verifying the live app:** the service listens on `PORT` from `.env` (currently **4923**), fronted by Caddy at `https://media.gomsen.com`. Verify with `curl localhost:4923/...`. Do NOT use `localhost:3000` — that is an unrelated `gulp serve` process, not ecobox. Confirm the restart with `systemctl is-active ecobox`.
 
 Hot dev (`vite dev`) does not affect the running service — the service serves the last `build/` output.
 

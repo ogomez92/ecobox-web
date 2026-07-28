@@ -13,24 +13,24 @@ import { settingsStore } from '$lib/stores/settings.svelte';
 const CASTER_TOKEN = env.PUBLIC_SONICROOM_CASTER_TOKEN ?? '';
 
 // ICE servers — COPY of SonicRoom's client/src/hooks/useMediasoup.ts ICE_SERVERS
-// (self-hosted coturn at turn.oriolgomez.com). Credentials are visible to the
+// (self-hosted coturn at turn.gomsen.com). Credentials are visible to the
 // browser by design (WebRTC requires them client-side). Keep this list in sync
 // with the SonicRoom client if it ever changes.
 const ICE_SERVERS: RTCIceServer[] = [
-	{ urls: 'stun:turn.oriolgomez.com:3478' },
+	{ urls: 'stun:turn.gomsen.com:3478' },
 	{ urls: 'stun:stun.l.google.com:19302' },
 	{
-		urls: 'turn:turn.oriolgomez.com:3478?transport=udp',
+		urls: 'turn:turn.gomsen.com:3478?transport=udp',
 		username: 'gamesturn',
 		credential: 'sin6V0gFokHz78gM0GDfXmat'
 	},
 	{
-		urls: 'turn:turn.oriolgomez.com:3478?transport=tcp',
+		urls: 'turn:turn.gomsen.com:3478?transport=tcp',
 		username: 'gamesturn',
 		credential: 'sin6V0gFokHz78gM0GDfXmat'
 	},
 	{
-		urls: 'turns:turn.oriolgomez.com:5349?transport=tcp',
+		urls: 'turns:turn.gomsen.com:5349?transport=tcp',
 		username: 'gamesturn',
 		credential: 'sin6V0gFokHz78gM0GDfXmat'
 	}
