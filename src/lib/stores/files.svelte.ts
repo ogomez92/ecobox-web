@@ -8,23 +8,15 @@ class FilesStore {
 	currentPath = $state<string>('');
 	isLoading = $state<boolean>(false);
 	error = $state<string | null>(null);
-	searchQuery = $state<string>('');
 	sortField = $state<SortField>('name');
 	sortDirection = $state<SortDirection>('asc');
 	storage = $state<StorageInfo | null>(null);
 	unlocked = $state<boolean>(false);
 
 	get sortedFiles() {
-		let filtered = this.files;
-
-		// Apply search filter
-		if (this.searchQuery.trim()) {
-			const query = this.searchQuery.toLowerCase();
-			filtered = filtered.filter(f => f.name.toLowerCase().includes(query));
-		}
-
-		// Apply sorting
-		return [...filtered].sort((a, b) => {
+		// Sorted view of the folder as listed. Searching is a separate, recursive
+		// concern (the Ctrl+F dialog / /api/search) and never filters this list.
+		return [...this.files].sort((a, b) => {
 			// Directories always first
 			if (a.isDirectory !== b.isDirectory) {
 				return a.isDirectory ? -1 : 1;
@@ -122,10 +114,6 @@ class FilesStore {
 			this.sortField = field;
 			this.sortDirection = 'asc';
 		}
-	}
-
-	setSearch(query: string) {
-		this.searchQuery = query;
 	}
 
 	async toggleProtection(path: string) {

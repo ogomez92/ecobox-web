@@ -54,27 +54,42 @@ export const GET: RequestHandler = async ({ params, request, cookies }) => {
 		const etag = generateETag(realRel, size, mtime);
 		const lastModified = mtime.toUTCString();
 
-		// Check If-None-Match (ETag)
+		// `no-cache` still lets the browser *store* the file — it just has to
+		// revalidate before reusing it, which costs one conditional request and
+		// normally answers 304. A freshness lifetime instead of revalidation is
+		// unsafe here: media is addressed by path, and a path can be re-pointed at
+		// completely different bytes (delete + re-upload). With the old
+		// `max-age=86400, stale-while-revalidate=604800` the browser would keep
+		// serving the previous file's bytes for a day — and stale ones for a week
+		// after that — without ever asking, so a replaced file stayed broken until
+		// the user manually cleared their cache. `private` because this content is
+		// password-gated and must not land in a shared proxy cache.
+		const CACHE_CONTROL = 'private, no-cache';
+
+		// RFC 7232 §6: when both validators are present, If-None-Match wins and
+		// If-Modified-Since must be ignored — otherwise a client holding a stale
+		// ETag but a recent date gets a bogus 304 and keeps its outdated copy.
 		const ifNoneMatch = request.headers.get('if-none-match');
-		if (ifNoneMatch === etag) {
-			return new Response(null, {
-				status: 304,
-				headers: {
-					'ETag': etag,
-					'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800'
-				}
-			});
+		const ifModifiedSince = request.headers.get('if-modified-since');
+
+		let notModified = false;
+		if (ifNoneMatch !== null) {
+			notModified = ifNoneMatch === etag;
+		} else if (ifModifiedSince) {
+			// An HTTP-date carries whole seconds, so compare against a floored mtime
+			// or a file saved mid-second never validates and always refetches.
+			const since = new Date(ifModifiedSince).getTime();
+			notModified =
+				!Number.isNaN(since) && since >= Math.floor(mtime.getTime() / 1000) * 1000;
 		}
 
-		// Check If-Modified-Since
-		const ifModifiedSince = request.headers.get('if-modified-since');
-		if (ifModifiedSince && new Date(ifModifiedSince) >= mtime) {
+		if (notModified) {
 			return new Response(null, {
 				status: 304,
 				headers: {
 					'ETag': etag,
 					'Last-Modified': lastModified,
-					'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800'
+					'Cache-Control': CACHE_CONTROL
 				}
 			});
 		}
@@ -82,7 +97,7 @@ export const GET: RequestHandler = async ({ params, request, cookies }) => {
 		const cacheHeaders = {
 			'ETag': etag,
 			'Last-Modified': lastModified,
-			'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800'
+			'Cache-Control': CACHE_CONTROL
 		};
 
 		const rangeHeader = request.headers.get('range');

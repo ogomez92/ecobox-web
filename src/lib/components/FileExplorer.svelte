@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import Icon from './Icon.svelte';
-	import SearchBar from './SearchBar.svelte';
 	import Breadcrumbs from './Breadcrumbs.svelte';
 	import FileRow from './FileRow.svelte';
 	import StorageFooter from './StorageFooter.svelte';
@@ -94,7 +93,7 @@
 					focusedIndex = 0;
 					hasAppliedFocus = true;
 				}
-			} else if (!filesStore.searchQuery && emptyFolderUploadButton) {
+			} else if (emptyFolderUploadButton) {
 				// Folder is empty and no search - focus upload button
 				emptyFolderUploadButton.focus();
 				hasAppliedFocus = true;
@@ -205,7 +204,7 @@
 		const target = focusedIndex >= 0 && focusedIndex < files.length ? focusedIndex : 0;
 		focusedIndex = target;
 		// Force focus even when focusedIndex is unchanged (e.g. coming from the
-		// search box), so the `focused` $effect alone can't be relied upon.
+		// search dialog), so the `focused` $effect alone can't be relied upon.
 		rowRefs[target]?.focus();
 	}
 
@@ -215,7 +214,7 @@
 
 		// Ctrl+F (Cmd+F on Mac) opens the recursive search dialog, replacing the
 		// browser's own find bar. Like Ctrl+L it deliberately skips the field guard,
-		// so it also works while the filter box has focus.
+		// so it works no matter what currently has focus.
 		if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F') && !e.shiftKey && !e.altKey) {
 			if (showUploadDialog || deleteTarget || showSearchDialog) return;
 			e.preventDefault();
@@ -227,7 +226,7 @@
 		if (showSearchDialog) return;
 
 		// Ctrl+L moves focus to the file list, no matter what currently has focus
-		// (including the search box) — so it intentionally skips the field guard.
+		// — so it intentionally skips the field guard.
 		if (e.ctrlKey && (e.key === 'l' || e.key === 'L') && !e.metaKey && !e.shiftKey && !e.altKey) {
 			if (showUploadDialog || deleteTarget) return;
 			e.preventDefault();
@@ -426,11 +425,7 @@
 				</div>
 			</div>
 
-			<div class="pb-3 space-y-3">
-				<SearchBar
-					value={filesStore.searchQuery}
-					onchange={(value) => filesStore.setSearch(value)}
-				/>
+			<div class="pb-3">
 				<Breadcrumbs
 					items={filesStore.breadcrumbs}
 					onnavigate={handleNavigate}
@@ -462,19 +457,17 @@
 				<div class="text-center py-12">
 					<Icon name="folder" size={48} class="mx-auto text-gray-400 mb-4" />
 					<p class="text-gray-600 dark:text-gray-400">
-						{filesStore.searchQuery ? t('explorer.noMatches') : t('explorer.empty')}
+						{t('explorer.empty')}
 					</p>
-					{#if !filesStore.searchQuery}
-						<button
-							bind:this={emptyFolderUploadButton}
-							type="button"
-							onclick={() => openUpload('file')}
-							class="btn-primary mt-4"
-						>
-							<Icon name="upload" size={20} class="mr-2" />
-							{t('explorer.uploadFiles')}
-						</button>
-					{/if}
+					<button
+						bind:this={emptyFolderUploadButton}
+						type="button"
+						onclick={() => openUpload('file')}
+						class="btn-primary mt-4"
+					>
+						<Icon name="upload" size={20} class="mr-2" />
+						{t('explorer.uploadFiles')}
+					</button>
 				</div>
 			{:else}
 				<!-- Parent directory link for mobile -->
