@@ -104,6 +104,23 @@ export const ru: Record<MessageKey, string> = {
 	'explorer.colDate': 'Дата',
 	'explorer.colActions': 'Действия',
 
+	'search.title': 'Поиск файлов',
+	'search.openAria': 'Искать файлы в этой папке и вложенных (Ctrl+F)',
+	'search.label': 'Искомое имя',
+	'search.placeholder': 'Имя файла или папки…',
+	'search.button': 'Искать',
+	'search.scope': 'Поиск в {folder} и вложенных папках',
+	'search.hint':
+		'Введите имя и нажмите Enter для поиска. Стрелки вверх и вниз — перемещение по результатам, Enter — открыть, Escape — закрыть.',
+	'search.searching': 'Поиск…',
+	'search.noResults': 'Ничего не найдено',
+	'search.resultsCount': 'Результатов: {n}',
+	'search.showingFirst': 'Показаны первые {shown} из {total}',
+	'search.resultsList': 'Результаты поиска',
+	'search.thisFolder': 'Эта папка',
+	'search.inFolder': 'в {folder}',
+	'search.error': 'Не удалось выполнить поиск',
+
 	'actions.menuAria': 'Меню действий, нажмите Alt+N для открытия',
 	'actions.label': 'Действия',
 	'actions.uploadFiles': 'Загрузить файлы',

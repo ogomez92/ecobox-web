@@ -4,6 +4,7 @@ import path from 'path';
 import { env } from '$env/dynamic/private';
 import type { FileEntry, StorageInfo } from '$lib/types';
 import { isBookExtension } from '$lib/utils/bookChunks';
+import { foldForSearch } from '$lib/utils/text';
 export { isBookExtension, BOOK_EXTENSIONS } from '$lib/utils/bookChunks';
 const AUDIO_EXTENSIONS = ['.mp3', '.m4a', '.m4b', '.aac', '.ogg', '.opus', '.wav', '.flac'];
 const DAISY_MARKERS = ['ncc.html', 'ncc.xml', 'Navigation.xml'];
@@ -170,6 +171,65 @@ export async function listDirectoryRecursive(relativePath: string = ''): Promise
 
 	await recurse(relativePath);
 	return files;
+}
+
+/**
+ * Search a folder and everything below it for entries whose *name* matches.
+ *
+ * Scoped deliberately: the walk starts at `relativePath` and only ever descends,
+ * so a search made inside `a/` can never surface `c/d` from a sibling or parent
+ * folder. Matching is case- and accent-insensitive (same folding as the reader's
+ * find), substring anywhere in the name.
+ *
+ * Playable units (DAISY / .CHAPTERED / .BOOK folders) are opaque, exactly as in
+ * listDirectoryRecursive — a book matches by its folder name and its internal
+ * files are never listed separately. Unreadable subdirectories are skipped rather
+ * than failing the whole search.
+ *
+ * `total` counts every match; `results` is capped at `limit` after sorting, so
+ * the cap is stable (best-sorted first) rather than dependent on walk order.
+ */
+export async function searchDirectory(
+	relativePath: string = '',
+	query: string,
+	limit: number = 200
+): Promise<{ results: FileEntry[]; total: number }> {
+	const folded = foldForSearch(query.trim());
+	if (!folded) return { results: [], total: 0 };
+
+	const matches: FileEntry[] = [];
+
+	async function recurse(currentPath: string, depth: number): Promise<void> {
+		const entries = await listDirectory(currentPath);
+
+		for (const entry of entries) {
+			// The chaptered marker is bookkeeping, not a file a user searches for.
+			if (entry.name === CHAPTERED_MARKER) continue;
+
+			if (foldForSearch(entry.name).includes(folded)) {
+				matches.push(entry);
+			}
+
+			if (entry.isDirectory && !entry.isDaisyBook && !entry.isChapteredFolder && !entry.isBookFolder) {
+				try {
+					await recurse(entry.path, depth + 1);
+				} catch {
+					// A folder that vanished or can't be read mid-walk shouldn't sink the search.
+				}
+			}
+		}
+	}
+
+	await recurse(relativePath, 0);
+
+	matches.sort((a, b) => {
+		// Directories (books, folders) first, then by name — mirrors the file list.
+		if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+		const byName = a.name.localeCompare(b.name, undefined, { numeric: true });
+		return byName !== 0 ? byName : a.path.localeCompare(b.path, undefined, { numeric: true });
+	});
+
+	return { results: matches.slice(0, limit), total: matches.length };
 }
 
 export async function isDaisyBook(dirPath: string): Promise<boolean> {

@@ -102,6 +102,23 @@ export const en = {
 	'explorer.colDate': 'Date',
 	'explorer.colActions': 'Actions',
 
+	'search.title': 'Find files',
+	'search.openAria': 'Find files in this folder and below (Ctrl+F)',
+	'search.label': 'Name to find',
+	'search.placeholder': 'File or folder name…',
+	'search.button': 'Search',
+	'search.scope': 'Searching in {folder} and its subfolders',
+	'search.hint':
+		'Type a name and press Enter to search. Use Up and Down arrows to move through results, Enter to open, Escape to close.',
+	'search.searching': 'Searching…',
+	'search.noResults': 'Nothing found',
+	'search.resultsCount': '{n} results',
+	'search.showingFirst': 'Showing first {shown} of {total}',
+	'search.resultsList': 'Search results',
+	'search.thisFolder': 'This folder',
+	'search.inFolder': 'in {folder}',
+	'search.error': 'Search failed',
+
 	'actions.menuAria': 'Actions menu, press Alt+N to open',
 	'actions.label': 'Actions',
 	'actions.uploadFiles': 'Upload files',

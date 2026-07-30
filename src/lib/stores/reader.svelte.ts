@@ -32,11 +32,12 @@ const PREFETCH_AHEAD = 3;
 
 /**
  * Case- and accent-insensitive folding for find/highlight, so "policia" matches
- * "policía" and "EL" matches "el". Lowercase first, then strip combining marks.
+ * "policía" and "EL" matches "el". Re-exported here because the reader's find
+ * and its consumers (FindInBook) have always imported it from this module; the
+ * implementation is shared with the file-browser search.
  */
-export function foldForSearch(s: string): string {
-	return s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
-}
+import { foldForSearch } from '$lib/utils/text';
+export { foldForSearch };
 
 /**
  * True when playback was blocked by the browser's autoplay policy (no user

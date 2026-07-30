@@ -16,7 +16,7 @@
 		type TtsVoice,
 		type ElfVoiceParams
 	} from '$lib/types';
-	import { goto } from '$app/navigation';
+	import { goto, afterNavigate } from '$app/navigation';
 
 	const seekIntervalOptions = [1, 2, 3, 5, 10, 15, 30];
 	const longSeekIntervalOptions = [10, 15, 30, 45, 60, 90, 120];
@@ -40,19 +40,38 @@
 		});
 	});
 
+	// Where leaving settings goes. Settings is opened from several places (the file
+	// browser header / Ctrl+comma, the reader's "Change voice" button), and landing
+	// back on the home screen from the middle of a book is disorienting — so record
+	// the page we came from and return there. `afterNavigate` gives us that only for
+	// a client-side navigation; a direct load or refresh of /settings has no `from`,
+	// and falls back to home.
+	let returnTo = $state('/');
+	let capturedReturn = false;
+	afterNavigate((nav) => {
+		if (capturedReturn) return;
+		capturedReturn = true;
+		const from = nav.from?.url;
+		if (from && from.pathname !== '/settings') {
+			returnTo = from.pathname + from.search;
+		}
+	});
+
 	/** Leave settings the same way the header back button does. */
 	function goBack() {
-		goto('/');
+		goto(returnTo);
 	}
 
-	// Escape returns to the previous screen, so users don't have to reach for the back
-	// link. Skip it while focus is in a form control — there a native Escape already has
-	// meaning (close an open <select>, cancel/clear an input), and we don't want to yank
-	// the user off the page out from under that. Mirrors the file browser's field guard.
+	// Escape returns to wherever settings was opened from, so users don't have to
+	// reach for the back link. It fires from anywhere on the page *including* form
+	// controls: settings is almost entirely selects, sliders and text fields, so a
+	// field guard (as the file browser uses) made Escape look broken — it did
+	// nothing for the great majority of focus positions, and in particular right
+	// after arriving from the reader, which lands focus on the provider <select>.
+	// Native Escape handling inside an open <select> popup happens before the event
+	// reaches the window, so that still works.
 	function handleWindowKeydown(e: KeyboardEvent) {
 		if (e.key !== 'Escape' || e.defaultPrevented) return;
-		const target = e.target as HTMLElement | null;
-		if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
 		e.preventDefault();
 		goBack();
 	}

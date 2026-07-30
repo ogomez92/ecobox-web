@@ -104,6 +104,23 @@ export const de: Record<MessageKey, string> = {
 	'explorer.colDate': 'Datum',
 	'explorer.colActions': 'Aktionen',
 
+	'search.title': 'Dateien suchen',
+	'search.openAria': 'Dateien in diesem Ordner und darunter suchen (Strg+F)',
+	'search.label': 'Gesuchter Name',
+	'search.placeholder': 'Datei- oder Ordnername…',
+	'search.button': 'Suchen',
+	'search.scope': 'Suche in {folder} und den Unterordnern',
+	'search.hint':
+		'Namen eingeben und Eingabetaste drücken, um zu suchen. Mit Pfeil auf und ab durch die Ergebnisse navigieren, Eingabetaste zum Öffnen, Escape zum Schließen.',
+	'search.searching': 'Suche…',
+	'search.noResults': 'Nichts gefunden',
+	'search.resultsCount': '{n} Ergebnisse',
+	'search.showingFirst': 'Zeige die ersten {shown} von {total}',
+	'search.resultsList': 'Suchergebnisse',
+	'search.thisFolder': 'Dieser Ordner',
+	'search.inFolder': 'in {folder}',
+	'search.error': 'Suche fehlgeschlagen',
+
 	'actions.menuAria': 'Aktionsmenü, Alt+N zum Öffnen',
 	'actions.label': 'Aktionen',
 	'actions.uploadFiles': 'Dateien hochladen',

@@ -104,6 +104,23 @@ export const ja: Record<MessageKey, string> = {
 	'explorer.colDate': '日付',
 	'explorer.colActions': '操作',
 
+	'search.title': 'ファイルを検索',
+	'search.openAria': 'このフォルダー以下のファイルを検索 (Ctrl+F)',
+	'search.label': '検索する名前',
+	'search.placeholder': 'ファイル名またはフォルダー名…',
+	'search.button': '検索',
+	'search.scope': '{folder} とそのサブフォルダーを検索します',
+	'search.hint':
+		'名前を入力して Enter キーで検索します。上下矢印キーで結果を移動、Enter キーで開く、Escape キーで閉じます。',
+	'search.searching': '検索中…',
+	'search.noResults': '見つかりませんでした',
+	'search.resultsCount': '{n} 件の結果',
+	'search.showingFirst': '{total} 件中 最初の {shown} 件を表示',
+	'search.resultsList': '検索結果',
+	'search.thisFolder': 'このフォルダー',
+	'search.inFolder': '{folder} 内',
+	'search.error': '検索に失敗しました',
+
 	'actions.menuAria': '操作メニュー、Alt+N で開く',
 	'actions.label': '操作',
 	'actions.uploadFiles': 'ファイルをアップロード',

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import Icon from './Icon.svelte';
 	import SearchBar from './SearchBar.svelte';
 	import Breadcrumbs from './Breadcrumbs.svelte';
@@ -7,6 +8,7 @@
 	import UploadDialog from './UploadDialog.svelte';
 	import ActionsMenu from './ActionsMenu.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
+	import SearchDialog from './SearchDialog.svelte';
 	import { filesStore } from '$lib/stores/files.svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import { goto } from '$app/navigation';
@@ -32,6 +34,11 @@
 	// Set when the upload dialog closes so focus returns to the list once the
 	// post-upload reload settles (the dialog steals focus while open).
 	let focusListWhenReady = $state(false);
+	let showSearchDialog = $state(false);
+	let searchButtonRef: HTMLButtonElement | undefined = $state();
+	// Element that had focus when the search dialog opened, so closing it (Escape,
+	// the X, the backdrop) puts the user back exactly where they were.
+	let searchReturnFocus: HTMLElement | null = null;
 
 	let typeBuffer = '';
 	let lastTypeTime = 0;
@@ -174,6 +181,24 @@
 		showUploadDialog = true;
 	}
 
+	function openSearch() {
+		if (showSearchDialog) return;
+		const active = document.activeElement;
+		searchReturnFocus = active instanceof HTMLElement ? active : null;
+		showSearchDialog = true;
+	}
+
+	function closeSearch(options?: { restoreFocus?: boolean }) {
+		showSearchDialog = false;
+		// Restore focus to the opener when it's still on the page; otherwise fall
+		// back to the search button so focus is never left on <body>. Skipped when
+		// the dialog closed because a result is being opened — that page owns focus.
+		const target = searchReturnFocus?.isConnected ? searchReturnFocus : searchButtonRef;
+		searchReturnFocus = null;
+		if (options?.restoreFocus === false) return;
+		tick().then(() => target?.focus());
+	}
+
 	function focusList() {
 		const files = filesStore.sortedFiles;
 		if (files.length === 0) return;
@@ -187,6 +212,19 @@
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		const target = e.target as HTMLElement | null;
 		const inField = !!target?.closest('input, textarea, select, [contenteditable="true"]');
+
+		// Ctrl+F (Cmd+F on Mac) opens the recursive search dialog, replacing the
+		// browser's own find bar. Like Ctrl+L it deliberately skips the field guard,
+		// so it also works while the filter box has focus.
+		if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F') && !e.shiftKey && !e.altKey) {
+			if (showUploadDialog || deleteTarget || showSearchDialog) return;
+			e.preventDefault();
+			openSearch();
+			return;
+		}
+
+		// Everything below is inert while the search dialog owns the screen.
+		if (showSearchDialog) return;
 
 		// Ctrl+L moves focus to the file list, no matter what currently has focus
 		// (including the search box) — so it intentionally skips the field guard.
@@ -362,6 +400,16 @@
 					{t('app.title')}
 				</a>
 				<div class="flex items-center gap-2">
+					<button
+						bind:this={searchButtonRef}
+						type="button"
+						onclick={openSearch}
+						class="btn-ghost"
+						aria-label={t('search.openAria')}
+						aria-haspopup="dialog"
+					>
+						<Icon name="search" size={20} />
+					</button>
 					<ActionsMenu
 						bind:isOpen={actionsMenuOpen}
 						onuploadfiles={() => openUpload('file')}
@@ -524,6 +572,10 @@
 		}}
 		oncomplete={handleUploadComplete}
 	/>
+
+	{#if showSearchDialog}
+		<SearchDialog currentPath={filesStore.currentPath} onclose={closeSearch} />
+	{/if}
 
 	<ConfirmDialog
 		isOpen={deleteTarget !== null}

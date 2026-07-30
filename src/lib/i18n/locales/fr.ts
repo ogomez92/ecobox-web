@@ -104,6 +104,23 @@ export const fr: Record<MessageKey, string> = {
 	'explorer.colDate': 'Date',
 	'explorer.colActions': 'Actions',
 
+	'search.title': 'Rechercher des fichiers',
+	'search.openAria': 'Rechercher des fichiers dans ce dossier et ses sous-dossiers (Ctrl+F)',
+	'search.label': 'Nom à rechercher',
+	'search.placeholder': 'Nom de fichier ou de dossier…',
+	'search.button': 'Rechercher',
+	'search.scope': 'Recherche dans {folder} et ses sous-dossiers',
+	'search.hint':
+		'Saisissez un nom et appuyez sur Entrée pour lancer la recherche. Utilisez les flèches haut et bas pour parcourir les résultats, Entrée pour ouvrir, Échap pour fermer.',
+	'search.searching': 'Recherche…',
+	'search.noResults': 'Aucun résultat',
+	'search.resultsCount': '{n} résultats',
+	'search.showingFirst': 'Affichage des {shown} premiers sur {total}',
+	'search.resultsList': 'Résultats de recherche',
+	'search.thisFolder': 'Ce dossier',
+	'search.inFolder': 'dans {folder}',
+	'search.error': 'Échec de la recherche',
+
 	'actions.menuAria': "Menu d'actions, appuyez sur Alt+N pour ouvrir",
 	'actions.label': 'Actions',
 	'actions.uploadFiles': 'Téléverser des fichiers',

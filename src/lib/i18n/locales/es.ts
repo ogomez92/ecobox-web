@@ -104,6 +104,23 @@ export const es: Record<MessageKey, string> = {
 	'explorer.colDate': 'Fecha',
 	'explorer.colActions': 'Acciones',
 
+	'search.title': 'Buscar archivos',
+	'search.openAria': 'Buscar archivos en esta carpeta y subcarpetas (Ctrl+F)',
+	'search.label': 'Nombre a buscar',
+	'search.placeholder': 'Nombre de archivo o carpeta…',
+	'search.button': 'Buscar',
+	'search.scope': 'Buscando en {folder} y sus subcarpetas',
+	'search.hint':
+		'Escribe un nombre y pulsa Intro para buscar. Usa las flechas arriba y abajo para recorrer los resultados, Intro para abrir y Escape para cerrar.',
+	'search.searching': 'Buscando…',
+	'search.noResults': 'No se encontró nada',
+	'search.resultsCount': '{n} resultados',
+	'search.showingFirst': 'Mostrando los primeros {shown} de {total}',
+	'search.resultsList': 'Resultados de búsqueda',
+	'search.thisFolder': 'Esta carpeta',
+	'search.inFolder': 'en {folder}',
+	'search.error': 'La búsqueda falló',
+
 	'actions.menuAria': 'Menú de acciones, pulsa Alt+N para abrir',
 	'actions.label': 'Acciones',
 	'actions.uploadFiles': 'Subir archivos',
