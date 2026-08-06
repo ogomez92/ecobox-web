@@ -110,6 +110,8 @@ on or not".
 
 - **ELF** works out of the box. `elf/lib-win32/` holds the original 32-bit Windows
   ECI runtime and `elf/bin/eci_synth.exe` is committed, so there is nothing to build.
+  It offers 13 languages there — the ten the Linux build has, plus Japanese, Korean
+  and Chinese, whose modules only work in this original form.
 - **Piper** works too, but its virtualenv is per-machine and not committed. Create it
   with `python -m venv piper1\venv` then
   `piper1\venv\Scripts\python -m pip install piper-tts`, and import voices in Settings.

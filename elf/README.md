@@ -25,9 +25,11 @@ only picks a different executable and module directory (`elf.ts`); nothing else 
 the app knows which engine build it is talking to. The pronunciation dictionaries in
 `lib/dictionaries/` are shared by both — they are plain text, and identical.
 
-CJK languages (ja/ko/zh) are intentionally **not** shipped — the converted CJK
-modules crash mid-utterance, so they're gated out (same as the upstream
-speech-dispatcher module).
+CJK support differs by bundle, because the defect is in the *conversion*, not the
+engine. `lib/` ships no CJK: those converted modules crash mid-utterance, so they are
+gated out on POSIX (same as the upstream speech-dispatcher module). `lib-win32/` ships
+the original ja/ko/zh modules and their `*rom.dll` romanizers, and they work — see
+"The Windows build" below.
 
 ## How it's used at runtime
 
@@ -159,12 +161,17 @@ all five are load-bearing:
    best-fit mapping standing in for `//TRANSLIT`. stdin and stdout are switched to
    binary mode — otherwise LF→CRLF translation corrupts every WAV containing `0x0A`.
 
-CJK stays gated out on Windows too, but the modules **are** in `lib-win32/`
-(`chs`/`jpn`/`kor` plus their `*rom.dll` romanizers) rather than omitted. The original
-modules presumably lack the defect that crashes the converted ones, and
-`codepage_for_dialect()` already maps the right codepages, so enabling them is a
-one-line change to `lang_is_cjk()` in `eci_synth.c` — it just hasn't been tested, so
-the gate stays until someone does.
+**CJK works on Windows** and is not gated there. The crash that gates it on POSIX
+belongs to the converted dylibs, not to the engine: given the original `chs`/`jpn`/`kor`
+modules plus their `*rom.dll` romanizers, ja-JP, ko-KR and zh-CN synthesize normally.
+Verified with multi-sentence passages (22 s of Japanese, 19 s of Korean, 14 s of
+Chinese) and eight consecutive runs without a failure, with the text reaching the
+engine as real cp932 / cp949 / gb18030 bytes — no replacement characters.
+
+So `lang_is_gated()` gates CJK on POSIX only. What a build actually offers is decided
+per module by `module_available()`, which checks the file is in the bundle: that is why
+zh-TW never appears (no `cht.syn` ships) without needing its own special case, and why
+`--list` now takes `--lib-dir`. A voice that is advertised can be spoken.
 
 ## Rebuilding `eci_synth`
 

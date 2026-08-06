@@ -108,7 +108,10 @@ function run(
 export async function elfVoices(): Promise<TtsVoice[]> {
 	let res;
 	try {
-		res = await run(binPath(), ['--list'], null);
+		// Pass the bundle dir so the catalogue only offers languages whose module is
+		// actually installed — otherwise a trimmed bundle advertises voices that fail
+		// at playback time, which reads as a broken reader rather than a missing language.
+		res = await run(binPath(), ['--list', '--lib-dir', libDir()], null);
 	} catch (e) {
 		if (e instanceof TtsError) throw e;
 		throw new TtsError(500, 'ELF voice list failed');

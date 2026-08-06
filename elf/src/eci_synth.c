@@ -67,15 +67,38 @@
 #  define ECI_RUNTIME_LIB "eci.so"
 #endif
 
-/* CJK is gated out: the converted chs/cht/jpn/kor modules crash mid-utterance
- * (unrebased function pointer); same gate as the speech-dispatcher module.
- * The Windows bundle ships the original, unconverted modules, which presumably
- * don't have that defect -- but they also need their *rom.dll romanizers and a
- * different input encoding, so they stay gated until someone tests them. */
-static int lang_is_cjk(const LangEntry *L) {
+/* Languages this build must refuse to offer.
+ *
+ * POSIX: the CJK modules are gated out. They are the *converted* chs/cht/jpn/kor
+ * dylibs, and they crash mid-utterance (unrebased function pointer) -- the same gate
+ * the speech-dispatcher module applies.
+ *
+ * Windows: nothing is gated. That bundle ships the engine's ORIGINAL modules, which
+ * don't carry the conversion defect, along with the *rom.dll romanizers the CJK ones
+ * need; codepage_for_dialect() already selects cp932 / cp949 / gb18030 for their
+ * input. Availability is decided per module by module_available() instead, so a
+ * language is offered exactly when its module is actually in the bundle. */
+static int lang_is_gated(const LangEntry *L) {
+#ifdef _WIN32
+    (void)L;
+    return 0;
+#else
     const char *s = L->langid;
     return strcmp(s, "jpn") == 0 || strcmp(s, "kor") == 0 ||
            strcmp(s, "chs") == 0 || strcmp(s, "cht") == 0;
+#endif
+}
+
+/* Is this language's module actually present in the bundle? Keeps --list honest:
+ * offering a voice whose module is missing just moves the failure to playback time,
+ * where it reads as "the reader is broken" rather than "that language isn't
+ * installed". With no lib dir to check against, assume present and let engine_open
+ * report the real problem. */
+static int module_available(const char *lib_dir, const LangEntry *L) {
+    if (!lib_dir || !lib_dir[0]) return 1;
+    char p[ELOQ_PATH_MAX + 32];
+    snprintf(p, sizeof(p), "%s" PSEP "%s", lib_dir, L->module);
+    return access(p, R_OK) == 0;
 }
 
 /* "en" + "us" -> "en-US" into buf. */
@@ -84,13 +107,15 @@ static void ietf_tag(const LangEntry *L, char *buf, size_t n) {
     for (char *p = buf + strlen(L->iso_lang) + 1; *p; p++) *p = (char)toupper((unsigned char)*p);
 }
 
-/* --list: emit the 8 presets x each available (non-CJK) language as JSON. */
-static int do_list(void) {
+/* --list: emit the 8 presets x each language this build can actually speak, as JSON.
+ * `lib_dir` may be NULL (the flag is optional for --list), in which case availability
+ * isn't checked. */
+static int do_list(const char *lib_dir) {
     printf("[");
     int first = 1;
     for (int li = 0; li < N_LANGS; li++) {
         const LangEntry *L = &g_langs[li];
-        if (lang_is_cjk(L)) continue;
+        if (lang_is_gated(L) || !module_available(lib_dir, L)) continue;
         char tag[16];
         ietf_tag(L, tag, sizeof(tag));
         for (int vi = 0; vi < N_VOICE_PRESETS; vi++) {
@@ -119,7 +144,7 @@ static int parse_voice_id(const char *id, int *slot, int *dialect) {
     int s = voice_find_by_name(name);
     if (s < 0) return -1;
     const LangEntry *L = lang_by_iso(dash + 1);
-    if (!L || lang_is_cjk(L)) return -1;
+    if (!L || lang_is_gated(L)) return -1;
     *slot = s;
     *dialect = L->eci_dialect;
     return 0;
@@ -134,7 +159,7 @@ static char g_original_cwd[ELOQ_PATH_MAX] = {0};
 static void write_generated_ini(FILE *f, const char *lib_dir) {
     for (int i = 0; i < N_LANGS; i++) {
         const LangEntry *L = &g_langs[i];
-        if (lang_is_cjk(L)) continue;
+        if (lang_is_gated(L)) continue;
         fprintf(f, "[%d.%d]\nPath=%s" PSEP "%s\nVersion=6.1\n\n",
                 L->ini_major, L->ini_minor, lib_dir, L->module);
     }
@@ -468,7 +493,14 @@ int main(int argc, char **argv) {
         else { fprintf(stderr, "eci_synth: unknown arg '%s'\n", argv[i]); return 2; }
     }
 
-    if (list) return do_list();
+    if (list) {
+        /* Resolve first if we were given one, so availability is checked against the
+         * same absolute path synthesis will use. */
+        char *list_abs = lib_dir ? absolute_dir(lib_dir) : NULL;
+        int rc = do_list(list_abs ? list_abs : lib_dir);
+        free(list_abs);
+        return rc;
+    }
 
     if (!lib_dir || !lib_dir[0]) {
         fprintf(stderr, "eci_synth: --lib-dir (or ELF_LIB_DIR) required\n");
