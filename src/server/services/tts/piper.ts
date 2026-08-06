@@ -42,9 +42,15 @@ const TIMEOUT_MS = 60000;
 function piperDir(): string {
 	return env.PIPER_DIR?.trim() || path.join(process.cwd(), 'piper1');
 }
-/** The `piper` CLI console script inside the venv (text on stdin → WAV on stdout). */
+/**
+ * The `piper` CLI console script inside the venv (text on stdin → WAV on stdout).
+ * Python puts console scripts in `Scripts\*.exe` on Windows and `bin/` everywhere
+ * else — the venv layout differs, the CLI contract doesn't.
+ */
 function binPath(): string {
-	return path.join(piperDir(), 'venv', 'bin', 'piper');
+	return process.platform === 'win32'
+		? path.join(piperDir(), 'venv', 'Scripts', 'piper.exe')
+		: path.join(piperDir(), 'venv', 'bin', 'piper');
 }
 
 /** Where imported voice models (<stem>.onnx + <stem>.onnx.json) are stored. */

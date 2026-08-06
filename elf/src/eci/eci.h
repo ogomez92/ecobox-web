@@ -33,6 +33,23 @@
 extern "C" {
 #endif
 
+/* Calling convention of the ECI entry points.
+ *
+ * The Windows runtime (ECI.DLL, IBM/SpeechWorks ETI-Eloquence 6.1) is __stdcall
+ * -- confirmed by disassembly, not assumed: eciAddText takes two 4-byte
+ * arguments and ends in `ret $0x8`, i.e. the callee pops them. The Linux and
+ * macOS ports are plain cdecl.
+ *
+ * This must be applied to every pointer in EciApi AND to ECICallback, which the
+ * engine calls back into us. A mismatch does not fail to link or warn: it
+ * silently unbalances the stack on the first call and crashes somewhere else
+ * entirely, so treat it as load-bearing. */
+#ifdef _WIN32
+#  define ECI_CALL __stdcall
+#else
+#  define ECI_CALL
+#endif
+
 /* Primitive types */
 
 #ifndef MOTIF
@@ -172,10 +189,10 @@ enum ECICallbackReturn {
     eciDataAbort        = 2
 };
 
-typedef enum ECICallbackReturn (*ECICallback)(ECIHand hEngine,
-                                              enum ECIMessage Msg,
-                                              long lParam,
-                                              void *pData);
+typedef enum ECICallbackReturn (ECI_CALL *ECICallback)(ECIHand hEngine,
+                                                       enum ECIMessage Msg,
+                                                       long lParam,
+                                                       void *pData);
 
 /* Phoneme / mouth-shape data */
 typedef struct {

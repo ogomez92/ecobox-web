@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import type { Chapter, ChapteredFile, DaisyBook, DaisyVolume } from '$lib/types';
-import { getMediaRoot } from './files';
+import { getMediaRoot, toPosixPath } from './files';
 import { getDurations } from './audioDuration';
 
 const DAISY_MARKERS = ['ncc.html', 'ncc.xml', 'Navigation.xml'];
@@ -19,10 +19,12 @@ export interface ChapteredBook {
 	chapters: Chapter[];
 }
 
-// Convert absolute path to path relative to MEDIA_ROOT
+// Convert absolute path to path relative to MEDIA_ROOT. Forward slashes: these
+// become chapter `filePath`s and `files[].path`, which clients send back and
+// which key `chaptered_metadata` / `chaptered_bookmarks` (see toPosixPath).
 function toRelativePath(absolutePath: string): string {
 	const mediaRoot = getMediaRoot();
-	return path.relative(mediaRoot, absolutePath);
+	return toPosixPath(path.relative(mediaRoot, absolutePath));
 }
 
 export async function isDaisyBook(folderPath: string): Promise<boolean> {

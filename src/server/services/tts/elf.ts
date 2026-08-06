@@ -41,19 +41,33 @@ const TIMEOUT_MS = 30000;
  */
 const PHRASE_PREDICTION_OFF = '`pp0 ';
 
+/**
+ * The bundle ships one engine build per platform, because this engine predates
+ * portability: `lib/` holds the ECI dylibs converted to Linux ELF, `lib-win32/`
+ * the original 32-bit Windows runtime (ECI.DLL + the .syn language modules).
+ * Only the executable name and the module directory differ -- the CLI contract,
+ * the voice ids and the dictionaries are identical either way, so nothing
+ * downstream of here knows which one it is talking to.
+ */
+const IS_WINDOWS = process.platform === 'win32';
+
 /** Root of the shipped engine bundle (bin/ + lib/). */
 function elfDir(): string {
 	return env.ELF_DIR?.trim() || path.join(process.cwd(), 'elf');
 }
 function binPath(): string {
-	return path.join(elfDir(), 'bin', 'eci_synth');
+	return path.join(elfDir(), 'bin', IS_WINDOWS ? 'eci_synth.exe' : 'eci_synth');
 }
 function libDir(): string {
-	return path.join(elfDir(), 'lib');
+	return path.join(elfDir(), IS_WINDOWS ? 'lib-win32' : 'lib');
 }
-/** Where the per-language pronunciation `.dic` files live (see elfDict.ts). */
+/**
+ * Where the per-language pronunciation `.dic` files live (see elfDict.ts). These
+ * are plain text data, byte-identical between the two builds, so they stay in
+ * the POSIX lib dir on every platform instead of being duplicated.
+ */
 export function dictionariesDir(): string {
-	return path.join(libDir(), 'dictionaries');
+	return path.join(elfDir(), 'lib', 'dictionaries');
 }
 
 /** Run a command, optionally feeding stdin, and collect stdout. */

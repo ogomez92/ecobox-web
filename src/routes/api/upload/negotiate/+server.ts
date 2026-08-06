@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import type { UploadNegotiateRequest, UploadNegotiateResponse } from '$lib/types';
-import { resolvePath, listDirectoryRecursive } from '$server/services/files';
+import { resolvePath, listDirectoryRecursive, toPosixPath } from '$server/services/files';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -34,7 +34,11 @@ export const POST: RequestHandler = async ({ request }) => {
 			existingFiles = new Map(
 				existing
 					.filter(f => !f.isDirectory)
-					.map(f => [path.relative(basePath, f.path), f.size])
+					// Forward slashes: these keys are looked up with the client's own
+					// paths, which are always POSIX-style. path.relative hands back
+					// backslashes on Windows, so every lookup would miss and every
+					// file would look new.
+					.map(f => [toPosixPath(path.relative(basePath, f.path)), f.size])
 			);
 		} catch {
 			// Directory might not exist yet
@@ -74,7 +78,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			if (existingPath.endsWith('.CHAPTERED')) continue;
 			extras.push(existingPath);
 			if (mode === 'sync') {
-				toDelete.push(path.join(basePath, existingPath));
+				toDelete.push(toPosixPath(path.join(basePath, existingPath)));
 			}
 		}
 

@@ -55,6 +55,67 @@ A self-hosted audiobook and media player web application. Stream your audio libr
 
    Open http://localhost:3000
 
+## Running on Windows
+
+Ecobox runs natively on Windows — no WSL, no container. Everything works, including
+the local **ELF** speech engine, which ships a second, Windows-native build of the
+engine alongside the Linux one.
+
+**Requirements**
+
+- **Node.js 22 LTS.** Not newer: `better-sqlite3` 11.x has no prebuilt binary for
+  Node 26 and won't compile against its V8 headers either, so the install fails.
+  On Node 22 it installs from a prebuilt binary with no compiler needed.
+- **ffmpeg** on `PATH` — required by the local TTS engines (ELF, Piper), which
+  transcode their WAV output to MP3. `winget install Gyan.FFmpeg`.
+- **pandoc** (optional) — only for converting EPUB/DOCX books. `winget install
+  JohnMacFarlane.Pandoc`. TXT books convert without it.
+
+**Setup**
+
+```powershell
+git clone <repo-url>
+cd ecobox-web
+pnpm install
+
+copy .env.example .env
+```
+
+Edit `.env`. Use **forward slashes** in paths — Windows accepts them everywhere and
+they sidestep any question of backslash escaping in `.env` values:
+
+```
+MEDIA_ROOT=C:/Users/you/Audiobooks
+DATABASE_URL=file:./data/ecobox.db
+PORT=3000
+```
+
+Then build and run:
+
+```powershell
+pnpm run build
+.\start-windows.ps1
+```
+
+`start-windows.ps1` is the Windows counterpart of the systemd unit used on Linux:
+SvelteKit's Node adapter reads its configuration from the process environment and
+does not load `.env` on its own, so the script loads it and then starts `node build`.
+Re-run `pnpm run build` after any source change — the server serves the last build.
+
+To run it on boot, register the script as a service with
+[NSSM](https://nssm.cc/) or a Task Scheduler task set to "run whether user is logged
+on or not".
+
+**Text-to-speech on Windows**
+
+- **ELF** works out of the box. `elf/lib-win32/` holds the original 32-bit Windows
+  ECI runtime and `elf/bin/eci_synth.exe` is committed, so there is nothing to build.
+- **Piper** works too, but its virtualenv is per-machine and not committed. Create it
+  with `python -m venv piper1\venv` then
+  `piper1\venv\Scripts\python -m pip install piper-tts`, and import voices in Settings.
+- The cloud services (ElevenLabs, Azure, Google) and Web Speech behave identically to
+  Linux.
+
 ## Production Deployment
 
 1. **Build the application**

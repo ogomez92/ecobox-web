@@ -13,10 +13,17 @@ are vendored here. See `src/LICENSE.GPL` for the upstream notice and provenance.
 
 ```
 elf/
-├── lib/            eci.so + per-language modules (en, es, fr, de, it, pt, fi)
-├── bin/eci_synth   one-shot synthesizer the Node adapter spawns
-└── src/            C sources for eci_synth (build with `make`)
+├── lib/                eci.so + per-language modules (en, es, fr, de, it, pt, fi)
+├── lib-win32/          eci.dll + the same languages as .syn modules, + eci.ini
+├── bin/eci_synth       one-shot synthesizer the Node adapter spawns (POSIX)
+├── bin/eci_synth.exe   the same tool, built 32-bit for Windows
+└── src/                C sources for eci_synth (`make`, or build-win32.ps1)
 ```
+
+Both builds come from the same sources and expose the same CLI, so the Node adapter
+only picks a different executable and module directory (`elf.ts`); nothing else in
+the app knows which engine build it is talking to. The pronunciation dictionaries in
+`lib/dictionaries/` are shared by both — they are plain text, and identical.
 
 CJK languages (ja/ko/zh) are intentionally **not** shipped — the converted CJK
 modules crash mid-utterance, so they're gated out (same as the upstream
@@ -112,6 +119,51 @@ are runtime data, not compiled into `eci_synth`).
 
 The bundle location is `ELF_DIR` (`.env`), defaulting to `<cwd>/elf`.
 
+## The Windows build
+
+`lib-win32/` is not a conversion: it is the **original** ECI 6.1 runtime for Windows
+(`eci.dll` plus the `.syn` language modules), which is where this engine started life.
+The same `src/` builds against it, guarded by `#ifdef _WIN32`. Five things differ, and
+all five are load-bearing:
+
+1. **Calling convention.** The Windows entry points are `__stdcall`; the POSIX ports
+   are cdecl. Verified by disassembly rather than assumed — `eciAddText` takes two
+   4-byte arguments and ends in `ret $0x8`, so the callee pops them. This is what the
+   `ECI_CALL` macro in `eci/eci.h` carries, and it applies to the whole `EciApi` table
+   *and* to `ECICallback`, which the engine calls back into us. A mismatch neither
+   fails to link nor warns; it just unbalances the stack and crashes elsewhere.
+
+2. **32-bit.** `eci.dll` is i386, so `eci_synth.exe` must be i686 too — a 64-bit
+   process cannot load a 32-bit DLL. Node (x64) spawning a 32-bit child is fine.
+
+3. **Two entry points are missing.** The Windows DLL does not export
+   `eciGetDefaultParam` / `eciSetDefaultParam`, though IBM documents them. Nothing
+   calls them, so `runtime.c` resolves them with `LOAD_OPT` instead of rejecting the
+   whole runtime.
+
+4. **`eciSynchronize` blocks, and `eciSpeaking` afterwards is not Boolean.** Every
+   sample is already delivered when `Synchronize` returns, and `Speaking` then reports
+   a truthy non-Boolean value. The POSIX drain loop that waits on it is therefore
+   compiled out on Windows: it would never see a reason to stop, and at Windows'
+   ~15 ms timer granularity its nominal 1 ms sleeps turn 20000 iterations into about
+   five minutes per sentence.
+
+5. **The INI and the text encoding.** The engine finds `eci.ini` through the registry,
+   then the `ECIINI` environment variable, then the current directory; we set the
+   variable and chdir, so nothing outside the process is touched and no registry write
+   is needed. `eci_synth` copies the shipped `lib-win32/eci.ini` into its work dir and
+   rewrites only the `Path=` / `Path_Rom=` entries — the file also carries
+   `CallbackFlag`, the eight voice-preset rows and the phoneme tables, which a
+   generated minimal INI would silently drop. Text conversion uses
+   `MultiByteToWideChar`/`WideCharToMultiByte` instead of iconv (mingw has none), with
+   best-fit mapping standing in for `//TRANSLIT`. stdin and stdout are switched to
+   binary mode — otherwise LF→CRLF translation corrupts every WAV containing `0x0A`.
+
+CJK stays gated out on Windows too. The original modules presumably lack the defect
+that breaks the converted ones, but they also need their `*rom.dll` romanizers and a
+different input encoding, so they are untested here; `ibmtts/`-style bundles ship the
+files if anyone wants to try.
+
 ## Rebuilding `eci_synth`
 
 Needed after a fresh checkout on a new machine, a CPU-arch change, or any edit to
@@ -123,6 +175,16 @@ cd elf/src && make        # -> ../bin/eci_synth
 
 Build needs `cc` and the standard C toolchain. Runtime needs `libc++` /
 `libc++abi` and `ffmpeg` (already present on this host).
+
+On Windows, `eci_synth.exe` is committed, so a normal checkout needs no toolchain at
+all. To rebuild it you need an **i686** mingw-w64 gcc (the x86_64 one cannot produce a
+32-bit binary; the script checks and refuses rather than emitting one that could never
+load the DLL). The portable i686 WinLibs zip works:
+
+```powershell
+cd elf\src
+.\build-win32.ps1 -Cc C:\tools\mingw32\bin\gcc.exe    # -> ..\bin\eci_synth.exe
+```
 
 ## Licensing
 

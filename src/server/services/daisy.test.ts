@@ -123,9 +123,12 @@ beforeAll(() => {
 	for (const name of ['pista1.mp3', 'pista2.mp3', 'pista10.mp3']) {
 		fs.writeFileSync(path.join(plain, name), '');
 	}
-	mockDurations.set(path.join('carpeta', 'pista1.mp3'), 10);
-	mockDurations.set(path.join('carpeta', 'pista2.mp3'), 20);
-	mockDurations.set(path.join('carpeta', 'pista10.mp3'), 30);
+	// Keyed with forward slashes, like every relative path the services emit —
+	// see toPosixPath in files.ts. Using path.join here would key the mock with
+	// backslashes on Windows and never match the lookup.
+	mockDurations.set('carpeta/pista1.mp3', 10);
+	mockDurations.set('carpeta/pista2.mp3', 20);
+	mockDurations.set('carpeta/pista10.mp3', 30);
 });
 
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -143,8 +146,8 @@ describe('parseDaisyBook', () => {
 		const [prologo, uno, dos] = book!.chapters;
 
 		// Same file, different clip-begin — the whole point of parsing SMIL times.
-		expect(prologo.filePath).toBe(path.join('libro', 'parte1.mp3'));
-		expect(uno.filePath).toBe(path.join('libro', 'parte1.mp3'));
+		expect(prologo.filePath).toBe('libro/parte1.mp3');
+		expect(uno.filePath).toBe('libro/parte1.mp3');
 		expect(prologo.fileStartTime).toBe(0);
 		expect(uno.fileStartTime).toBe(25);
 
@@ -170,8 +173,8 @@ describe('parseDaisyBook', () => {
 		const book = await parseDaisyBook(path.join(root, 'libro') + path.sep.repeat(0)); // same folder, fresh call
 
 		expect(book!.files).toEqual([
-			{ path: path.join('libro', 'parte1.mp3'), duration: 60, startTime: 0 },
-			{ path: path.join('libro', 'parte2.mp3'), duration: 90, startTime: 60 }
+			{ path: 'libro/parte1.mp3', duration: 60, startTime: 0 },
+			{ path: 'libro/parte2.mp3', duration: 90, startTime: 60 }
 		]);
 		// ncc:totalTime (00:02:30) matches the measured 150s.
 		expect(book!.totalDuration).toBe(150);
@@ -215,10 +218,10 @@ describe('getChapteredBook', () => {
 
 		expect(book?.type).toBe('chaptered');
 		expect(book?.files).toEqual([
-			{ path: path.join('carpeta', 'pista1.mp3'), duration: 10, startTime: 0 },
-			{ path: path.join('carpeta', 'pista2.mp3'), duration: 20, startTime: 10 },
+			{ path: 'carpeta/pista1.mp3', duration: 10, startTime: 0 },
+			{ path: 'carpeta/pista2.mp3', duration: 20, startTime: 10 },
 			// natural sort: pista10 after pista2, not after pista1
-			{ path: path.join('carpeta', 'pista10.mp3'), duration: 30, startTime: 30 }
+			{ path: 'carpeta/pista10.mp3', duration: 30, startTime: 30 }
 		]);
 		expect(book?.totalDuration).toBe(60);
 		expect(book?.chapters.map((c) => c.fileStartTime)).toEqual([0, 0, 0]);

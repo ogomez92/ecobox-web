@@ -12,21 +12,30 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* Engine module filename for a langid. The two bundles ship the same set of
+ * languages under the same three-letter names, differing only in extension:
+ * converted shared objects on POSIX, the original ECI data modules on Windows. */
+#ifdef _WIN32
+#  define ECI_MODULE(id) id ".syn"
+#else
+#  define ECI_MODULE(id) id ".so"
+#endif
+
 const LangEntry g_langs[N_LANGS] = {
-    { eciGeneralAmericanEnglish, 1,  0, "enu.so", "enu", "en", "us", "American English" },
-    { eciBritishEnglish,         1,  1, "eng.so", "eng", "en", "gb", "British English" },
-    { eciCastilianSpanish,       2,  0, "esp.so", "esp", "es", "es", "Castilian Spanish" },
-    { eciMexicanSpanish,         2,  1, "esm.so", "esm", "es", "mx", "Latin American Spanish" },
-    { eciStandardFrench,         3,  0, "fra.so", "fra", "fr", "fr", "French" },
-    { eciCanadianFrench,         3,  1, "frc.so", "frc", "fr", "ca", "Canadian French" },
-    { eciStandardGerman,         4,  0, "deu.so", "deu", "de", "de", "German" },
-    { eciStandardItalian,        5,  0, "ita.so", "ita", "it", "it", "Italian" },
-    { eciMandarinChinese,        6,  0, "chs.so", "chs", "zh", "cn", "Mandarin Chinese (Simplified)" },
-    { eciTaiwaneseMandarin,      6,  1, "cht.so", "cht", "zh", "tw", "Mandarin Chinese (Traditional)" },
-    { eciBrazilianPortuguese,    7,  0, "ptb.so", "ptb", "pt", "br", "Brazilian Portuguese" },
-    { eciStandardJapanese,       8,  0, "jpn.so", "jpn", "ja", "jp", "Japanese" },
-    { eciStandardFinnish,        9,  0, "fin.so", "fin", "fi", "fi", "Finnish" },
-    { eciStandardKorean,        10,  0, "kor.so", "kor", "ko", "kr", "Korean" },
+    { eciGeneralAmericanEnglish, 1,  0, ECI_MODULE("enu"), "enu", "en", "us", "American English" },
+    { eciBritishEnglish,         1,  1, ECI_MODULE("eng"), "eng", "en", "gb", "British English" },
+    { eciCastilianSpanish,       2,  0, ECI_MODULE("esp"), "esp", "es", "es", "Castilian Spanish" },
+    { eciMexicanSpanish,         2,  1, ECI_MODULE("esm"), "esm", "es", "mx", "Latin American Spanish" },
+    { eciStandardFrench,         3,  0, ECI_MODULE("fra"), "fra", "fr", "fr", "French" },
+    { eciCanadianFrench,         3,  1, ECI_MODULE("frc"), "frc", "fr", "ca", "Canadian French" },
+    { eciStandardGerman,         4,  0, ECI_MODULE("deu"), "deu", "de", "de", "German" },
+    { eciStandardItalian,        5,  0, ECI_MODULE("ita"), "ita", "it", "it", "Italian" },
+    { eciMandarinChinese,        6,  0, ECI_MODULE("chs"), "chs", "zh", "cn", "Mandarin Chinese (Simplified)" },
+    { eciTaiwaneseMandarin,      6,  1, ECI_MODULE("cht"), "cht", "zh", "tw", "Mandarin Chinese (Traditional)" },
+    { eciBrazilianPortuguese,    7,  0, ECI_MODULE("ptb"), "ptb", "pt", "br", "Brazilian Portuguese" },
+    { eciStandardJapanese,       8,  0, ECI_MODULE("jpn"), "jpn", "ja", "jp", "Japanese" },
+    { eciStandardFinnish,        9,  0, ECI_MODULE("fin"), "fin", "fi", "fi", "Finnish" },
+    { eciStandardKorean,        10,  0, ECI_MODULE("kor"), "kor", "ko", "kr", "Korean" },
 };
 
 LangState g_lang_state[N_LANGS] = { 0 };  /* set by engine.c at init */

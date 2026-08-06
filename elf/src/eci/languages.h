@@ -21,7 +21,10 @@ typedef struct {
     int   eci_dialect;
     int   ini_major;
     int   ini_minor;
-    const char *so_name;       /* e.g. "enu.so" */
+    /* Per-language engine module, as named in the eci.ini Path= entry. The POSIX
+     * bundle ships the converted shared objects ("enu.so"); the Windows bundle
+     * ships the original ECI data modules ("enu.syn"). Set by ECI_MODULE(). */
+    const char *module;
     const char *langid;        /* e.g. "enu" -- prefix for main.dic/root.dic/abbr.dic */
     const char *iso_lang;      /* e.g. "en" */
     const char *iso_variant;   /* e.g. "us" */

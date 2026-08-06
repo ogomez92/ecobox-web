@@ -1,0 +1,10 @@
+# The bundled speech engines are binary. Git's content heuristic happens to
+# classify them correctly today, but that is a guess, and a machine with
+# core.autocrlf=true would silently rewrite line endings inside any file the
+# guess got wrong. A corrupted .syn or .so doesn't fail at checkout — it fails
+# much later, as a crash inside the synthesizer — so state it outright.
+elf/bin/eci_synth       binary
+elf/bin/eci_synth.exe   binary
+elf/lib/*.so            binary
+elf/lib-win32/*.dll     binary
+elf/lib-win32/*.syn     binary

@@ -14,8 +14,9 @@
  *   eci_synth --list                       # JSON voice catalogue -> stdout
  *   eci_synth --lib-dir DIR --voice-id ID [voice params]  # stdin text -> WAV
  *
- * --lib-dir holds eci.so + the language .so files (defaults to the ELF_LIB_DIR
- * env var). --voice-id is "<Preset>-<lang>-<REGION>" (e.g. "Reed-en-US"),
+ * --lib-dir holds the engine runtime plus its per-language modules -- eci.so and
+ * *.so on POSIX, eci.dll and *.syn on Windows -- and defaults to the ELF_LIB_DIR
+ * env var. --voice-id is "<Preset>-<lang>-<REGION>" (e.g. "Reed-en-US"),
  * matching the ids emitted by --list.
  *
  * Optional voice params override the selected preset's built-in knobs. Each
@@ -38,7 +39,6 @@
 
 #include <ctype.h>
 #include <errno.h>
-#include <iconv.h>
 #include <limits.h>
 #include <math.h>
 #include <stdint.h>
@@ -47,12 +47,35 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifdef _WIN32
+#  include <windows.h>
+#  include <direct.h>
+#  include <fcntl.h>
+#  include <io.h>
+#else
+#  include <iconv.h>
+#endif
+
+/* Path separator for strings we hand to the engine. The ECI runtime passes
+ * eci.ini's Path= values straight to the OS file APIs, so we build them the way
+ * the platform writes them. */
+#ifdef _WIN32
+#  define PSEP "\\"
+#  define ECI_RUNTIME_LIB "eci.dll"
+#else
+#  define PSEP "/"
+#  define ECI_RUNTIME_LIB "eci.so"
+#endif
+
 /* CJK is gated out: the converted chs/cht/jpn/kor modules crash mid-utterance
- * (unrebased function pointer); same gate as the speech-dispatcher module. */
+ * (unrebased function pointer); same gate as the speech-dispatcher module.
+ * The Windows bundle ships the original, unconverted modules, which presumably
+ * don't have that defect -- but they also need their *rom.dll romanizers and a
+ * different input encoding, so they stay gated until someone tests them. */
 static int lang_is_cjk(const LangEntry *L) {
-    const char *s = L->so_name;
-    return strcmp(s, "jpn.so") == 0 || strcmp(s, "kor.so") == 0 ||
-           strcmp(s, "chs.so") == 0 || strcmp(s, "cht.so") == 0;
+    const char *s = L->langid;
+    return strcmp(s, "jpn") == 0 || strcmp(s, "kor") == 0 ||
+           strcmp(s, "chs") == 0 || strcmp(s, "cht") == 0;
 }
 
 /* "en" + "us" -> "en-US" into buf. */
@@ -102,29 +125,110 @@ static int parse_voice_id(const char *id, int *slot, int *dialect) {
     return 0;
 }
 
-/* Generate an eci.ini for every available (non-CJK) language with absolute
- * Path= entries, in a fresh temp dir, and chdir there -- the engine reads
- * eci.ini from the cwd at eciNewEx time. Returns 0, fills tmpdir. */
+/* Where we were before chdir'ing into the work dir, so cleanup can step back
+ * out (Windows refuses to remove a process's own current directory). */
+static char g_original_cwd[ELOQ_PATH_MAX] = {0};
+
+/* Write the minimal eci.ini the engine needs: one section per available
+ * (non-CJK) language pointing at its module in the bundle. */
+static void write_generated_ini(FILE *f, const char *lib_dir) {
+    for (int i = 0; i < N_LANGS; i++) {
+        const LangEntry *L = &g_langs[i];
+        if (lang_is_cjk(L)) continue;
+        fprintf(f, "[%d.%d]\nPath=%s" PSEP "%s\nVersion=6.1\n\n",
+                L->ini_major, L->ini_minor, lib_dir, L->module);
+    }
+}
+
+#ifdef _WIN32
+/* Copy the eci.ini shipped with the Windows bundle into `out`, repointing every
+ * Path= / Path_Rom= entry at our own lib dir. Returns 0, or -1 if the template
+ * can't be read (caller falls back to write_generated_ini).
+ *
+ * We prefer copying the vendor INI over generating one because it carries more
+ * than paths: CallbackFlag, the eight voice-preset rows, and the per-language
+ * phoneme tables. A hand-rolled [n.m]+Path= file silently drops those and leaves
+ * the engine on whatever its compiled-in defaults happen to be. The absolute
+ * paths are the only part that is stale -- they point wherever the file was last
+ * installed -- so those are the only part we rewrite. */
+static int rewrite_ini_template(const char *lib_dir, const char *template_path, FILE *out) {
+    FILE *in = fopen(template_path, "r");
+    if (!in) return -1;
+    char line[1024];
+    while (fgets(line, sizeof(line), in)) {
+        const char *key = NULL;
+        if      (!strncmp(line, "Path_Rom=", 9)) key = "Path_Rom";
+        else if (!strncmp(line, "Path=", 5))     key = "Path";
+        if (!key) { fputs(line, out); continue; }
+
+        /* Keep the module's basename; the directory is ours to supply. */
+        const char *val = line + strlen(key) + 1;
+        const char *base = val;
+        for (const char *p = val; *p; p++)
+            if (*p == '\\' || *p == '/') base = p + 1;
+        size_t bl = strcspn(base, "\r\n");
+        fprintf(out, "%s=%s" PSEP "%.*s\n", key, lib_dir, (int)bl, base);
+    }
+    fclose(in);
+    return 0;
+}
+#endif
+
+/* Build a fresh work dir holding an eci.ini that points at `lib_dir`, and make
+ * the engine read it. The engine looks for eci.ini in the current directory (and
+ * on Windows, also via the ECIINI environment variable), so we chdir there.
+ * Returns 0 and fills tmpdir. */
 static int setup_workdir(const char *lib_dir, char *tmpdir, size_t n) {
+#ifdef _WIN32
+    char base[MAX_PATH];
+    DWORD r = GetTempPathA((DWORD)sizeof(base), base);   /* has a trailing separator */
+    if (r == 0 || r >= sizeof(base)) {
+        fprintf(stderr, "eci_synth: GetTempPath failed\n");
+        return -1;
+    }
+    /* One work dir per process; concurrent syntheses are separate processes. */
+    snprintf(tmpdir, n, "%seci_synth.%lu", base, (unsigned long)GetCurrentProcessId());
+    if (!CreateDirectoryA(tmpdir, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) {
+        fprintf(stderr, "eci_synth: cannot create %s\n", tmpdir);
+        return -1;
+    }
+#else
     snprintf(tmpdir, n, "/tmp/eci_synth.XXXXXX");
     if (!mkdtemp(tmpdir)) {
         fprintf(stderr, "eci_synth: mkdtemp failed: %s\n", strerror(errno));
         return -1;
     }
+#endif
+
     char ini[ELOQ_PATH_MAX + 32];
-    snprintf(ini, sizeof(ini), "%s/eci.ini", tmpdir);
+    snprintf(ini, sizeof(ini), "%s" PSEP "eci.ini", tmpdir);
     FILE *f = fopen(ini, "w");
     if (!f) {
         fprintf(stderr, "eci_synth: cannot write %s: %s\n", ini, strerror(errno));
         return -1;
     }
-    for (int i = 0; i < N_LANGS; i++) {
-        const LangEntry *L = &g_langs[i];
-        if (lang_is_cjk(L)) continue;
-        fprintf(f, "[%d.%d]\nPath=%s/%s\nVersion=6.1\n\n",
-                L->ini_major, L->ini_minor, lib_dir, L->so_name);
-    }
+#ifdef _WIN32
+    char tmpl[ELOQ_PATH_MAX + 16];
+    snprintf(tmpl, sizeof(tmpl), "%s" PSEP "eci.ini", lib_dir);
+    if (rewrite_ini_template(lib_dir, tmpl, f) != 0)
+        write_generated_ini(f, lib_dir);
+#else
+    write_generated_ini(f, lib_dir);
+#endif
     fclose(f);
+
+#ifdef _WIN32
+    /* The engine resolves its INI through the registry, then the ECIINI
+     * environment variable, then eci.ini in the current directory. Setting the
+     * variable keeps everything process-local -- no registry write, nothing
+     * outside this process touched. _putenv_s covers our own CRT; ECI.DLL
+     * carries its own msvcrt, which snapshots the environment when it loads,
+     * and that happens later (engine_open), so it sees this. */
+    _putenv_s("ECIINI", ini);
+    SetEnvironmentVariableA("ECIINI", ini);
+#endif
+
+    if (!getcwd(g_original_cwd, sizeof(g_original_cwd))) g_original_cwd[0] = 0;
     if (chdir(tmpdir) != 0) {
         fprintf(stderr, "eci_synth: chdir(%s): %s\n", tmpdir, strerror(errno));
         return -1;
@@ -134,16 +238,62 @@ static int setup_workdir(const char *lib_dir, char *tmpdir, size_t n) {
 
 static void cleanup_workdir(const char *tmpdir) {
     if (!tmpdir[0]) return;
+    /* Step back out before removing: on Windows the current directory is held
+     * open by the process and rmdir would fail, leaving litter in %TEMP%. */
+    if (g_original_cwd[0] && chdir(g_original_cwd) != 0) {
+        /* Best effort. If we can't get back, the rmdir below simply fails and the
+         * work dir is left for the OS's temp cleanup -- not worth failing over,
+         * the audio is already written. (Testing the result also keeps glibc's
+         * warn_unused_result on chdir quiet.) */
+    }
     char p[ELOQ_PATH_MAX + 32];
-    snprintf(p, sizeof(p), "%s/eci.ini", tmpdir); unlink(p);
-    snprintf(p, sizeof(p), "%s/eci.dbg", tmpdir); unlink(p);
+    snprintf(p, sizeof(p), "%s" PSEP "eci.ini", tmpdir); unlink(p);
+    snprintf(p, sizeof(p), "%s" PSEP "eci.dbg", tmpdir); unlink(p);
     rmdir(tmpdir);
 }
 
 /* Convert UTF-8 stdin text to the engine's expected encoding (cp1252 for the
  * Western languages; CJK is gated out so we never need the others here).
- * Returns a malloc'd, NUL-terminated buffer; falls back to a verbatim copy if
- * iconv is unavailable. */
+ * Returns a malloc'd, NUL-terminated buffer. */
+#ifdef _WIN32
+
+/* The codepage behind lang_encoding_for()'s iconv name. CJK is gated out today,
+ * but the mapping is kept complete so enabling it stays a one-line change. */
+static UINT codepage_for_dialect(int dialect) {
+    const char *enc = lang_encoding_for(dialect);
+    if (!strcmp(enc, "gb18030")) return 54936;
+    if (!strcmp(enc, "cp932"))   return 932;
+    if (!strcmp(enc, "cp949"))   return 949;
+    if (!strcmp(enc, "big5"))    return 950;
+    return 1252;
+}
+
+/* Windows has no iconv, so we round-trip through UTF-16 with the platform's own
+ * converters. Best-fit mapping (the default, i.e. no WC_NO_BEST_FIT_CHARS) plays
+ * the role of iconv's //TRANSLIT: a character the target codepage lacks degrades
+ * to a near-equivalent where one exists and to '?' otherwise, rather than
+ * failing the whole conversion. */
+static char *encode_for_dialect(const char *utf8, size_t in_len, int dialect) {
+    UINT cp = codepage_for_dialect(dialect);
+    int wn = MultiByteToWideChar(CP_UTF8, 0, utf8, (int)in_len, NULL, 0);
+    if (wn <= 0) return calloc(1, 1);
+    wchar_t *w = malloc((size_t)wn * sizeof(wchar_t));
+    if (!w) return NULL;
+    MultiByteToWideChar(CP_UTF8, 0, utf8, (int)in_len, w, wn);
+
+    int on = WideCharToMultiByte(cp, 0, w, wn, NULL, 0, NULL, NULL);
+    if (on <= 0) { free(w); return calloc(1, 1); }
+    char *out = malloc((size_t)on + 1);
+    if (!out) { free(w); return NULL; }
+    WideCharToMultiByte(cp, 0, w, wn, out, on, NULL, NULL);
+    out[on] = 0;
+    free(w);
+    return out;
+}
+
+#else
+
+/* Falls back to a verbatim copy if iconv is unavailable. */
 static char *encode_for_dialect(const char *utf8, size_t in_len, int dialect) {
     const char *enc = lang_encoding_for(dialect);  /* "cp1252" for non-CJK */
     char to[32];
@@ -181,13 +331,17 @@ static char *encode_for_dialect(const char *utf8, size_t in_len, int dialect) {
     return out;
 }
 
+#endif /* _WIN32 */
+
 /* ---- PCM capture ---- */
 #define CHUNK_SAMPLES 8192
 static int16_t  g_chunk[CHUNK_SAMPLES];
 static int16_t *g_pcm = NULL;
 static long     g_len = 0, g_cap = 0;
 
-static enum ECICallbackReturn pcm_cb(ECIHand h, enum ECIMessage msg, long lParam, void *data) {
+/* ECI_CALL: the engine calls this one, so it carries the runtime's convention
+ * (__stdcall on Windows) rather than ours. See eci.h. */
+static enum ECICallbackReturn ECI_CALL pcm_cb(ECIHand h, enum ECIMessage msg, long lParam, void *data) {
     (void)h; (void)data;
     if (msg != eciWaveformBuffer || lParam <= 0) return eciDataProcessed;
     long need = g_len + lParam;
@@ -271,7 +425,27 @@ static int rate_to_eci_speed(double m) {
     return s;
 }
 
+/* Absolutize the bundle directory before we chdir into the work dir: after that
+ * point a relative --lib-dir would resolve from the wrong place, and Windows'
+ * LOAD_WITH_ALTERED_SEARCH_PATH needs an absolute name anyway. Returns a
+ * malloc'd path, or NULL if it can't be resolved (caller keeps the original). */
+static char *absolute_dir(const char *p) {
+#ifdef _WIN32
+    return _fullpath(NULL, p, 0);
+#else
+    return realpath(p, NULL);
+#endif
+}
+
 int main(int argc, char **argv) {
+#ifdef _WIN32
+    /* Both streams carry binary payloads -- UTF-8 text in, a WAV out. Windows
+     * opens them in text mode by default, which would translate LF to CRLF on
+     * the way out (corrupting every WAV that happens to contain 0x0A) and stop
+     * reading input at the first 0x1A. */
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
     const char *lib_dir = getenv("ELF_LIB_DIR");
     const char *voice_id = NULL;
     int list = 0;
@@ -300,6 +474,9 @@ int main(int argc, char **argv) {
         fprintf(stderr, "eci_synth: --lib-dir (or ELF_LIB_DIR) required\n");
         return 2;
     }
+    char *lib_abs = absolute_dir(lib_dir);
+    if (lib_abs) lib_dir = lib_abs;
+
     int slot = 0, dialect = eciGeneralAmericanEnglish;
     if (voice_id && parse_voice_id(voice_id, &slot, &dialect) != 0) {
         fprintf(stderr, "eci_synth: bad --voice-id '%s'\n", voice_id);
@@ -315,7 +492,7 @@ int main(int argc, char **argv) {
     if (setup_workdir(lib_dir, workdir, sizeof(workdir)) != 0) { free(utf8); return 1; }
 
     char eci_so[ELOQ_PATH_MAX + 16];
-    snprintf(eci_so, sizeof(eci_so), "%s/eci.so", lib_dir);
+    snprintf(eci_so, sizeof(eci_so), "%s" PSEP ECI_RUNTIME_LIB, lib_dir);
 
     EciEngine eng;
     char *err = NULL;
@@ -351,9 +528,18 @@ int main(int argc, char **argv) {
     eng.api.AddText(eng.h, text);
     eng.api.Synthesize(eng.h);
     eng.api.Synchronize(eng.h);
+#ifndef _WIN32
     /* Drain guard in case Synchronize returns before the worker is done
-     * (Apple's build is normally synchronous here, but be safe). */
+     * (Apple's build is normally synchronous here, but be safe).
+     *
+     * POSIX only. The Windows runtime's eciSynchronize blocks until synthesis
+     * is complete -- every sample is already in hand when it returns -- and its
+     * eciSpeaking then reports a non-Boolean, truthy value, so this loop would
+     * never see a reason to stop. It would run its full budget on every single
+     * synthesis, and at Windows' ~15 ms timer granularity a nominal 1 ms sleep
+     * turns 20000 iterations into roughly five minutes per sentence. */
     for (int i = 0; i < 20000 && eng.api.Speaking(eng.h); i++) usleep(1000);
+#endif
     free(text);
 
     write_wav(eng.sample_rate_hz);

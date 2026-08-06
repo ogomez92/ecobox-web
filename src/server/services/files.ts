@@ -29,9 +29,28 @@ export function resolvePath(relativePath: string): string {
 	return resolved;
 }
 
+/**
+ * Normalize a relative path to forward slashes.
+ *
+ * Relative paths are this app's public identifiers for media: they travel to
+ * clients, become URL segments, and are stored as primary keys in
+ * `media_metadata`, `bookmarks`, `book_metadata` and friends. On Windows,
+ * `path.join`/`path.relative` yield backslashes, which would give one file two
+ * identities — `Books\a.mp3` from a directory listing versus `Books/a.mp3` from
+ * a URL — and silently split its saved position and bookmarks across two rows.
+ *
+ * So every relative path leaving this module is emitted POSIX-style, the form
+ * the rest of the app and every URL already assume. The reverse direction needs
+ * no work: `path.resolve()` accepts both separators on Windows, so
+ * `resolvePath()` takes either.
+ */
+export function toPosixPath(relativePath: string): string {
+	return path.sep === '/' ? relativePath : relativePath.split(path.sep).join('/');
+}
+
 export function getRelativePath(absolutePath: string): string {
 	const mediaRoot = getMediaRoot();
-	return path.relative(mediaRoot, absolutePath);
+	return toPosixPath(path.relative(mediaRoot, absolutePath));
 }
 
 /**
@@ -107,7 +126,7 @@ export async function listDirectory(relativePath: string = ''): Promise<FileEntr
 				// Skip broken symlinks or inaccessible entries
 				continue;
 			}
-			const fileRelPath = path.join(relativePath, entry.name);
+			const fileRelPath = toPosixPath(path.join(relativePath, entry.name));
 
 			const fileEntry: FileEntry = {
 				name: entry.name,
