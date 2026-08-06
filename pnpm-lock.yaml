@@ -12,11 +12,11 @@ importers:
         specifier: ^7.0.1
         version: 7.0.1
       better-sqlite3:
-        specifier: ^11.8.0
-        version: 11.10.0
+        specifier: ^12.11.1
+        version: 12.11.1
       drizzle-orm:
         specifier: ^0.38.4
-        version: 0.38.4(@types/better-sqlite3@7.6.13)(better-sqlite3@11.10.0)
+        version: 0.38.4(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -28,26 +28,26 @@ importers:
         version: 3.20.0
       msedge-tts:
         specifier: ^2.0.5
-        version: 2.0.5
+        version: 2.0.5(supports-color@10.2.2)
       music-metadata:
         specifier: ^10.5.1
-        version: 10.9.1
+        version: 10.9.1(supports-color@10.2.2)
       socket.io-client:
         specifier: ^4.8.3
-        version: 4.8.3
+        version: 4.8.3(supports-color@10.2.2)
     devDependencies:
       '@playwright/test':
         specifier: ^1.49.0
         version: 1.60.0
       '@sveltejs/adapter-node':
         specifier: ^5.2.9
-        version: 5.5.4(@sveltejs/kit@2.61.1(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(svelte@5.56.0)(typescript@5.9.3)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))
+        version: 5.5.4(@sveltejs/kit@2.61.1(@sveltejs/vite-plugin-svelte@5.1.1(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(svelte@5.56.0)(typescript@5.9.3)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))
       '@sveltejs/kit':
         specifier: ^2.15.1
-        version: 2.61.1(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(svelte@5.56.0)(typescript@5.9.3)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))
+        version: 2.61.1(@sveltejs/vite-plugin-svelte@5.1.1(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(svelte@5.56.0)(typescript@5.9.3)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.0.3
-        version: 5.1.1(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))
+        version: 5.1.1(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))
       '@tailwindcss/forms':
         specifier: ^0.5.9
         version: 0.5.11(tailwindcss@3.4.19)
@@ -65,7 +65,7 @@ importers:
         version: 10.5.0(postcss@8.5.15)
       drizzle-kit:
         specifier: ^0.30.2
-        version: 0.30.6
+        version: 0.30.6(supports-color@10.2.2)
       postcss:
         specifier: ^8.4.49
         version: 8.5.15
@@ -86,7 +86,7 @@ importers:
         version: 6.4.2(@types/node@22.19.19)(jiti@1.21.7)
       vitest:
         specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.19.19)
+        version: 2.1.9(@types/node@22.19.19)(supports-color@10.2.2)
 
 packages:
 
@@ -102,11 +102,11 @@ packages:
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild-kit/esm-loader@2.6.5':
     resolution: {integrity: sha512-FxEMIkJKnodyA1OaCUoEvbYRkoZlLZ4d/eXFu9Fh8CbBBgP5EmZxrfTRyN0qpXZ4vOvqnE5YdRdcrmUUXuU+dA==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild/aix-ppc64@0.19.12':
     resolution: {integrity: sha512-bmoCYyWdEL3wDQIVbcyzRyeKLgk2WtWLTWz1ZIAZF/EGbNOwSA6ew3PftJ1PqMiOOGu0OyFMzG53L0zqIpPeNA==}
@@ -1170,8 +1170,9 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
-  better-sqlite3@11.10.0:
-    resolution: {integrity: sha512-EwhOpyXiOEL/lKzHz9AW1msWFNzGc/z+LzeB3/jnFJpxu+th2yqvzsSWas1v9jgs9+xiXJcD5A8CJxAG2TaghQ==}
+  better-sqlite3@12.11.1:
+    resolution: {integrity: sha512-dq9AtApgg5PGFtBzPFSBl3HZQjHok5gaQCM6zh2Yk0aSmDCs1CbnVI8/HgASQkNKsWFpseIO9beg5xxpYhbIfA==}
+    engines: {node: 20.x || 22.x || 23.x || 24.x || 25.x || 26.x}
 
   binary-extensions@2.3.0:
     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
@@ -1898,8 +1899,8 @@ packages:
   napi-build-utils@2.0.0:
     resolution: {integrity: sha512-GEbrYkbfF7MoNaoh2iGG84Mnf/WZfB0GdGEsM8wz7Expx/LlWf5U8t9nvJKXSp3qr5IsEbK04cBGhol/KwOsWA==}
 
-  node-abi@3.92.0:
-    resolution: {integrity: sha512-KdHvFWZjEKDf0cakgFjebl371GPsISX2oZHcuyKqM7DtogIsHrqKeLTo8wBHxaXRAQlY2PsPlZmfo+9ZCxEREQ==}
+  node-abi@3.94.0:
+    resolution: {integrity: sha512-W5ZNO5KRPB5TkYmGVD9F6YqhsglXJzE6etpbmT+f6EQElhiX/UTG551cnsRGvLG3fyZEg9HwaDmNmj5nwJ4z9g==}
     engines: {node: '>=10'}
 
   node-releases@2.0.46:
@@ -2256,8 +2257,8 @@ packages:
     engines: {node: '>=14.0.0'}
     hasBin: true
 
-  tar-fs@2.1.4:
-    resolution: {integrity: sha512-mDAjwmZdh7LTT6pNleZ05Yt65HC3E+NiQzl672vQG38jIrehtJk/J3mNwIg+vShQPcLF/LV7CMnDW6vjj6sfYQ==}
+  tar-fs@2.1.5:
+    resolution: {integrity: sha512-OboTd8mmMhZDNPV+UjQcK9yKAatXu2aJ+r1w4im1Otd4M4fl2hwvdoXUxIYHFTHWK/3y3FarBP70v3vwmGlOxw==}
 
   tar-stream@2.2.0:
     resolution: {integrity: sha512-ujeqbceABgwMZxEJnk2HDY2DlnUZ+9oEcb1KzTVfYHio0UE6dG71n60d8D2I4qNvleWrrXpmjpt7vZeF1LnMZQ==}
@@ -2983,19 +2984,19 @@ snapshots:
     dependencies:
       acorn: 8.16.0
 
-  '@sveltejs/adapter-node@5.5.4(@sveltejs/kit@2.61.1(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(svelte@5.56.0)(typescript@5.9.3)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))':
+  '@sveltejs/adapter-node@5.5.4(@sveltejs/kit@2.61.1(@sveltejs/vite-plugin-svelte@5.1.1(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(svelte@5.56.0)(typescript@5.9.3)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))':
     dependencies:
       '@rollup/plugin-commonjs': 29.0.3(rollup@4.60.4)
       '@rollup/plugin-json': 6.1.0(rollup@4.60.4)
       '@rollup/plugin-node-resolve': 16.0.3(rollup@4.60.4)
-      '@sveltejs/kit': 2.61.1(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(svelte@5.56.0)(typescript@5.9.3)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))
+      '@sveltejs/kit': 2.61.1(@sveltejs/vite-plugin-svelte@5.1.1(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(svelte@5.56.0)(typescript@5.9.3)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))
       rollup: 4.60.4
 
-  '@sveltejs/kit@2.61.1(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(svelte@5.56.0)(typescript@5.9.3)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))':
+  '@sveltejs/kit@2.61.1(@sveltejs/vite-plugin-svelte@5.1.1(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(svelte@5.56.0)(typescript@5.9.3)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))':
     dependencies:
       '@standard-schema/spec': 1.1.0
       '@sveltejs/acorn-typescript': 1.0.10(acorn@8.16.0)
-      '@sveltejs/vite-plugin-svelte': 5.1.1(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))
+      '@sveltejs/vite-plugin-svelte': 5.1.1(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))
       '@types/cookie': 0.6.0
       acorn: 8.16.0
       cookie: 0.6.0
@@ -3011,18 +3012,18 @@ snapshots:
     optionalDependencies:
       typescript: 5.9.3
 
-  '@sveltejs/vite-plugin-svelte-inspector@4.0.1(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))':
+  '@sveltejs/vite-plugin-svelte-inspector@4.0.1(@sveltejs/vite-plugin-svelte@5.1.1(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))':
     dependencies:
-      '@sveltejs/vite-plugin-svelte': 5.1.1(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))
+      '@sveltejs/vite-plugin-svelte': 5.1.1(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))
       debug: 4.4.3(supports-color@10.2.2)
       svelte: 5.56.0
       vite: 6.4.2(@types/node@22.19.19)(jiti@1.21.7)
     transitivePeerDependencies:
       - supports-color
 
-  '@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))':
+  '@sveltejs/vite-plugin-svelte@5.1.1(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))':
     dependencies:
-      '@sveltejs/vite-plugin-svelte-inspector': 4.0.1(@sveltejs/vite-plugin-svelte@5.1.1(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))
+      '@sveltejs/vite-plugin-svelte-inspector': 4.0.1(@sveltejs/vite-plugin-svelte@5.1.1(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)))(supports-color@10.2.2)(svelte@5.56.0)(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7))
       debug: 4.4.3(supports-color@10.2.2)
       deepmerge: 4.3.1
       kleur: 4.1.5
@@ -3122,7 +3123,7 @@ snapshots:
 
   acorn@8.16.0: {}
 
-  agent-base@6.0.2:
+  agent-base@6.0.2(supports-color@10.2.2):
     dependencies:
       debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
@@ -3198,11 +3199,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  axios@1.18.0:
+  axios@1.18.0(supports-color@10.2.2):
     dependencies:
       follow-redirects: 1.16.0
       form-data: 4.0.6
-      https-proxy-agent: 5.0.1
+      https-proxy-agent: 5.0.1(supports-color@10.2.2)
       proxy-from-env: 2.1.0
     transitivePeerDependencies:
       - debug
@@ -3250,7 +3251,7 @@ snapshots:
 
   baseline-browser-mapping@2.10.32: {}
 
-  better-sqlite3@11.10.0:
+  better-sqlite3@12.11.1:
     dependencies:
       bindings: 1.5.0
       prebuild-install: 7.1.3
@@ -3411,20 +3412,20 @@ snapshots:
 
   dlv@1.1.3: {}
 
-  drizzle-kit@0.30.6:
+  drizzle-kit@0.30.6(supports-color@10.2.2):
     dependencies:
       '@drizzle-team/brocli': 0.10.2
       '@esbuild-kit/esm-loader': 2.6.5
       esbuild: 0.19.12
-      esbuild-register: 3.6.0(esbuild@0.19.12)
-      gel: 2.2.0
+      esbuild-register: 3.6.0(esbuild@0.19.12)(supports-color@10.2.2)
+      gel: 2.2.0(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.38.4(@types/better-sqlite3@7.6.13)(better-sqlite3@11.10.0):
+  drizzle-orm@0.38.4(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1):
     optionalDependencies:
       '@types/better-sqlite3': 7.6.13
-      better-sqlite3: 11.10.0
+      better-sqlite3: 12.11.1
 
   duck@0.1.12:
     dependencies:
@@ -3448,7 +3449,7 @@ snapshots:
     dependencies:
       once: 1.4.0
 
-  engine.io-client@6.6.5:
+  engine.io-client@6.6.5(supports-color@10.2.2):
     dependencies:
       '@socket.io/component-emitter': 3.1.2
       debug: 4.4.3(supports-color@10.2.2)
@@ -3481,7 +3482,7 @@ snapshots:
       has-tostringtag: 1.0.2
       hasown: 2.0.4
 
-  esbuild-register@3.6.0(esbuild@0.19.12):
+  esbuild-register@3.6.0(esbuild@0.19.12)(supports-color@10.2.2):
     dependencies:
       debug: 4.4.3(supports-color@10.2.2)
       esbuild: 0.19.12
@@ -3684,7 +3685,7 @@ snapshots:
 
   function-bind@1.1.2: {}
 
-  gel@2.2.0:
+  gel@2.2.0(supports-color@10.2.2):
     dependencies:
       '@petamoriken/float16': 3.9.3
       debug: 4.4.3(supports-color@10.2.2)
@@ -3761,9 +3762,9 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  https-proxy-agent@5.0.1:
+  https-proxy-agent@5.0.1(supports-color@10.2.2):
     dependencies:
-      agent-base: 6.0.2
+      agent-base: 6.0.2(supports-color@10.2.2)
       debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
@@ -3933,9 +3934,9 @@ snapshots:
 
   ms@2.1.3: {}
 
-  msedge-tts@2.0.5:
+  msedge-tts@2.0.5(supports-color@10.2.2):
     dependencies:
-      axios: 1.18.0
+      axios: 1.18.0(supports-color@10.2.2)
       buffer: 6.0.3
       isomorphic-ws: 5.0.0(ws@8.20.1)
       stream-browserify: 3.0.0
@@ -3946,7 +3947,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  music-metadata@10.9.1:
+  music-metadata@10.9.1(supports-color@10.2.2):
     dependencies:
       '@tokenizer/token': 0.3.0
       content-type: 1.0.5
@@ -3970,7 +3971,7 @@ snapshots:
 
   napi-build-utils@2.0.0: {}
 
-  node-abi@3.92.0:
+  node-abi@3.94.0:
     dependencies:
       semver: 7.8.1
 
@@ -4072,11 +4073,11 @@ snapshots:
       minimist: 1.2.8
       mkdirp-classic: 0.5.3
       napi-build-utils: 2.0.0
-      node-abi: 3.92.0
+      node-abi: 3.94.0
       pump: 3.0.4
       rc: 1.2.8
       simple-get: 4.0.1
-      tar-fs: 2.1.4
+      tar-fs: 2.1.5
       tunnel-agent: 0.6.0
 
   process-nextick-args@2.0.1: {}
@@ -4225,18 +4226,18 @@ snapshots:
       mrmime: 2.0.1
       totalist: 3.0.1
 
-  socket.io-client@4.8.3:
+  socket.io-client@4.8.3(supports-color@10.2.2):
     dependencies:
       '@socket.io/component-emitter': 3.1.2
       debug: 4.4.3(supports-color@10.2.2)
-      engine.io-client: 6.6.5
-      socket.io-parser: 4.2.6
+      engine.io-client: 6.6.5(supports-color@10.2.2)
+      socket.io-parser: 4.2.6(supports-color@10.2.2)
     transitivePeerDependencies:
       - bufferutil
       - supports-color
       - utf-8-validate
 
-  socket.io-parser@4.2.6:
+  socket.io-parser@4.2.6(supports-color@10.2.2):
     dependencies:
       '@socket.io/component-emitter': 3.1.2
       debug: 4.4.3(supports-color@10.2.2)
@@ -4386,7 +4387,7 @@ snapshots:
       - tsx
       - yaml
 
-  tar-fs@2.1.4:
+  tar-fs@2.1.5:
     dependencies:
       chownr: 1.1.4
       mkdirp-classic: 0.5.3
@@ -4482,7 +4483,7 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  vite-node@2.1.9(@types/node@22.19.19):
+  vite-node@2.1.9(@types/node@22.19.19)(supports-color@10.2.2):
     dependencies:
       cac: 6.7.14
       debug: 4.4.3(supports-color@10.2.2)
@@ -4526,7 +4527,7 @@ snapshots:
     optionalDependencies:
       vite: 6.4.2(@types/node@22.19.19)(jiti@1.21.7)
 
-  vitest@2.1.9(@types/node@22.19.19):
+  vitest@2.1.9(@types/node@22.19.19)(supports-color@10.2.2):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@22.19.19))
@@ -4546,7 +4547,7 @@ snapshots:
       tinypool: 1.1.1
       tinyrainbow: 1.2.0
       vite: 5.4.21(@types/node@22.19.19)
-      vite-node: 2.1.9(@types/node@22.19.19)
+      vite-node: 2.1.9(@types/node@22.19.19)(supports-color@10.2.2)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 22.19.19

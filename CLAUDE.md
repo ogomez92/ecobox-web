@@ -88,11 +88,10 @@ If a pnpm upgrade ever rewrites those values back to the placeholder `set this t
 Ecobox also runs natively on Windows (no WSL) — that is a supported target, not a
 port-in-progress, and ELF works there too. What differs from the box above:
 
-- **Node 22 LTS, not newer.** `better-sqlite3` 11.x has no prebuilt binary for Node 26
-  and does not compile against its V8 headers (`v8::PropertyCallbackInfo::This` is
-  gone), so `pnpm install` fails outright. On Node 22 it installs from a prebuild and
-  needs no compiler. Bumping `better-sqlite3` would lift this — it would also have to
-  be rebuilt on the Linux box.
+- **Node 20 – 26** (`better-sqlite3` 12.x `engines`), with a prebuilt binary for each,
+  so no compiler is needed. This is why the dependency was bumped from 11.x: that
+  version reached its ceiling at Node 24 and failed to compile against Node 26's V8
+  headers (`v8::PropertyCallbackInfo::This` is gone).
 - **`.env` is not read by the app.** systemd supplies it here via `EnvironmentFile=`;
   on Windows `start-windows.ps1` loads `.env` into the environment and then runs
   `node build`. Same rule as here: **rebuild before expecting a source change to show

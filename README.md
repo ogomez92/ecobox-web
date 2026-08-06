@@ -18,7 +18,7 @@ A self-hosted audiobook and media player web application. Stream your audio libr
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 20–26 (the range `better-sqlite3` 12.x ships prebuilt binaries for)
 - npm
 - `pandoc` (optional) — only needed for the book reading feature, to convert EPUB/DOCX into readable text (`apt install pandoc`). TXT files convert without it.
 
@@ -63,9 +63,8 @@ engine alongside the Linux one.
 
 **Requirements**
 
-- **Node.js 22 LTS.** Not newer: `better-sqlite3` 11.x has no prebuilt binary for
-  Node 26 and won't compile against its V8 headers either, so the install fails.
-  On Node 22 it installs from a prebuilt binary with no compiler needed.
+- **Node.js 20 – 26.** `better-sqlite3` 12.x publishes a prebuilt binary for each of
+  those, so `pnpm install` needs no C++ compiler on any of them.
 - **ffmpeg** on `PATH` — required by the local TTS engines (ELF, Piper), which
   transcode their WAV output to MP3. `winget install Gyan.FFmpeg`.
 - **pandoc** (optional) — only for converting EPUB/DOCX books. `winget install
