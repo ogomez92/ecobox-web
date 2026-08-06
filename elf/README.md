@@ -159,10 +159,12 @@ all five are load-bearing:
    best-fit mapping standing in for `//TRANSLIT`. stdin and stdout are switched to
    binary mode — otherwise LF→CRLF translation corrupts every WAV containing `0x0A`.
 
-CJK stays gated out on Windows too. The original modules presumably lack the defect
-that breaks the converted ones, but they also need their `*rom.dll` romanizers and a
-different input encoding, so they are untested here; `ibmtts/`-style bundles ship the
-files if anyone wants to try.
+CJK stays gated out on Windows too, but the modules **are** in `lib-win32/`
+(`chs`/`jpn`/`kor` plus their `*rom.dll` romanizers) rather than omitted. The original
+modules presumably lack the defect that crashes the converted ones, and
+`codepage_for_dialect()` already maps the right codepages, so enabling them is a
+one-line change to `lang_is_cjk()` in `eci_synth.c` — it just hasn't been tested, so
+the gate stays until someone does.
 
 ## Rebuilding `eci_synth`
 

@@ -105,4 +105,27 @@ describe('buildReplacer', () => {
 		const r = buildReplacer(new Map([['SNES', 's n e s']]));
 		expect(r('the console')).toBe('the console');
 	});
+
+	it('treats accented letters as part of the word, not as a boundary', () => {
+		// The real espmain.dic entry: the standalone word "ni" gets a stress hint.
+		// With ASCII-only look-around, "ñ" counted as a boundary and this fired
+		// inside "niña"/"niño" — mid-word, in the language it most affects.
+		const r = buildReplacer(new Map([['ni', '`00 ni']]));
+		expect(r('la niña y el niño')).toBe('la niña y el niño');
+		expect(r('ni idea')).toBe('`00 ni idea');
+	});
+
+	it('does not match across a preceding accented letter', () => {
+		const r = buildReplacer(new Map([['os', 'o s']]));
+		expect(r('años')).toBe('años');
+	});
+
+	it('treats a combining mark as part of the word (decomposed text)', () => {
+		// A decomposed "n-tilde": a plain "n" followed by the combining U+0303, so the
+		// key "nin" is followed by a mark rather than a letter. Written as an escape on
+		// purpose — an inline character would be composed (NFC) and never reach this case.
+		const nfd = 'nin\u0303o';
+		const r = buildReplacer(new Map([['nin', 'n i n']]));
+		expect(r(nfd)).toBe(nfd);
+	});
 });

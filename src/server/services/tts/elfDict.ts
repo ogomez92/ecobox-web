@@ -83,17 +83,25 @@ function escapeRe(s: string): string {
 
 /**
  * Compile a single-pass, case-sensitive, whole-word replacer from a merged dict map.
- * The alphanumeric look-around gives whole-word matching that still works for keys that
- * contain punctuation: `St` is not replaced inside `Start`, but `Govt` matches in `Govt.`
- * and `P!nk` matches as written. Keys are sorted longest-first so e.g. `Airbnbs` wins
- * over `Airbnb`. A function replacer is used so `$` in values isn't interpreted.
+ * The look-around gives whole-word matching that still works for keys that contain
+ * punctuation: `St` is not replaced inside `Start`, but `Govt` matches in `Govt.` and
+ * `P!nk` matches as written. Keys are sorted longest-first so e.g. `Airbnbs` wins over
+ * `Airbnb`. A function replacer is used so `$` in values isn't interpreted.
+ *
+ * "Inside a word" is Unicode-aware (`\p{L}`/`\p{N}`, not `[A-Za-z0-9]`), which matters
+ * for exactly the languages this engine is used for: with ASCII-only classes an `ñ`
+ * reads as a word boundary, so the Spanish dictionary's entry for the standalone word
+ * `ni` fired inside `niña` and `niño`, stressing a syllable in the middle of an
+ * unrelated word. `\p{M}` covers decomposed (NFD) text, where a letter's accent is a
+ * separate combining mark that must not count as a boundary either.
  */
 export function buildReplacer(map: Map<string, string>): (text: string) => string {
 	if (map.size === 0) return (t) => t;
 	const keys = [...map.keys()].sort((a, b) => b.length - a.length);
+	const inWord = '[\\p{L}\\p{N}\\p{M}]';
 	const re = new RegExp(
-		'(?<![A-Za-z0-9])(?:' + keys.map(escapeRe).join('|') + ')(?![A-Za-z0-9])',
-		'g'
+		`(?<!${inWord})(?:` + keys.map(escapeRe).join('|') + `)(?!${inWord})`,
+		'gu'
 	);
 	return (text) => text.replace(re, (m) => map.get(m) ?? m);
 }
