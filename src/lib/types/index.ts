@@ -61,6 +61,18 @@ export interface BookInfo {
 	convertedAt: string;
 }
 
+/**
+ * One line of a sidecar .srt subtitle track. Times are seconds *within the media
+ * file the .srt sits next to* — for a multi-file book that is the file's own
+ * timeline, not the book's, since each file carries its own subtitles.
+ */
+export interface SubtitleCue {
+	start: number;
+	end: number;
+	/** Markup-stripped text; embedded newlines are the cue's own line breaks. */
+	text: string;
+}
+
 export interface Chapter {
 	title: string;
 	/**
@@ -408,7 +420,21 @@ export interface Settings {
 	ttsRate: number;
 	/** Selected TTS service for book reading (global). */
 	ttsService: TtsService;
+	/** Show sidecar .srt subtitles in the player when the file has them. */
+	subtitlesEnabled: boolean;
+	/** How the player's live region announces each subtitle line. */
+	subtitleAnnounce: SubtitleAnnounce;
 }
+
+/**
+ * Live-region politeness for subtitles.
+ *
+ * `assertive` is the default because captions are only useful in sync: each new
+ * line supersedes the one before it, whereas `polite` queues them and drifts
+ * further behind the audio the more dialogue there is. `polite` is there for
+ * people who would rather hear every line in full, `off` for visual-only.
+ */
+export type SubtitleAnnounce = 'assertive' | 'polite' | 'off';
 
 export const DEFAULT_SETTINGS: Settings = {
 	seekInterval: 5,
@@ -423,7 +449,9 @@ export const DEFAULT_SETTINGS: Settings = {
 	maskTitle: '',
 	sonicroomUrl: '',
 	ttsRate: 1.0,
-	ttsService: 'webspeech'
+	ttsService: 'webspeech',
+	subtitlesEnabled: true,
+	subtitleAnnounce: 'assertive'
 };
 
 export const DEFAULT_EQ_BANDS: EQBand[] = [

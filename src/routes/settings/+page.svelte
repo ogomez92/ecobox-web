@@ -14,7 +14,8 @@
 		type TtsService,
 		type TtsAudioService,
 		type TtsVoice,
-		type ElfVoiceParams
+		type ElfVoiceParams,
+		type SubtitleAnnounce
 	} from '$lib/types';
 	import { goto, afterNavigate } from '$app/navigation';
 
@@ -471,6 +472,53 @@
 						></span>
 					</button>
 				</div>
+
+				<div class="flex items-center justify-between py-2">
+					<div>
+						<span id="subtitles-label" class="text-gray-700 dark:text-gray-300">{t('settings.subtitles')}</span>
+						<p id="subtitles-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.subtitlesDesc')}</p>
+					</div>
+					<button
+						type="button"
+						onclick={() => settingsStore.setSubtitlesEnabled(!settingsStore.subtitlesEnabled)}
+						class="relative w-12 h-6 rounded-full transition-colors"
+						class:bg-primary-500={settingsStore.subtitlesEnabled}
+						class:bg-gray-300={!settingsStore.subtitlesEnabled}
+						class:dark:bg-gray-600={!settingsStore.subtitlesEnabled}
+						role="switch"
+						aria-checked={settingsStore.subtitlesEnabled}
+						aria-labelledby="subtitles-label"
+						aria-describedby="subtitles-desc"
+					>
+						<span
+							class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+							class:translate-x-0.5={!settingsStore.subtitlesEnabled}
+							class:translate-x-6={settingsStore.subtitlesEnabled}
+						></span>
+					</button>
+				</div>
+
+				{#if settingsStore.subtitlesEnabled}
+					<div>
+						<label for="subtitle-announce" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+							{t('settings.subtitleAnnounce')}
+						</label>
+						<select
+							id="subtitle-announce"
+							value={settingsStore.subtitleAnnounce}
+							onchange={(e) => settingsStore.setSubtitleAnnounce((e.target as HTMLSelectElement).value as SubtitleAnnounce)}
+							aria-describedby="subtitle-announce-desc"
+							class="input"
+						>
+							<option value="assertive">{t('settings.subtitleAnnounceAssertive')}</option>
+							<option value="polite">{t('settings.subtitleAnnouncePolite')}</option>
+							<option value="off">{t('settings.subtitleAnnounceOff')}</option>
+						</select>
+						<p id="subtitle-announce-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+							{t('settings.subtitleAnnounceDesc')}
+						</p>
+					</div>
+				{/if}
 
 				<div>
 					<label for="seek-interval" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1175,6 +1223,10 @@
 				<div class="flex justify-between py-1">
 					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSeekEnd')}</span>
 					<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">0</kbd>
+				</div>
+				<div class="flex justify-between py-1">
+					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSubtitles')}</span>
+					<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">S</kbd>
 				</div>
 
 				{#if settingsStore.winampShortcuts}

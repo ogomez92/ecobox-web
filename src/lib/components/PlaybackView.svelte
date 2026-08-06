@@ -14,6 +14,7 @@
 	import CastDialog from './CastDialog.svelte';
 	import { playerStore } from '$lib/stores/player.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { subtitlesStore } from '$lib/stores/subtitles.svelte';
 	import { audioEffects } from '$lib/services/audioEffects';
 	import { roomCaster } from '$lib/services/roomCaster.svelte';
 	import { formatDuration } from '$lib/utils/format';
@@ -74,6 +75,7 @@
 	let seekUnitAnnouncement = $state('');
 	let timeInfoAnnouncement = $state('');
 	let bookmarkAnnouncement = $state('');
+	let subtitleAnnouncement = $state('');
 
 	const title = $derived(playerStore.currentTitle);
 	const chapterTitle = $derived(playerStore.currentChapter?.title);
@@ -82,6 +84,32 @@
 	// Chapter seeking stays selectable only as long as chapters exist; if the
 	// media has none (or they load late), the arrows fall back to time seeking.
 	const isChapterSeek = $derived(seekUnitIndex === CHAPTER_UNIT_INDEX && hasChapters);
+
+	// Sidecar subtitles (`<media name>.srt`). The track belongs to the file that is
+	// actually loaded — for a chaptered/DAISY book that changes as playback moves
+	// through the book, so reload on every file change rather than once on mount.
+	$effect(() => {
+		const file = playerStore.currentFile;
+		if (!file || playerStore.isRadioStream) {
+			subtitlesStore.clear();
+			return;
+		}
+		subtitlesStore.load(file);
+	});
+
+	const hasSubtitles = $derived(!isRadio && subtitlesStore.available);
+	const showSubtitles = $derived(hasSubtitles && settingsStore.subtitlesEnabled);
+	// Cue times are file-relative, which is exactly what currentTime is — even
+	// inside a book, where chapters use the absolute timeline but audio does not.
+	const subtitleText = $derived(
+		showSubtitles ? (subtitlesStore.cueAt(playerStore.currentTime)?.text ?? '') : ''
+	);
+	// The live region is the screen-reader copy of the caption; when it is carrying
+	// the text, the visible box is hidden from AT so the line isn't duplicated in
+	// the buffer. With announcements off, the visible box is the only copy.
+	const announcesSubtitles = $derived(settingsStore.subtitleAnnounce !== 'off');
+	// A cue's line breaks are layout, not pauses — speak it as one sentence.
+	const spokenSubtitle = $derived(announcesSubtitles ? subtitleText.replace(/\n/g, ' ') : '');
 
 	// Bookmarks in a multi-file book live in their own table: a bare time would be
 	// ambiguous across 50 files, so each row also records the file it points into.
@@ -245,6 +273,7 @@
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 		}
 		cancelSleepTimer();
+		subtitlesStore.clear();
 		// Stop casting first — audioEffects.destroy() closes the context and would
 		// otherwise leave the caster producing a dead track.
 		if (roomCaster.isCasting) roomCaster.stop();
@@ -334,6 +363,23 @@
 	function seekForward() {
 		if (isChapterSeek) playerStore.nextChapter();
 		else playerStore.seekRelative(seekUnit);
+	}
+
+	// Master switch for the caption box and its live region. Persisted like any
+	// setting, so it holds across files and sessions; announced either way so the
+	// state change is audible without looking at the button.
+	function toggleSubtitles() {
+		if (!hasSubtitles) {
+			subtitleAnnouncement = t('subtitles.none');
+		} else {
+			const enabled = !settingsStore.subtitlesEnabled;
+			settingsStore.setSubtitlesEnabled(enabled);
+			subtitleAnnouncement = enabled ? t('subtitles.on') : t('subtitles.off');
+		}
+		// Clear after a moment so repeat announcements work
+		setTimeout(() => {
+			subtitleAnnouncement = '';
+		}, 100);
 	}
 
 	function openChapters() {
@@ -499,6 +545,13 @@
 				if (isRadio) return;
 				e.preventDefault();
 				addBookmark();
+				break;
+
+			// S: Toggle subtitles (visible box + live region)
+			case 'KeyS':
+				if (isRadio) return;
+				e.preventDefault();
+				toggleSubtitles();
 				break;
 
 			// T: Announce time info (percentage and remaining)
@@ -759,6 +812,22 @@
 			{/if}
 		</div>
 
+		<!-- Subtitles: the visible caption. The screen-reader copy is the live region
+		     at the bottom of the page, so this box is hidden from AT while that is
+		     carrying the text (see announcesSubtitles). -->
+		{#if showSubtitles}
+			<div class="mb-6 min-h-[5rem] flex items-center justify-center">
+				{#if subtitleText}
+					<p
+						class="w-full rounded-lg bg-gray-900/90 dark:bg-black/80 px-4 py-3 text-center text-lg sm:text-2xl font-medium leading-snug text-white whitespace-pre-line"
+						aria-hidden={announcesSubtitles}
+					>
+						{subtitleText}
+					</p>
+				{/if}
+			</div>
+		{/if}
+
 		<!-- Seek bar (hide for radio) -->
 		{#if !isRadio}
 			<div class="mb-6">
@@ -877,6 +946,20 @@
 					<Icon name="clock" size={20} class="mr-2" />
 					{t('player.timeBtn')}
 				</button>
+
+				<!-- Only offered when the file actually has a sidecar .srt -->
+				{#if hasSubtitles}
+					<button
+						type="button"
+						class="btn-secondary {settingsStore.subtitlesEnabled ? 'ring-2 ring-primary-500 text-primary-600 dark:text-primary-400' : ''}"
+						onclick={toggleSubtitles}
+						aria-label={t('subtitles.toggleAria')}
+						aria-pressed={settingsStore.subtitlesEnabled}
+					>
+						<Icon name="captions" size={20} class="mr-2" />
+						{t('subtitles.button')}
+					</button>
+				{/if}
 			{/if}
 
 			<button
@@ -1004,6 +1087,20 @@
 </div>
 <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 	{bookmarkAnnouncement}
+</div>
+<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+	{subtitleAnnouncement}
+</div>
+
+<!-- Subtitle live regions. Both are rendered so the one in use is registered with
+     the screen reader from the start (swapping aria-live on a live element is
+     unreliable); only the chosen politeness ever receives text. Assertive is the
+     default: each caption supersedes the last instead of queueing behind it. -->
+<div class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">
+	{settingsStore.subtitleAnnounce === 'assertive' ? spokenSubtitle : ''}
+</div>
+<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+	{settingsStore.subtitleAnnounce === 'polite' ? spokenSubtitle : ''}
 </div>
 
 <style>

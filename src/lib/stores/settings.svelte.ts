@@ -1,4 +1,4 @@
-import type { Settings, TtsService } from '$lib/types';
+import type { Settings, SubtitleAnnounce, TtsService } from '$lib/types';
 
 const defaultSettings: Settings = {
 	seekInterval: 5,
@@ -13,7 +13,9 @@ const defaultSettings: Settings = {
 	maskTitle: '',
 	sonicroomUrl: '',
 	ttsRate: 1.0,
-	ttsService: 'webspeech'
+	ttsService: 'webspeech',
+	subtitlesEnabled: true,
+	subtitleAnnounce: 'assertive'
 };
 
 class SettingsStore {
@@ -30,6 +32,8 @@ class SettingsStore {
 	sonicroomUrl = $state(defaultSettings.sonicroomUrl);
 	ttsRate = $state(defaultSettings.ttsRate);
 	ttsService = $state<TtsService>(defaultSettings.ttsService);
+	subtitlesEnabled = $state(defaultSettings.subtitlesEnabled);
+	subtitleAnnounce = $state<SubtitleAnnounce>(defaultSettings.subtitleAnnounce);
 
 	private isLoaded = false;
 
@@ -63,6 +67,8 @@ class SettingsStore {
 		if (settings.sonicroomUrl !== undefined) this.sonicroomUrl = settings.sonicroomUrl;
 		if (settings.ttsRate !== undefined) this.ttsRate = settings.ttsRate;
 		if (settings.ttsService !== undefined) this.ttsService = settings.ttsService;
+		if (settings.subtitlesEnabled !== undefined) this.subtitlesEnabled = settings.subtitlesEnabled;
+		if (settings.subtitleAnnounce !== undefined) this.subtitleAnnounce = settings.subtitleAnnounce;
 	}
 
 	async save() {
@@ -79,7 +85,9 @@ class SettingsStore {
 			maskTitle: this.maskTitle,
 			sonicroomUrl: this.sonicroomUrl,
 			ttsRate: this.ttsRate,
-			ttsService: this.ttsService
+			ttsService: this.ttsService,
+			subtitlesEnabled: this.subtitlesEnabled,
+			subtitleAnnounce: this.subtitleAnnounce
 		};
 
 		try {
@@ -157,6 +165,16 @@ class SettingsStore {
 
 	setTtsService(value: TtsService) {
 		this.ttsService = value;
+		this.save();
+	}
+
+	setSubtitlesEnabled(value: boolean) {
+		this.subtitlesEnabled = value;
+		this.save();
+	}
+
+	setSubtitleAnnounce(value: SubtitleAnnounce) {
+		this.subtitleAnnounce = value;
 		this.save();
 	}
 

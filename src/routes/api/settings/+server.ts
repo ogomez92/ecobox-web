@@ -27,6 +27,8 @@ export const GET: RequestHandler = async () => {
 		if (settings.sonicroomUrl !== undefined) parsed.sonicroomUrl = settings.sonicroomUrl;
 		if (settings.ttsRate) parsed.ttsRate = parseFloat(settings.ttsRate);
 		if (settings.ttsService) parsed.ttsService = settings.ttsService as Settings['ttsService'];
+		if (settings.subtitlesEnabled) parsed.subtitlesEnabled = settings.subtitlesEnabled === 'true';
+		if (settings.subtitleAnnounce) parsed.subtitleAnnounce = settings.subtitleAnnounce as Settings['subtitleAnnounce'];
 
 		return json(parsed);
 	} catch (err) {
@@ -77,6 +79,12 @@ export const PUT: RequestHandler = async ({ request }) => {
 		}
 		if (body.ttsService !== undefined) {
 			entries.push({ key: 'ttsService', value: body.ttsService });
+		}
+		if (body.subtitlesEnabled !== undefined) {
+			entries.push({ key: 'subtitlesEnabled', value: String(body.subtitlesEnabled) });
+		}
+		if (body.subtitleAnnounce !== undefined) {
+			entries.push({ key: 'subtitleAnnounce', value: body.subtitleAnnounce });
 		}
 
 		// Upsert each setting

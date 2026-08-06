@@ -136,7 +136,8 @@ src/
 │   └── settings/         # Settings page
 └── server/
     ├── db/             # Drizzle schema + connection singleton
-    └── services/       # files.ts, daisy.ts, id3chapters.ts, mp4chapters.ts
+    └── services/       # files.ts, daisy.ts, id3chapters.ts, mp4chapters.ts,
+                        #   subtitles.ts
 ```
 
 ### Media Types
@@ -154,6 +155,15 @@ src/
 - **Folders** → DAISY (`type:'daisy'`) or plain chaptered (`type:'chaptered'`), via `getChapteredBook()` in `$server/services/daisy.ts`. See "Multi-file books" below.
 
 Everything is read positionally through a file descriptor — `moov` usually sits behind a multi-GB `mdat`, and only the *text* track's sample table is parsed, so a 1 GB m4b answers in ~2 ms. A malformed container returns `[]` rather than throwing: missing chapters must never break playback. Adding a new container means adding a branch here — **no client change is needed**, since clients only consume `chapters` and ignore `type`.
+
+### Sidecar subtitles (.srt)
+
+A media file gets subtitles by having a **sibling `.srt` with the same base name** — `Chapter 1.mp3` → `Chapter 1.srt` (`Chapter 1.mp3.srt` is accepted too, since some rippers write that). Nothing is registered or embedded; dropping the file next to the media is the whole contract, which is also why it works for one file *inside* a chaptered/DAISY folder as much as for a standalone file.
+
+- **`GET /api/media/subtitles?path=…`** → `{available, path?, cues:[{start,end,text}]}`. It answers `{available:false, cues:[]}` — never an error — when there's no track, because the player asks for every file it loads. `$server/services/subtitles.ts` does the work: the sibling directory is listed **once** and compared case-insensitively and NFC-normalized (accented names are stored NFD as often as NFC), then parsed and cached per file keyed on size + mtime.
+- **The parser is deliberately forgiving** (`parseSrt`, unit-tested in `subtitles.test.ts`): cues are found by their *timing line* rather than by blank-line blocks, so files with missing indices or missing separators still parse. It accepts `.` or `,` before the milliseconds, short ms fields, the hour-less `MM:SS,mmm` form, CRLF, and strips `<i>`/`<font>` tags, `{\an8}` ASS overrides and HTML entities. Encoding follows the DAISY rule — UTF-16 by BOM, else UTF-8, else windows-1252 when UTF-8 yields replacement chars (Spanish/French .srt files are routinely latin-1). Anything unparseable yields `[]`: subtitles must never break playback.
+- **Cue times are file-relative**, i.e. the same clock as `playerStore.currentTime` — *not* the book's absolute timeline that chapters use. `$lib/stores/subtitles.svelte.ts` holds the whole track in memory and binary-searches it per tick; `PlaybackView` reloads it whenever `playerStore.currentFile` changes, so a book picks up each file's own track as it advances. Overlapping cues resolve to the one that started last.
+- **UI** (`PlaybackView`): a caption box above the seek bar, plus a **live region** that is the screen-reader copy of the same text — the visible box is `aria-hidden` while the live region is carrying it, so the line isn't duplicated in the buffer. Both politeness levels are rendered as separate sr-only regions (swapping `aria-live` on a live element is unreliable) and only the selected one ever receives text. **`assertive` is the default**: each caption supersedes the previous one, whereas `polite` queues them and drifts further behind the audio the more dialogue there is — settings offer `polite` and `off` (visual only). The `Subtitles` footer button and the **`S`** shortcut toggle the `subtitlesEnabled` setting, and both only appear/act when the file actually has a track (`S` on a track-less file announces that instead).
 
 ### Multi-file books (DAISY / chaptered folders)
 
@@ -208,6 +218,8 @@ Both players share a code-based `handleKeydown` (media: `PlaybackView.svelte`; r
   - `v` = "stop" = `pause()` — keeps position, deliberately does **not** seek to 0.
   - `b` = next track, `z` = previous track.
 - **`autoAdvanceTracks`** — when a single (non-chaptered, non-radio) file ends, play the next file in the **same folder**. Chaptered folders already auto-advance internally (`player.svelte.ts` `handleEnded`), so this only affects single files.
+
+Bare **`s`** toggles subtitles in the media player (see "Sidecar subtitles"); it sits in the default `switch`, so `winampShortcuts` doesn't claim it.
 
 **Next/previous track (media player)** lives in `PlaybackView.switchTrack(±1)`: it lists the current file's folder siblings via `/api/files` (audio-only, natural sort), finds the current file, and `goto()`s the neighbour. It **never crosses folder boundaries and never wraps** past the first/last file (no-op at the edge). Chaptered folders instead map `b`/`z` to `nextChapter`/`previousChapter` (stays within the folder unit); radio is a no-op. Auto-advance reuses this same helper via the store's **`onTrackEnded`** callback — the store owns "a track ended", the view owns routing + sibling listing. To keep playing across the switch regardless of the `autoplay` setting, set **`playerStore.playOnNextLoad = true`** before navigating (`loadFile` consumes it, one-shot). The play route (`/play/[...path]/+page.svelte`) wraps `<PlaybackView>` in `{#key filePath}` so a track switch fully remounts (onMount reloads + plays the new file).
 
