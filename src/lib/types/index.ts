@@ -17,6 +17,44 @@ export interface FileEntry {
 	bookVerified?: boolean;
 }
 
+/**
+ * What a recently-opened path *is*, which decides both its icon and the route it
+ * opens in. Mirrors the flags on `FileEntry`, flattened to one value because a
+ * recent entry is a single path rather than a directory listing.
+ */
+export type RecentKind = 'file' | 'radio' | 'chaptered' | 'daisy' | 'book' | 'rawbook' | 'folder';
+
+/**
+ * One row of the Recent tab, as served by `GET /api/recent`.
+ *
+ * `path`/`name`/`kind` describe what was opened *at the time it was opened*;
+ * `target` is where it opens **now**. When the original path is gone, the target
+ * is the nearest ancestor folder that still exists (`exists: false`), so a recent
+ * entry never dead-ends — deleting `Show/Season 01/ep08.mp3` and `Show/Season 01`
+ * leaves the entry opening `Show`.
+ */
+export interface RecentEntry {
+	/** Media-root-relative path that was opened. */
+	path: string;
+	name: string;
+	/** Kind recorded at access time (label of last resort when the path is gone). */
+	kind: RecentKind;
+	/** ISO timestamp of the most recent access. */
+	accessedAt: string;
+	/** Whether `path` itself still exists on disk. */
+	exists: boolean;
+	target: {
+		/** Nearest existing path — equal to `path` when `exists` is true; '' = home. */
+		path: string;
+		/** Kind of the target as it is on disk right now. */
+		kind: RecentKind;
+		/** Client route that opens the target (player, reader or browser). */
+		href: string;
+		/** Display name of the target folder ('' when the target is the media root). */
+		name: string;
+	};
+}
+
 /** One spoken unit of a converted book — a single sentence (or a heading line). */
 export interface Chunk {
 	/** Global, stable, zero-based index across the whole book (the position key). */

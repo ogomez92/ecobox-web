@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { listDirectory, deleteFile } from '$server/services/files';
+import { listDirectory, deleteFile, createFolder, validateFolderName } from '$server/services/files';
 import { recordDeletion } from '$server/services/deletionHistory';
 import { purgeCacheForPath } from '$server/services/tts/cache';
 import { db } from '$server/db';
@@ -60,6 +60,58 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 			throw error(403, 'Access denied');
 		}
 		throw error(500, 'Failed to list directory');
+	}
+};
+
+/**
+ * POST /api/files — create one folder.
+ * Body: { path?: string, name: string } where `path` is the parent directory
+ * (empty/absent = media root) and `name` is a single new segment.
+ *
+ * Refusals the user can act on come back as `{ error: <code> }` with a 4xx so the
+ * client can localize them; anything unexpected is a plain 500.
+ */
+export const POST: RequestHandler = async ({ request, cookies }) => {
+	let body: { path?: unknown; name?: unknown };
+	try {
+		body = await request.json();
+	} catch {
+		throw error(400, 'Invalid request body');
+	}
+
+	const parentPath = typeof body.path === 'string' ? body.path : '';
+	const rawName = typeof body.name === 'string' ? body.name : '';
+
+	const validated = validateFolderName(rawName);
+	if ('error' in validated) {
+		return json({ error: validated.error }, { status: 400 });
+	}
+
+	// A locked session can't see protected folders, so it can't write into one
+	// either — answer exactly as GET does for a path that "doesn't exist".
+	if (parentPath && !isUnlocked(cookies)) {
+		const protectedSet = await getProtectedSet();
+		if (isPathProtected(parentPath, protectedSet)) {
+			throw error(404, 'Directory not found');
+		}
+	}
+
+	try {
+		const path = await createFolder(parentPath, validated.name);
+		return json({ success: true, path, name: validated.name });
+	} catch (err) {
+		const code = (err as NodeJS.ErrnoException).code;
+		if (code === 'EEXIST') {
+			return json({ error: 'exists' }, { status: 409 });
+		}
+		if (code === 'ENOENT' || code === 'ENOTDIR') {
+			throw error(404, 'Directory not found');
+		}
+		if ((err as Error).message.includes('traversal')) {
+			throw error(403, 'Access denied');
+		}
+		console.error('Failed to create folder:', err);
+		throw error(500, 'Failed to create folder');
 	}
 };
 

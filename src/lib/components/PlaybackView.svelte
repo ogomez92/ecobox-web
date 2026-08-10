@@ -15,6 +15,7 @@
 	import { playerStore } from '$lib/stores/player.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { subtitlesStore } from '$lib/stores/subtitles.svelte';
+	import { recentStore } from '$lib/stores/recent.svelte';
 	import { audioEffects } from '$lib/services/audioEffects';
 	import { roomCaster } from '$lib/services/roomCaster.svelte';
 	import { formatDuration } from '$lib/utils/format';
@@ -230,6 +231,7 @@
 			if (filePath.endsWith('.radio')) {
 				// Don't initialize audio effects for radio streams (CORS restrictions)
 				playerStore.loadRadio(filePath);
+				recentStore.record(filePath, 'radio');
 			} else {
 				// Initialize audio effects chain (connects Web Audio API to the audio element)
 				await audioEffects.initialize(audioElement);
@@ -240,9 +242,11 @@
 				if (manifest && manifest.type !== 'file') {
 					await playerStore.loadChapteredFolder(filePath, manifest);
 					bookmarks = manifest.bookmarks ?? [];
+					recentStore.record(filePath, manifest.type);
 				} else {
 					playerStore.loadFile(filePath);
 					loadBookmarks();
+					recentStore.record(filePath, 'file');
 				}
 			}
 		}

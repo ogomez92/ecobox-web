@@ -57,6 +57,34 @@ export function formatDate(date: Date | string): string {
 	});
 }
 
+/**
+ * "3 minutes ago" / "yesterday" for anything inside the last week, and a plain
+ * date beyond that — the point of a recent list is recency, and "6 days ago"
+ * reads better than a date, while "37 days ago" reads worse than one.
+ *
+ * Used for both the visible text and the accessible name, so a screen reader
+ * hears exactly what is on screen. `now` is injectable for tests.
+ */
+export function formatRelativeTime(date: Date | string, now: number = Date.now()): string {
+	const then = new Date(date).getTime();
+	if (!isFinite(then)) return '';
+
+	const diffSeconds = (then - now) / 1000;
+	const absolute = Math.abs(diffSeconds);
+	const WEEK = 7 * 24 * 3600;
+	if (absolute >= WEEK) return formatDate(date);
+
+	try {
+		const rtf = new Intl.RelativeTimeFormat(localeTag(), { numeric: 'auto' });
+		if (absolute < 60) return rtf.format(Math.round(diffSeconds), 'second');
+		if (absolute < 3600) return rtf.format(Math.round(diffSeconds / 60), 'minute');
+		if (absolute < 24 * 3600) return rtf.format(Math.round(diffSeconds / 3600), 'hour');
+		return rtf.format(Math.round(diffSeconds / (24 * 3600)), 'day');
+	} catch {
+		return formatDate(date);
+	}
+}
+
 export function formatDateAccessible(date: Date | string): string {
 	const d = new Date(date);
 	return d.toLocaleDateString(localeTag(), {

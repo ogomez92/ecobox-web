@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { formatBytes, formatDuration, formatDurationAccessible } from './format';
+import {
+	formatBytes,
+	formatDuration,
+	formatDurationAccessible,
+	formatRelativeTime
+} from './format';
 
 describe('formatBytes', () => {
 	it('formats zero bytes', () => {
@@ -78,5 +83,28 @@ describe('formatDurationAccessible', () => {
 
 	it('omits seconds when hours are present', () => {
 		expect(formatDurationAccessible(3605)).toBe('1 hour');
+	});
+});
+
+describe('formatRelativeTime', () => {
+	// Fixed "now" so the boundaries are exact rather than clock-dependent.
+	const NOW = new Date('2026-03-15T12:00:00Z').getTime();
+	const ago = (seconds: number) => new Date(NOW - seconds * 1000);
+
+	it('formats recent instants relatively', () => {
+		expect(formatRelativeTime(ago(5), NOW)).toBe('5 seconds ago');
+		expect(formatRelativeTime(ago(120), NOW)).toBe('2 minutes ago');
+		expect(formatRelativeTime(ago(3 * 3600), NOW)).toBe('3 hours ago');
+		expect(formatRelativeTime(ago(24 * 3600), NOW)).toBe('yesterday');
+		expect(formatRelativeTime(ago(3 * 24 * 3600), NOW)).toBe('3 days ago');
+	});
+
+	it('switches to an absolute date beyond a week', () => {
+		// A week ago reads worse as "7 days ago" than as a date.
+		expect(formatRelativeTime(ago(8 * 24 * 3600), NOW)).toBe('Mar 7, 2026');
+	});
+
+	it('returns an empty string for an unparseable date', () => {
+		expect(formatRelativeTime('not a date', NOW)).toBe('');
 	});
 });

@@ -116,6 +116,14 @@ sqlite.exec(`
 		deleted_at INTEGER NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS recent_files (
+		path TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		accessed_at INTEGER NOT NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_recent_files_accessed ON recent_files(accessed_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_bookmarks_media_path ON bookmarks(media_path);
 	CREATE INDEX IF NOT EXISTS idx_chaptered_bookmarks_folder ON chaptered_bookmarks(folder_path);
 	CREATE INDEX IF NOT EXISTS idx_book_bookmarks_path ON book_bookmarks(book_folder_path);

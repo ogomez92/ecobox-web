@@ -8,7 +8,7 @@ import path from 'path';
 const { mockEnv } = vi.hoisted(() => ({ mockEnv: { MEDIA_ROOT: '' } as { MEDIA_ROOT: string } }));
 vi.mock('$env/dynamic/private', () => ({ env: mockEnv }));
 
-import { resolveExistingPath } from './files';
+import { resolveExistingPath, createFolder, validateFolderName } from './files';
 
 // "cafe" + acute accent, built from escapes so the source file's own Unicode
 // normalization can't collapse the two forms into one.
@@ -60,5 +60,83 @@ describe('resolveExistingPath', () => {
 
 	it('still rejects directory traversal', () => {
 		expect(() => resolveExistingPath('../../etc/passwd')).toThrow(/traversal/);
+	});
+});
+
+describe('validateFolderName', () => {
+	it('accepts an ordinary name and trims it', () => {
+		expect(validateFolderName('  Audiolibros  ')).toEqual({ name: 'Audiolibros' });
+	});
+
+	it('accepts accents, spaces and inner dots', () => {
+		expect(validateFolderName('Cuentos de Perrault vol. 2')).toEqual({
+			name: 'Cuentos de Perrault vol. 2'
+		});
+	});
+
+	it('rejects an empty or whitespace-only name', () => {
+		expect(validateFolderName('')).toEqual({ error: 'empty' });
+		expect(validateFolderName('   ')).toEqual({ error: 'empty' });
+	});
+
+	it('rejects the relative-path names', () => {
+		expect(validateFolderName('.')).toEqual({ error: 'empty' });
+		expect(validateFolderName('..')).toEqual({ error: 'empty' });
+	});
+
+	it('rejects a name that would span directories', () => {
+		expect(validateFolderName('a/b')).toEqual({ error: 'invalidChars' });
+		expect(validateFolderName('a\\b')).toEqual({ error: 'invalidChars' });
+		expect(validateFolderName('../escape')).toEqual({ error: 'invalidChars' });
+	});
+
+	it('rejects characters Windows cannot store', () => {
+		for (const bad of ['a:b', 'a*b', 'a?b', 'a"b', 'a<b', 'a>b', 'a|b', 'a\u0001b']) {
+			expect(validateFolderName(bad)).toEqual({ error: 'invalidChars' });
+		}
+	});
+
+	it('rejects a trailing dot (Windows would strip it and collide)', () => {
+		expect(validateFolderName('Books.')).toEqual({ error: 'invalidChars' });
+	});
+
+	it('rejects the legacy device names, with or without an extension', () => {
+		expect(validateFolderName('CON')).toEqual({ error: 'reserved' });
+		expect(validateFolderName('com1')).toEqual({ error: 'reserved' });
+		expect(validateFolderName('nul.txt')).toEqual({ error: 'reserved' });
+		expect(validateFolderName('Conan')).toEqual({ name: 'Conan' }); // only the exact names
+	});
+
+	it('rejects a name past the 255-byte limit, counting bytes not characters', () => {
+		expect(validateFolderName('a'.repeat(255))).toEqual({ name: 'a'.repeat(255) });
+		expect(validateFolderName('a'.repeat(256))).toEqual({ error: 'tooLong' });
+		// 128 two-byte characters: only 128 characters long, but 256 bytes on disk.
+		expect(validateFolderName('é'.repeat(128))).toEqual({ error: 'tooLong' });
+	});
+});
+
+describe('createFolder', () => {
+	it('creates a folder at the media root and returns its relative path', async () => {
+		const rel = await createFolder('', 'Nuevos');
+		expect(rel).toBe('Nuevos');
+		expect(fs.statSync(path.join(root, 'Nuevos')).isDirectory()).toBe(true);
+	});
+
+	it('creates inside an accented parent stored NFD on disk', async () => {
+		// The client sends the precomposed form; the folder must land in the real dir.
+		const rel = await createFolder(`${NFC} dir`, 'sub');
+		expect(rel).toBe(`${NFC} dir/sub`);
+		expect(fs.statSync(path.join(root, `${NFD} dir`, 'sub')).isDirectory()).toBe(true);
+	});
+
+	it('fails with EEXIST rather than silently reusing an existing folder', async () => {
+		await createFolder('', 'Taken');
+		await expect(createFolder('', 'Taken')).rejects.toMatchObject({ code: 'EEXIST' });
+	});
+
+	it('fails with ENOENT when the parent is gone', async () => {
+		await expect(createFolder('no-such-parent', 'child')).rejects.toMatchObject({
+			code: 'ENOENT'
+		});
 	});
 });

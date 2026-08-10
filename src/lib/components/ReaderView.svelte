@@ -4,6 +4,7 @@
 	import { readerStore } from '$lib/stores/reader.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { ttsConfigStore } from '$lib/stores/ttsConfig.svelte';
+	import { recentStore } from '$lib/stores/recent.svelte';
 	import ReaderControls from './ReaderControls.svelte';
 	import FindInBook from './FindInBook.svelte';
 	import BookmarkList from './BookmarkList.svelte';
@@ -231,6 +232,7 @@
 			await ttsConfigStore.load();
 			readerStore.initializeAudio(audioEl);
 			await readerStore.loadBook(bookPath);
+			recentStore.record(bookPath, 'book');
 			loadBookmarks();
 			loadBookInfo();
 			await readerStore.loadVoices();

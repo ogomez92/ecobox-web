@@ -130,7 +130,7 @@ src/
 ├── routes/
 │   ├── api/            # REST endpoints: bookmarks, chaptered, download,
 │   │                   #   files, files-recursive, media, protect, radio,
-│   │                   #   settings, storage, upload (negotiate + stream)
+│   │                   #   recent, settings, storage, upload (negotiate + stream)
 │   ├── browse/[...path]/ # File browser pages
 │   ├── play/[...path]/   # Media player page
 │   └── settings/         # Settings page
@@ -229,6 +229,70 @@ Bare **`s`** toggles subtitles in the media player (see "Sidecar subtitles"); it
 
 **Chapter as a seek unit** — when the media has chapters, the seek-unit radio group gains a **"Chapter"** option after the time units (index `CHAPTER_UNIT_INDEX === SEEK_UNITS.length`; `seekUnitIndex` persists to `localStorage['ecobox-seek-unit-index']` as before). With it selected, `ArrowLeft`/`ArrowRight` and the inner transport buttons call `previousChapter()`/`nextChapter()` instead of `seekRelative(±seconds)` — `PlaybackControls` takes optional `seekLabel`/`seekBackAria`/`seekForwardAria` overrides for the non-numeric badge. Selection degrades safely: `isChapterSeek` requires chapters to actually exist, so a file without them falls back to time seeking (a saved chapter index doesn't strand the arrows).
 
+### Recent tab
+
+The file browser is a two-tab view (`FileExplorer`, WAI-ARIA tablist with roving
+tabindex + arrow/Home/End): **Files** (the folder browser) and **Recent**. Files is
+always selected on load, and **Alt+1 / Alt+2** jump to a tab from anywhere on the
+page — matched on `e.code` as well as `e.key`, since Alt+digit emits a symbol on
+several layouts.
+
+Where focus lands depends on how the tab was chosen, and the split is deliberate:
+moving *within* the tablist (arrows/Home/End) keeps focus on the tab, the standard
+pattern that keeps the tabs navigable, while **Alt+1 / Alt+2 land straight in that
+tab's list** — that is where the user is going, and Shift+Tab still reaches the
+tabs. The shortcut awaits the recent list's fetch before focusing (on the first
+Alt+2 the rows don't exist yet) and falls back to focusing the tab when the list is
+empty, so focus is never stranded on `<body>`. `Ctrl+L` focuses whichever list is
+showing. Both panels stay mounted with the inactive one `hidden`, so returning to
+Files doesn't re-run its focus-the-first-row effect and steal focus off the tab.
+
+What gets recorded is what was **opened as a playable/readable unit** — an audio
+file, a radio station, a DAISY/`.CHAPTERED` folder (`PlaybackView`), or a converted
+book (`ReaderView`) — never plain folder browsing. Recording is a fire-and-forget
+`POST /api/recent` from `recentStore.record()`: opening media must never fail
+because bookkeeping did. The path is the primary key, so re-opening a file moves it
+up rather than duplicating it, and `accessed_at` is **milliseconds** (unlike the
+second-resolution timestamps elsewhere) so two files opened in the same second still
+sort in order. The table is capped at `MAX_RECENT` rows, oldest pruned.
+
+**`GET /api/recent`** resolves every entry to a `target` that exists *right now*:
+`resolveRecentTarget` walks the path and then its ancestors until something is
+found, terminating at the media root — so an entry can never dead-end. Deleting
+`Show/Season 01/ep08.mp3` leaves the entry opening `Show/Season 01`; deleting that
+folder too opens `Show`; with everything gone it opens home. The surviving ancestor
+is routed by what it is **now** (a folder that became a book folder opens in the
+reader), and such rows are flagged "no longer available" plus where they will open
+instead, in both the visible text and the accessible name. Protected content is
+filtered exactly as in `/api/files`: a locked session never lists a protected entry,
+and the fallback walk skips protected ancestors rather than routing into them. The
+walk takes injectable `describe` / `isHidden` so the rule is unit-tested without a
+filesystem or a database (`recentFiles.test.ts`).
+
+### Creating folders
+
+The **Alt+N** actions menu has a **New folder** item (last, so Alt+N still opens on
+"Upload files"), which opens `NewFolderDialog` and creates the folder inside the
+folder currently being browsed via **`POST /api/files {path, name}`**.
+
+`name` is a single segment, validated by the pure `validateFolderName()` in
+`files.ts` (unit-tested in `files.test.ts`) and refused with a machine code the
+client localizes — `empty` / `invalidChars` / `reserved` / `tooLong`, plus `exists`
+(409) for a name already taken. The rules are stricter than POSIX on purpose:
+besides the separators (a name that spans directories would place the folder
+somewhere else), the Windows-illegal set `\ / : * ? " < > |`, control characters,
+trailing dots/spaces and the legacy device names (`CON`, `NUL`, `COM1`…) are
+rejected, because a library made here must stay creatable on a Windows install.
+`createFolder()` resolves the parent through `resolveExistingPath` (so an accented
+NFD-on-disk folder is found from the NFC path a browser sends) and calls `mkdir`
+**non-recursively**, so a collision surfaces as EEXIST instead of silently
+succeeding. A locked session gets the same 404 as `GET` for a protected parent.
+
+Focus after the dialog always lands in the **list**, not back on the actions button:
+cancelling focuses the current row, and creating reloads the listing and focuses the
+**new folder's row** (announced through the live region), so Enter walks straight
+into it.
+
 ### Path safety
 All filesystem-touching API routes go through `resolvePath()` in `$server/services/files.ts`, which joins against `MEDIA_ROOT` and rejects traversal. New endpoints that take a user-supplied path **must** go through it; throw the resulting error as a 403 if the message contains `traversal` (see existing handlers for the pattern). The file service follows symlinks intentionally — `MEDIA_ROOT` may be a symlink tree.
 
@@ -252,6 +316,8 @@ The four breakdown fields are mode-independent and are what the upload dialog us
 - `media_durations` — cached audio durations, invalidated by size + mtime (never user data; safe to delete)
 - `settings` — key-value settings storage
 - `book_metadata` — reading position (current chunk index) for converted books
+- `recent_files` — recently opened media, one row per path (see "Recent tab"). Rows
+  deliberately survive the file's deletion, so `dbCleanup` must keep ignoring this table.
 
 ### Environment Variables
 ```

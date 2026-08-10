@@ -7,13 +7,15 @@
 		onuploadfiles: () => void;
 		onuploadfolder: () => void;
 		onaddradio?: () => void;
+		onnewfolder?: () => void;
 	}
 
 	let {
 		isOpen = $bindable(false),
 		onuploadfiles,
 		onuploadfolder,
-		onaddradio
+		onaddradio,
+		onnewfolder
 	}: Props = $props();
 
 	let buttonEl: HTMLButtonElement | undefined = $state();
@@ -42,6 +44,11 @@
 	function selectAddRadio() {
 		close();
 		onaddradio?.();
+	}
+
+	function selectNewFolder() {
+		close();
+		onnewfolder?.();
 	}
 
 	function handleButtonKeydown(e: KeyboardEvent) {
@@ -164,6 +171,17 @@
 				>
 					<Icon name="radio" size={16} />
 					{t('actions.addRadio')}
+				</button>
+			{/if}
+			{#if onnewfolder}
+				<button
+					type="button"
+					role="menuitem"
+					onclick={selectNewFolder}
+					class="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus:bg-gray-100 dark:focus:bg-gray-700 focus:outline-none transition-colors"
+				>
+					<Icon name="folder-plus" size={16} />
+					{t('actions.newFolder')}
 				</button>
 			{/if}
 		</div>

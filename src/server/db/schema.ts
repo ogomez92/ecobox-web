@@ -100,6 +100,27 @@ export const ttsCredentials = sqliteTable('tts_credentials', {
 	elfVolume: integer('elf_volume')
 });
 
+/**
+ * "Recently opened" log, one row per media path (the path is the key, so opening
+ * the same file twice moves it up the list rather than adding a duplicate).
+ *
+ * Rows are deliberately KEPT when the file disappears from disk — the Recent tab
+ * falls back to the nearest surviving ancestor folder, which is only possible if
+ * the entry survives the deletion. `kind` is what the path was when it was
+ * opened; it is only a label of last resort, since the current kind is re-read
+ * from disk whenever the list is served.
+ */
+export const recentFiles = sqliteTable('recent_files', {
+	path: text('path').primaryKey(),
+	name: text('name').notNull(),
+	// 'file' | 'radio' | 'chaptered' | 'daisy' | 'book' | 'folder'
+	kind: text('kind').notNull(),
+	// Milliseconds, unlike the second-resolution timestamps elsewhere: two files
+	// opened in the same second (auto-advance, quick skipping) must still sort in
+	// the order they were opened.
+	accessedAt: integer('accessed_at', { mode: 'timestamp_ms' }).notNull()
+});
+
 export const protectedPaths = sqliteTable('protected_paths', {
 	path: text('path').primaryKey(),
 	createdAt: integer('created_at', { mode: 'timestamp' })
@@ -137,6 +158,8 @@ export type BookBookmark = typeof bookBookmarks.$inferSelect;
 export type NewBookBookmark = typeof bookBookmarks.$inferInsert;
 export type TtsCredential = typeof ttsCredentials.$inferSelect;
 export type NewTtsCredential = typeof ttsCredentials.$inferInsert;
+export type RecentFile = typeof recentFiles.$inferSelect;
+export type NewRecentFile = typeof recentFiles.$inferInsert;
 export type ProtectedPath = typeof protectedPaths.$inferSelect;
 export type NewProtectedPath = typeof protectedPaths.$inferInsert;
 export type DeletionHistoryEntry = typeof deletionHistory.$inferSelect;

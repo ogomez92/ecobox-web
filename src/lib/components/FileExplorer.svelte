@@ -7,8 +7,11 @@
 	import UploadDialog from './UploadDialog.svelte';
 	import ActionsMenu from './ActionsMenu.svelte';
 	import ConfirmDialog from './ConfirmDialog.svelte';
+	import NewFolderDialog from './NewFolderDialog.svelte';
 	import SearchDialog from './SearchDialog.svelte';
+	import RecentList from './RecentList.svelte';
 	import { filesStore } from '$lib/stores/files.svelte';
+	import { recentStore } from '$lib/stores/recent.svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import { goto } from '$app/navigation';
 	import type { FileEntry } from '$lib/types';
@@ -19,6 +22,23 @@
 	}
 
 	let { initialPath = '', focusFile }: Props = $props();
+
+	/**
+	 * The two views of the library, as a WAI-ARIA tablist: the folder browser and
+	 * the recently-opened list. Files is always the tab on load — a fresh page is
+	 * never dropped into Recent, however the user left it — and Alt+1 / Alt+2 jump
+	 * straight to a tab from anywhere on the page.
+	 *
+	 * Activation follows focus (arrow keys select as they move), which is the APG
+	 * default for cheap panels; both panels stay mounted and the inactive one is
+	 * `hidden`, so switching back to Files doesn't re-run its focus-the-first-row
+	 * effect and yank focus off the tab.
+	 */
+	const TABS = ['files', 'recent'] as const;
+	type TabId = (typeof TABS)[number];
+	let activeTab = $state<TabId>('files');
+	let tabRefs = $state<Record<TabId, HTMLButtonElement | null>>({ files: null, recent: null });
+	let recentListRef: RecentList | null = $state(null);
 
 	let showUploadDialog = $state(false);
 	let uploadInitialTab = $state<'upload' | 'radio'>('upload');
@@ -34,6 +54,7 @@
 	// post-upload reload settles (the dialog steals focus while open).
 	let focusListWhenReady = $state(false);
 	let showSearchDialog = $state(false);
+	let showNewFolderDialog = $state(false);
 	let searchButtonRef: HTMLButtonElement | undefined = $state();
 	// Element that had focus when the search dialog opened, so closing it (Escape,
 	// the X, the backdrop) puts the user back exactly where they were.
@@ -198,14 +219,119 @@
 		tick().then(() => target?.focus());
 	}
 
-	function focusList() {
+	function openNewFolder() {
+		if (showNewFolderDialog) return;
+		showNewFolderDialog = true;
+	}
+
+	/**
+	 * Cancelling drops focus into the list rather than back on the actions button:
+	 * the user came here to work on the folder's contents, so that is where they
+	 * continue. Only an empty list falls back to the button, so focus is never
+	 * stranded on <body>.
+	 */
+	function closeNewFolder() {
+		showNewFolderDialog = false;
+		tick().then(() => {
+			if (!focusList()) emptyFolderUploadButton?.focus();
+		});
+	}
+
+	/**
+	 * A folder was created in the browsed directory: reload the listing and put
+	 * focus on the new row, so a keyboard user lands on what they just made (and
+	 * can press Enter to go straight into it). The Files tab is selected first —
+	 * the actions menu is reachable from the Recent tab too, and the new folder
+	 * only exists in the browser.
+	 */
+	async function handleFolderCreated(name: string) {
+		showNewFolderDialog = false;
+		announce(t('newFolder.created', { name }));
+		activeTab = 'files';
+		await filesStore.loadFiles(filesStore.currentPath);
+		filesStore.loadStorage();
+		await tick();
+		const index = filesStore.sortedFiles.findIndex((f) => f.name === name);
+		if (index === -1) {
+			focusList();
+			return;
+		}
+		focusedIndex = index;
+		await tick();
+		rowRefs[index]?.focus();
+	}
+
+	/**
+	 * Switch tabs. The recent list is re-fetched on every activation because it
+	 * changes behind the user's back — playing a file reorders it, and deleting one
+	 * changes where an entry points.
+	 *
+	 * Where focus lands depends on how the tab was chosen. Moving *within* the
+	 * tablist keeps focus on the tab (`focusTab`) — the standard pattern, so the
+	 * tabs stay navigable. The Alt+1 / Alt+2 shortcuts instead drop straight into
+	 * the panel's list (`focusList`), since that is where the user is going; the
+	 * tabs are still one Shift+Tab away.
+	 */
+	async function selectTab(tab: TabId, options: { focusTab?: boolean; focusList?: boolean } = {}) {
+		activeTab = tab;
+		// Kept as a promise: on the first Alt+2 the list is still being fetched, and
+		// focus has to wait for the rows to exist before it can land on one.
+		const loading = tab === 'recent' ? recentStore.load() : Promise.resolve();
+
+		if (options.focusTab) {
+			await tick();
+			tabRefs[tab]?.focus();
+			return;
+		}
+		if (!options.focusList) return;
+
+		await loading;
+		await tick();
+		// The user may have switched away again while the list was loading.
+		if (activeTab !== tab) return;
+		// An empty list has nothing to focus — fall back to the tab so focus is
+		// never left stranded on <body> (the old panel is `hidden` by now).
+		if (!focusList()) tabRefs[tab]?.focus();
+	}
+
+	function onTabKeydown(e: KeyboardEvent, tab: TabId) {
+		const index = TABS.indexOf(tab);
+		let next = -1;
+		switch (e.key) {
+			case 'ArrowRight':
+			case 'ArrowDown':
+				next = (index + 1) % TABS.length;
+				break;
+			case 'ArrowLeft':
+			case 'ArrowUp':
+				next = (index - 1 + TABS.length) % TABS.length;
+				break;
+			case 'Home':
+				next = 0;
+				break;
+			case 'End':
+				next = TABS.length - 1;
+				break;
+			default:
+				return;
+		}
+		e.preventDefault();
+		selectTab(TABS[next], { focusTab: true });
+	}
+
+	/** Focus the active panel's list. Returns false when it had nothing to focus. */
+	function focusList(): boolean {
+		if (activeTab === 'recent') {
+			return recentListRef?.focusList() ?? false;
+		}
 		const files = filesStore.sortedFiles;
-		if (files.length === 0) return;
+		if (files.length === 0) return false;
 		const target = focusedIndex >= 0 && focusedIndex < files.length ? focusedIndex : 0;
 		focusedIndex = target;
 		// Force focus even when focusedIndex is unchanged (e.g. coming from the
 		// search dialog), so the `focused` $effect alone can't be relied upon.
 		rowRefs[target]?.focus();
+		return true;
 	}
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
@@ -216,14 +342,14 @@
 		// browser's own find bar. Like Ctrl+L it deliberately skips the field guard,
 		// so it works no matter what currently has focus.
 		if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F') && !e.shiftKey && !e.altKey) {
-			if (showUploadDialog || deleteTarget || showSearchDialog) return;
+			if (showUploadDialog || deleteTarget || showSearchDialog || showNewFolderDialog) return;
 			e.preventDefault();
 			openSearch();
 			return;
 		}
 
-		// Everything below is inert while the search dialog owns the screen.
-		if (showSearchDialog) return;
+		// Everything below is inert while a modal dialog owns the screen.
+		if (showSearchDialog || showNewFolderDialog) return;
 
 		// Ctrl+L moves focus to the file list, no matter what currently has focus
 		// — so it intentionally skips the field guard.
@@ -243,11 +369,28 @@
 			return;
 		}
 
-		// Alt+N opens the actions menu. Ignore when inside form fields or modal dialogs.
-		if (!(e.altKey && (e.key === 'n' || e.key === 'N'))) return;
-		if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+		if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
 		if (inField) return;
 		if (showUploadDialog || deleteTarget) return;
+
+		// Alt+1 / Alt+2 jump to a tab from anywhere on the page and land focus *in*
+		// that tab's list, ready to arrow through (Shift+Tab reaches the tabs from
+		// there). Matched on `code` as well as `key`, because Alt+digit emits a
+		// symbol rather than a digit on several keyboard layouts (and on the keypad).
+		const digit =
+			e.key === '1' || e.code === 'Digit1' || e.code === 'Numpad1'
+				? 1
+				: e.key === '2' || e.code === 'Digit2' || e.code === 'Numpad2'
+					? 2
+					: 0;
+		if (digit) {
+			e.preventDefault();
+			selectTab(digit === 1 ? 'files' : 'recent', { focusList: true });
+			return;
+		}
+
+		// Alt+N opens the actions menu.
+		if (e.key !== 'n' && e.key !== 'N') return;
 		e.preventDefault();
 		actionsMenuOpen = true;
 	}
@@ -414,6 +557,7 @@
 						onuploadfiles={() => openUpload('file')}
 						onuploadfolder={() => openUpload('folder')}
 						onaddradio={() => openUpload(null, 'radio')}
+						onnewfolder={openNewFolder}
 					/>
 					<a
 						href="/settings"
@@ -425,17 +569,56 @@
 				</div>
 			</div>
 
-			<div class="pb-3">
-				<Breadcrumbs
-					items={filesStore.breadcrumbs}
-					onnavigate={handleNavigate}
-				/>
+			<div role="tablist" aria-label={t('tabs.label')} class="flex gap-1">
+				{#each TABS as tab (tab)}
+					<button
+						bind:this={tabRefs[tab]}
+						type="button"
+						role="tab"
+						id="explorer-tab-{tab}"
+						aria-selected={activeTab === tab}
+						aria-controls="explorer-panel-{tab}"
+						aria-label={tab === 'files' ? t('tabs.filesAria') : t('tabs.recentAria')}
+						tabindex={activeTab === tab ? 0 : -1}
+						onclick={() => selectTab(tab)}
+						onkeydown={(e) => onTabKeydown(e, tab)}
+						class="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+						class:border-primary-500={activeTab === tab}
+						class:text-primary-600={activeTab === tab}
+						class:dark:text-primary-400={activeTab === tab}
+						class:border-transparent={activeTab !== tab}
+						class:text-gray-500={activeTab !== tab}
+						class:dark:text-gray-400={activeTab !== tab}
+						class:hover:text-gray-700={activeTab !== tab}
+						class:dark:hover:text-gray-200={activeTab !== tab}
+					>
+						<Icon name={tab === 'files' ? 'folder' : 'clock'} size={16} />
+						{tab === 'files' ? t('tabs.files') : t('tabs.recent')}
+					</button>
+				{/each}
 			</div>
+
+			{#if activeTab === 'files'}
+				<div class="py-3">
+					<Breadcrumbs
+						items={filesStore.breadcrumbs}
+						onnavigate={handleNavigate}
+					/>
+				</div>
+			{:else}
+				<div class="pb-3"></div>
+			{/if}
 		</div>
 	</header>
 
-	<main class="flex-1 overflow-y-auto pb-20" aria-label={t('explorer.fileList')}>
-		<div class="max-w-4xl mx-auto">
+	<main class="flex-1 overflow-y-auto pb-20">
+		<div
+			id="explorer-panel-files"
+			role="tabpanel"
+			aria-labelledby="explorer-tab-files"
+			hidden={activeTab !== 'files'}
+			class="max-w-4xl mx-auto"
+		>
 			{#if filesStore.isLoading}
 				<div class="flex items-center justify-center py-12" aria-live="polite">
 					<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
@@ -550,6 +733,15 @@
 				</table>
 			{/if}
 		</div>
+
+		<div
+			id="explorer-panel-recent"
+			role="tabpanel"
+			aria-labelledby="explorer-tab-recent"
+			hidden={activeTab !== 'recent'}
+		>
+			<RecentList bind:this={recentListRef} />
+		</div>
 	</main>
 
 	<StorageFooter storage={filesStore.storage} />
@@ -568,6 +760,14 @@
 
 	{#if showSearchDialog}
 		<SearchDialog currentPath={filesStore.currentPath} onclose={closeSearch} />
+	{/if}
+
+	{#if showNewFolderDialog}
+		<NewFolderDialog
+			currentPath={filesStore.currentPath}
+			oncreated={handleFolderCreated}
+			onclose={closeNewFolder}
+		/>
 	{/if}
 
 	<ConfirmDialog

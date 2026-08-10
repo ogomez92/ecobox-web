@@ -326,6 +326,52 @@ export async function ensureDirectory(relativePath: string): Promise<void> {
 	await fs.mkdir(dirPath, { recursive: true });
 }
 
+/**
+ * Names a user-created folder may not have.
+ *
+ * The separators are the security-relevant ones (a name is a single segment, so
+ * `a/b` or `..` would silently place the folder somewhere else), the rest are
+ * portability: Windows is a supported target and rejects `<>:"|?*`, control
+ * characters, trailing dots/spaces, and the legacy device names — a folder made
+ * here must still be creatable on a Windows install of the same library.
+ */
+const INVALID_FOLDER_CHARS = /[\\/:*?"<>|\x00-\x1f]/;
+const RESERVED_FOLDER_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
+const MAX_FOLDER_NAME_LENGTH = 255;
+
+export type FolderNameError = 'empty' | 'invalidChars' | 'reserved' | 'tooLong';
+
+/**
+ * Validate a single folder-name segment, returning the trimmed name to create or
+ * the reason it was refused. Pure, so the rules are unit-testable without a disk.
+ */
+export function validateFolderName(raw: string): { name: string } | { error: FolderNameError } {
+	const name = raw.trim();
+	if (!name || name === '.' || name === '..') return { error: 'empty' };
+	if (INVALID_FOLDER_CHARS.test(name)) return { error: 'invalidChars' };
+	// Trailing dots/spaces are silently stripped by Windows, so "a." and "a" would
+	// be the same folder there but not here.
+	if (/[. ]$/.test(name)) return { error: 'invalidChars' };
+	if (RESERVED_FOLDER_NAMES.test(name)) return { error: 'reserved' };
+	if (Buffer.byteLength(name, 'utf-8') > MAX_FOLDER_NAME_LENGTH) return { error: 'tooLong' };
+	return { name };
+}
+
+/**
+ * Create one folder named `name` inside `parentPath`. Returns its relative path.
+ *
+ * mkdir is deliberately NOT recursive: the caller wants to know when the name is
+ * already taken (EEXIST) or the parent has since disappeared (ENOENT), rather
+ * than have either quietly succeed. The parent is resolved through
+ * `resolveExistingPath` so an accented (NFD-on-disk) folder is found from the NFC
+ * path a browser sends.
+ */
+export async function createFolder(parentPath: string, name: string): Promise<string> {
+	const relative = toPosixPath(parentPath ? `${parentPath}/${name}` : name);
+	await fs.mkdir(resolveExistingPath(relative));
+	return relative;
+}
+
 export function isAudioFile(filename: string): boolean {
 	const ext = path.extname(filename).toLowerCase();
 	return AUDIO_EXTENSIONS.includes(ext);
