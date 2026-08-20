@@ -139,15 +139,17 @@
 				<Icon name="download" size={16} />
 				{t('actions.download')}
 			</button>
-			{#if file.isRawBook}
+			{#if file.isRawBook || file.isVideoFile}
+				<!-- Same callback for both: the parent knows which pipeline the file
+				     belongs to (book conversion vs. audio extraction). -->
 				<button
 					type="button"
 					role="menuitem"
 					onclick={handleConvert}
 					class="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
 				>
-					<Icon name="book" size={16} />
-					{t('actions.convert')}
+					<Icon name={file.isVideoFile ? 'audio' : 'book'} size={16} />
+					{file.isVideoFile ? t('actions.extractAudio') : t('actions.convert')}
 				</button>
 			{/if}
 			{#if isUnlocked}

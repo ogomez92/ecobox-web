@@ -8,7 +8,7 @@ import path from 'path';
 const { mockEnv } = vi.hoisted(() => ({ mockEnv: { MEDIA_ROOT: '' } as { MEDIA_ROOT: string } }));
 vi.mock('$env/dynamic/private', () => ({ env: mockEnv }));
 
-import { parseSrt, findSubtitleFile, getSubtitles } from './subtitles';
+import { parseSrt, parseVtt, pickSubtitleFile, findSubtitleFile, getSubtitles } from './subtitles';
 
 const SIMPLE = `1
 00:00:01,000 --> 00:00:04,000
@@ -92,6 +92,108 @@ describe('parseSrt', () => {
 	it('returns nothing for text that is not a subtitle file', () => {
 		expect(parseSrt('just some notes\nwith no timings at all')).toEqual([]);
 		expect(parseSrt('')).toEqual([]);
+	});
+});
+
+describe('parseVtt', () => {
+	const SIMPLE_VTT = `WEBVTT - Some title
+
+00:00:01.000 --> 00:00:04.000
+Hello there
+
+00:00:05.500 --> 00:00:07.250
+Second line
+split in two
+`;
+
+	it('parses a well-formed file, header and all', () => {
+		expect(parseVtt(SIMPLE_VTT)).toEqual([
+			{ start: 1, end: 4, text: 'Hello there' },
+			{ start: 5.5, end: 7.25, text: 'Second line\nsplit in two' }
+		]);
+	});
+
+	it('ignores cue settings after the timings', () => {
+		const cues = parseVtt('WEBVTT\n\n00:00:01.000 --> 00:00:02.000 align:start position:10% line:90%\nPositioned\n');
+		expect(cues).toEqual([{ start: 1, end: 2, text: 'Positioned' }]);
+	});
+
+	it('drops cue identifiers rather than reading them aloud', () => {
+		const cues = parseVtt('WEBVTT\n\nintro\n00:00:01.000 --> 00:00:02.000\nOne\n\nchapter two\n00:00:03.000 --> 00:00:04.000\nTwo\n');
+		expect(cues).toEqual([
+			{ start: 1, end: 2, text: 'One' },
+			{ start: 3, end: 4, text: 'Two' }
+		]);
+	});
+
+	it('skips NOTE, STYLE and REGION blocks', () => {
+		const cues = parseVtt(
+			'WEBVTT\n\nNOTE this file was machine generated\nand the note runs on\n\n' +
+				'STYLE\n::cue { color: yellow }\n\n' +
+				'REGION\nid:speaker width:40%\n\n' +
+				'00:00:01.000 --> 00:00:02.000\nOnly cue\n'
+		);
+		expect(cues).toEqual([{ start: 1, end: 2, text: 'Only cue' }]);
+	});
+
+	it('strips voice, class and inline-timestamp spans', () => {
+		const cues = parseVtt(
+			'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Roger Bingham><c.loud>Hi</c> <00:00:01.500>there</v>\n'
+		);
+		expect(cues).toEqual([{ start: 1, end: 2, text: 'Hi there' }]);
+	});
+
+	it('accepts the hour-less form WebVTT allows', () => {
+		expect(parseVtt('WEBVTT\n\n01:02.000 --> 01:05.000\nNo hours\n')).toEqual([
+			{ start: 62, end: 65, text: 'No hours' }
+		]);
+	});
+
+	it('yields nothing for a header with no cues', () => {
+		expect(parseVtt('WEBVTT\n\n')).toEqual([]);
+	});
+});
+
+describe('pickSubtitleFile', () => {
+	it('prefers the exact base name, and .srt over .vtt', () => {
+		expect(pickSubtitleFile('movie.mp4', ['movie.vtt', 'movie.srt', 'movie-en.srt'])).toBe('movie.srt');
+		expect(pickSubtitleFile('movie.mp4', ['movie.vtt', 'movie-en.srt'])).toBe('movie.vtt');
+	});
+
+	it('falls back to the "<name>.<ext>.srt" form before any prefix match', () => {
+		expect(pickSubtitleFile('movie.mp4', ['movie-en.srt', 'movie.mp4.srt'])).toBe('movie.mp4.srt');
+	});
+
+	it('accepts a track whose name merely starts with the media name', () => {
+		expect(pickSubtitleFile('movie.mp4', ['movie-desc.srt'])).toBe('movie-desc.srt');
+		expect(pickSubtitleFile('movie.mp4', ['movie.en.vtt'])).toBe('movie.en.vtt');
+		expect(pickSubtitleFile('movie.mp4', ['movie.mp4.forced.srt'])).toBe('movie.mp4.forced.srt');
+	});
+
+	it('prefers the shortest addition, at a qualifier boundary', () => {
+		expect(
+			pickSubtitleFile('movie.mp4', ['movieextra.srt', 'movie-en-forced.srt', 'movie-en.srt'])
+		).toBe('movie-en.srt');
+		// Nothing breaks at a boundary — a raw prefix is still better than no track.
+		expect(pickSubtitleFile('movie.mp4', ['movieextra.srt'])).toBe('movieextra.srt');
+	});
+
+	it('never steals the track that belongs to another file', () => {
+		const dir = ['ep1.mp3', 'ep10.mp3', 'ep10.srt'];
+		expect(pickSubtitleFile('ep1.mp3', dir)).toBeNull();
+		expect(pickSubtitleFile('ep10.mp3', dir)).toBe('ep10.srt');
+	});
+
+	it('matches case- and normalization-insensitively', () => {
+		expect(pickSubtitleFile('Canción.mp3', ['CANCIÓN.SRT'])).toBe('CANCIÓN.SRT');
+		// Accented names are stored decomposed (NFD) on disk as often as composed.
+		const decomposed = 'Canción.srt'.normalize('NFD');
+		expect(pickSubtitleFile('Canción.mp3', [decomposed])).toBe(decomposed);
+	});
+
+	it('returns null when nothing matches', () => {
+		expect(pickSubtitleFile('movie.mp4', ['other.srt', 'movie.txt', 'notes.md'])).toBeNull();
+		expect(pickSubtitleFile('movie.mp4', [])).toBeNull();
 	});
 });
 

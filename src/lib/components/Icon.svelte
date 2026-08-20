@@ -32,6 +32,7 @@
 		| 'lock-open'
 		| 'broadcast'
 		| 'captions'
+		| 'video'
 		| 'info';
 
 	interface Props {
@@ -79,6 +80,9 @@
 		'lock-open': 'M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 019.9-1',
 		broadcast: 'M4.93 4.93a10 10 0 000 14.14M19.07 4.93a10 10 0 010 14.14M7.76 7.76a6 6 0 000 8.48M16.24 7.76a6 6 0 010 8.48M12 13a1 1 0 100-2 1 1 0 000 2z',
 		captions: 'M4 5h16a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V7a2 2 0 012-2zM6 11h5M6 15h12M14 11h4',
+		// A film strip: a video row still plays as audio, but the icon says what the
+		// file on disk actually is.
+		video: 'M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1zM8 4v16M16 4v16M3 9h5M3 15h5M16 9h5M16 15h5',
 		info: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
 	};
 </script>

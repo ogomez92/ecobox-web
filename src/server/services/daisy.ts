@@ -2,10 +2,11 @@ import fs from 'fs/promises';
 import path from 'path';
 import type { Chapter, ChapteredFile, DaisyBook, DaisyVolume } from '$lib/types';
 import { getMediaRoot, toPosixPath } from './files';
+import { isPlayableMedia } from '$lib/utils/mediaTypes';
 import { getDurations } from './audioDuration';
 
 const DAISY_MARKERS = ['ncc.html', 'ncc.xml', 'Navigation.xml'];
-const AUDIO_EXTENSIONS = ['.mp3', '.m4a', '.m4b', '.wav', '.aac', '.flac'];
+
 const VOLUME_PATTERN = /^(\d+)\s+of\s+(\d+)$/i;
 
 /** A multi-file book — DAISY, or a plain `.CHAPTERED` folder — as clients consume it. */
@@ -442,7 +443,7 @@ async function buildPlainFolder(folderPath: string, timelineStart: number): Prom
 	}
 
 	const audioPaths = entries
-		.filter((entry) => !entry.isDirectory() && AUDIO_EXTENSIONS.includes(path.extname(entry.name).toLowerCase()))
+		.filter((entry) => !entry.isDirectory() && isPlayableMedia(entry.name))
 		.map((entry) => entry.name)
 		.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
 		.map((name) => toRelativePath(path.join(folderPath, name)));

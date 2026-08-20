@@ -15,6 +15,7 @@
 	import { playerStore } from '$lib/stores/player.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { subtitlesStore } from '$lib/stores/subtitles.svelte';
+	import { isPlayableMedia } from '$lib/utils/mediaTypes';
 	import { recentStore } from '$lib/stores/recent.svelte';
 	import { audioEffects } from '$lib/services/audioEffects';
 	import { roomCaster } from '$lib/services/roomCaster.svelte';
@@ -86,7 +87,7 @@
 	// media has none (or they load late), the arrows fall back to time seeking.
 	const isChapterSeek = $derived(seekUnitIndex === CHAPTER_UNIT_INDEX && hasChapters);
 
-	// Sidecar subtitles (`<media name>.srt`). The track belongs to the file that is
+	// Sidecar subtitles (`<media name>.srt` / `.vtt`). The track belongs to the file that is
 	// actually loaded — for a chaptered/DAISY book that changes as playback moves
 	// through the book, so reload on every file change rather than once on mount.
 	$effect(() => {
@@ -320,9 +321,8 @@
 			const response = await fetch(`/api/files?path=${encodeURIComponent(folder)}`);
 			if (!response.ok) return [];
 			const data = await response.json();
-			const audioExtensions = ['.mp3', '.m4a', '.m4b', '.aac', '.ogg', '.opus', '.wav', '.flac'];
 			return (data.files as { name: string; path: string; isDirectory: boolean }[])
-				.filter((f) => !f.isDirectory && audioExtensions.some((ext) => f.name.toLowerCase().endsWith(ext)))
+				.filter((f) => !f.isDirectory && isPlayableMedia(f.name))
 				.map((f) => f.path)
 				.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 		} catch {

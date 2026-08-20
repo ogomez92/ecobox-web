@@ -137,11 +137,12 @@ src/
 └── server/
     ├── db/             # Drizzle schema + connection singleton
     └── services/       # files.ts, daisy.ts, id3chapters.ts, mp4chapters.ts,
-                        #   subtitles.ts
+                        #   subtitles.ts, videoConvert.ts
 ```
 
 ### Media Types
 - **Single files**: Regular audio files (.mp3, .m4a, .m4b, etc.). Embedded chapters are extracted server-side — see "Embedded chapters" below.
+- **Video files**: Played, never shown — see "Video (audio-only playback)" below.
 - **Chaptered folders**: Directories with `.CHAPTERED` marker file — treated as a single playable unit, files become chapters in order. The marker is preserved across uploads (negotiate refuses to delete it).
 - **DAISY books**: Detected by `ncc.html` / `ncc.xml` / `Navigation.xml`.
 - **Radio files**: `.radio` files containing JSON `{url, name, username?, password?}`.
@@ -156,12 +157,64 @@ src/
 
 Everything is read positionally through a file descriptor — `moov` usually sits behind a multi-GB `mdat`, and only the *text* track's sample table is parsed, so a 1 GB m4b answers in ~2 ms. A malformed container returns `[]` rather than throwing: missing chapters must never break playback. Adding a new container means adding a branch here — **no client change is needed**, since clients only consume `chapters` and ignore `type`.
 
-### Sidecar subtitles (.srt)
+### Video (audio-only playback)
 
-A media file gets subtitles by having a **sibling `.srt` with the same base name** — `Chapter 1.mp3` → `Chapter 1.srt` (`Chapter 1.mp3.srt` is accepted too, since some rippers write that). Nothing is registered or embedded; dropping the file next to the media is the whole contract, which is also why it works for one file *inside* a chaptered/DAISY folder as much as for a standalone file.
+Video is a playable media type, but the picture is never rendered: a video file is
+loaded into the **same `<audio>` element** as everything else, which decodes the
+audio track and has nowhere to draw the video. There is no `<video>` tag anywhere in
+the app and no per-file "video mode" — a row routes to `/play` exactly like an mp3.
 
-- **`GET /api/media/subtitles?path=…`** → `{available, path?, cues:[{start,end,text}]}`. It answers `{available:false, cues:[]}` — never an error — when there's no track, because the player asks for every file it loads. `$server/services/subtitles.ts` does the work: the sibling directory is listed **once** and compared case-insensitively and NFC-normalized (accented names are stored NFD as often as NFC), then parsed and cached per file keyed on size + mtime.
-- **The parser is deliberately forgiving** (`parseSrt`, unit-tested in `subtitles.test.ts`): cues are found by their *timing line* rather than by blank-line blocks, so files with missing indices or missing separators still parse. It accepts `.` or `,` before the milliseconds, short ms fields, the hour-less `MM:SS,mmm` form, CRLF, and strips `<i>`/`<font>` tags, `{\an8}` ASS overrides and HTML entities. Encoding follows the DAISY rule — UTF-16 by BOM, else UTF-8, else windows-1252 when UTF-8 yields replacement chars (Spanish/French .srt files are routinely latin-1). Anything unparseable yields `[]`: subtitles must never break playback.
+`$lib/utils/mediaTypes.ts` is the one place extensions are classified (pure, no
+server imports, so `files.ts`, `daisy.ts`, `PlaybackView` and `UploadDialog` all
+agree). It splits video in two, and the split is the whole design:
+
+- **`PLAYABLE_VIDEO_EXTENSIONS`** (`.mp4 .m4v .mov .webm`) — the browser can demux
+  these, so they stream as-is with their real `Content-Type` (`/api/media/[...path]`
+  carries the video MIME table) and are **left alone on upload**. `isPlayableMedia()`
+  counts them, so they take part in next/previous track and in `.CHAPTERED` folders.
+- **`CONVERTIBLE_VIDEO_EXTENSIONS`** (`.mkv .avi .wmv .ts .mpg .vob .ogv …`) — no
+  browser opens these, so `UploadDialog` **auto-extracts their audio after upload**
+  (`needsAudioExtraction()`), the same way an uploaded `.epub` is auto-converted.
+  Otherwise they would sit in the library as permanently unplayable rows.
+
+**`POST /api/media/extract-audio {path}`** → `$server/services/videoConvert.ts`. It
+is offered by hand for *any* video (the ⋮ menu's "Extract audio", which shares
+`onconvert` with the book "Convert" action — `FileExplorer.handleConvert` branches on
+`file.isVideoFile`), since streaming 4 GB to hear 100 MB is wasteful even when it
+works. The pipeline mirrors `bookConvert`, deliberately: **probe → extract → verify
+independently → only then delete the original**. Nothing is deleted on any failure.
+
+- **Audio is stream-copied whenever it can be** (`chooseAudioTarget`, unit-tested):
+  aac/alac→`.m4a`, mp3→`.mp3`, flac→`.flac`, opus→`.opus`, vorbis→`.ogg`. That turns a
+  4 GB mkv into its audio track in well under a second and loses nothing. Anything
+  else (AC-3, DTS, TrueHD, PCM, WMA) is transcoded to AAC 128k, downmixed to stereo
+  above 2 channels. `.m4a` output always gets **`-movflags +faststart`** — without it
+  the `moov` index lands at the end and a browser must fetch the whole file to seek.
+- **The output keeps the source's base name** (`movie.mkv` → `movie.m4a`), which is
+  what keeps sidecar subtitles matching; only a real collision gets a ` (audio N)`
+  suffix.
+- **Verify** is a re-probe of the *produced* file: non-empty, and its duration within
+  2% (2s floor) of the source's. A short or empty result is deleted and the video
+  kept — a truncated extraction must never cost the user their only copy.
+- **Text subtitle streams are pulled out as sidecars** while the container is open
+  (`subrip`/`ass`/`mov_text`/`webvtt` → `<base>.<lang>.srt`, e.g. `movie.eng.srt`),
+  which the prefix matcher below then picks up automatically. Image-based tracks
+  (PGS, VobSub) are skipped: they would need OCR. An existing file is never
+  overwritten, and a subtitle that fails to extract is a missing extra, not a failed
+  conversion.
+
+Needs system **`ffmpeg`** + **`ffprobe`** (both already on this host, and on Windows
+via winget). Conversion runs synchronously (v1); the route's `dispatchExtract` seam
+is where a long transcode can later become a background job.
+
+### Sidecar subtitles (.srt / .vtt)
+
+A media file gets subtitles by having a **sibling `.srt` or `.vtt`** next to it. Nothing is registered or embedded; dropping the file next to the media is the whole contract, which is also why it works for one file *inside* a chaptered/DAISY folder as much as for a standalone file, and why an extracted `movie.eng.srt` needs no further wiring.
+
+**Which file is picked** is `pickSubtitleFile()` — pure, so the (fiddly) ranking is unit-tested without a filesystem. Exact names win outright, in the order `<base>.srt`, `<base>.vtt`, `<name.ext>.srt`, `<name.ext>.vtt` (the `Chapter 1.mp3.srt` form some rippers write). **Only then does prefix matching run**: any track whose name merely *starts* with the media name — `movie-forced.srt`, `movie.en.vtt`, `movie.mp4.es.srt` — because that is how downloaded and extracted tracks are actually named. Prefix matching is guarded two ways, or it would hand a file the wrong track: a candidate whose stem is **another file's own name is skipped entirely** (in a folder of `ep1.mp3` … `ep10.mp3`, `ep10.srt` can never be given to `ep1.mp3`), and what remains is ranked by whether the extra text starts at a **qualifier boundary** (`. - _ ( [`), then by how little was added, then by format.
+
+- **`GET /api/media/subtitles?path=…`** → `{available, path?, format?, cues:[{start,end,text}]}`. It answers `{available:false, cues:[]}` — never an error — when there's no track, because the player asks for every file it loads. `$server/services/subtitles.ts` does the work: the sibling directory is listed **once** and compared case-insensitively and NFC-normalized (accented names are stored NFD as often as NFC), then parsed and cached per file keyed on size + mtime. **`format` is the only thing that distinguishes srt from vtt in the response** — cues are identical, so the whole client (store, caption box, live region, `S` shortcut) is format-agnostic and needed no change to gain WebVTT.
+- **One forgiving parser serves both formats** (`parseSubtitles(input, 'srt'|'vtt')`, unit-tested in `subtitles.test.ts`): cues are found by their *timing line* rather than by blank-line blocks, so files with missing indices or missing separators still parse. It accepts `.` or `,` before the milliseconds, short ms fields, the hour-less `MM:SS,mmm` form, CRLF, and strips `<i>`/`<font>` tags, `{\an8}` ASS overrides and HTML entities. WebVTT then needs almost nothing extra — trailing cue settings (`align:start position:10%`) are ignored because the timing pattern only claims the front of the line, and `<v Speaker>`/`<c.loud>`/`<00:00:01.000>` spans fall to the existing tag strip. The two real differences are **format-gated**: `NOTE`/`STYLE`/`REGION` blocks are skipped wholesale, and the line before a timing line is dropped as a **cue identifier** (in SubRip only a bare *number* is, since a `.srt` cue's last line may legitimately butt up against the next timing line). Encoding follows the DAISY rule — UTF-16 by BOM, else UTF-8, else windows-1252 when UTF-8 yields replacement chars (Spanish/French .srt files are routinely latin-1). Anything unparseable yields `[]`: subtitles must never break playback.
 - **Cue times are file-relative**, i.e. the same clock as `playerStore.currentTime` — *not* the book's absolute timeline that chapters use. `$lib/stores/subtitles.svelte.ts` holds the whole track in memory and binary-searches it per tick; `PlaybackView` reloads it whenever `playerStore.currentFile` changes, so a book picks up each file's own track as it advances. Overlapping cues resolve to the one that started last.
 - **UI** (`PlaybackView`): a caption box above the seek bar, plus a **live region** that is the screen-reader copy of the same text — the visible box is `aria-hidden` while the live region is carrying it, so the line isn't duplicated in the buffer. Both politeness levels are rendered as separate sr-only regions (swapping `aria-live` on a live element is unreliable) and only the selected one ever receives text. **`assertive` is the default**: each caption supersedes the previous one, whereas `polite` queues them and drifts further behind the audio the more dialogue there is — settings offer `polite` and `off` (visual only). The `Subtitles` footer button and the **`S`** shortcut toggle the `subtitlesEnabled` setting, and both only appear/act when the file actually has a track (`S` on a track-less file announces that instead).
 
@@ -221,7 +274,7 @@ Both players share a code-based `handleKeydown` (media: `PlaybackView.svelte`; r
 
 Bare **`s`** toggles subtitles in the media player (see "Sidecar subtitles"); it sits in the default `switch`, so `winampShortcuts` doesn't claim it.
 
-**Next/previous track (media player)** lives in `PlaybackView.switchTrack(±1)`: it lists the current file's folder siblings via `/api/files` (audio-only, natural sort), finds the current file, and `goto()`s the neighbour. It **never crosses folder boundaries and never wraps** past the first/last file (no-op at the edge). Chaptered folders instead map `b`/`z` to `nextChapter`/`previousChapter` (stays within the folder unit); radio is a no-op. Auto-advance reuses this same helper via the store's **`onTrackEnded`** callback — the store owns "a track ended", the view owns routing + sibling listing. To keep playing across the switch regardless of the `autoplay` setting, set **`playerStore.playOnNextLoad = true`** before navigating (`loadFile` consumes it, one-shot). The play route (`/play/[...path]/+page.svelte`) wraps `<PlaybackView>` in `{#key filePath}` so a track switch fully remounts (onMount reloads + plays the new file).
+**Next/previous track (media player)** lives in `PlaybackView.switchTrack(±1)`: it lists the current file's folder siblings via `/api/files` (`isPlayableMedia`, i.e. audio + browser-playable video, natural sort), finds the current file, and `goto()`s the neighbour. It **never crosses folder boundaries and never wraps** past the first/last file (no-op at the edge). Chaptered folders instead map `b`/`z` to `nextChapter`/`previousChapter` (stays within the folder unit); radio is a no-op. Auto-advance reuses this same helper via the store's **`onTrackEnded`** callback — the store owns "a track ended", the view owns routing + sibling listing. To keep playing across the switch regardless of the `autoplay` setting, set **`playerStore.playOnNextLoad = true`** before navigating (`loadFile` consumes it, one-shot). The play route (`/play/[...path]/+page.svelte`) wraps `<PlaybackView>` in `{#key filePath}` so a track switch fully remounts (onMount reloads + plays the new file).
 
 **Next/previous track (book reader)** — `b`/`z` navigate **by chapter**: `ReaderView.nextTrack()`/`prevTrack()` delegate to the reader store's `nextHeading()`/`prevHeading()` (chapters == heading chunks), which resume reading if we were already playing (mirrors the media player). The reader's `x`/`c`/`v` are fully functional too.
 

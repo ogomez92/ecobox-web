@@ -4,6 +4,7 @@
 	import { formatBytes } from '$lib/utils/format';
 	import { t } from '$lib/i18n/index.svelte';
 	import { isBookExtension } from '$lib/utils/bookChunks';
+	import { needsAudioExtraction } from '$lib/utils/mediaTypes';
 	import type { UploadNegotiateRequest, UploadNegotiateResponse } from '$lib/types';
 
 	interface Props {
@@ -353,6 +354,39 @@
 					}
 				} catch {
 					progressAnnouncement = t('upload.convertFailed', { name: file.name });
+				}
+			}
+
+			// Videos in a container no browser can demux are turned into audio files
+			// (the original goes once the result verifies), so they don't land in the
+			// library as permanently unplayable rows. Playable containers are left
+			// alone — extraction for those is a deliberate ⋮ menu action.
+			const unplayableVideos = filesToUpload.filter((f) =>
+				needsAudioExtraction(f.webkitRelativePath || f.name)
+			);
+			for (const file of unplayableVideos) {
+				const rel = file.webkitRelativePath || file.name;
+				const videoPath = currentPath ? `${currentPath}/${rel}` : rel;
+				progressAnnouncement = t('upload.extracting', { name: file.name });
+				try {
+					const res = await fetch('/api/media/extract-audio', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ path: videoPath })
+					});
+					const data = res.ok ? await res.json() : { status: 'failed' };
+					if (data.status === 'converted') {
+						const subtitles = (data.subtitlePaths as string[] | undefined)?.length ?? 0;
+						progressAnnouncement =
+							subtitles > 0
+								? t('upload.extractedWithSubtitles', { name: file.name, n: subtitles })
+								: t('upload.extracted', { name: file.name });
+					} else {
+						const base = t('upload.extractFailed', { name: file.name });
+						progressAnnouncement = data.reason ? `${base} — ${data.reason}` : base;
+					}
+				} catch {
+					progressAnnouncement = t('upload.extractFailed', { name: file.name });
 				}
 			}
 

@@ -14,7 +14,34 @@ const MIME_TYPES: Record<string, string> = {
 	'.ogg': 'audio/ogg',
 	'.opus': 'audio/opus',
 	'.wav': 'audio/wav',
-	'.flac': 'audio/flac'
+	'.flac': 'audio/flac',
+	// Video is served with its real type and loaded into an `<audio>` element, which
+	// decodes the audio track and has nowhere to draw the picture. The containers a
+	// browser can't demux are listed too, so an un-converted one at least downloads
+	// with a sane type instead of application/octet-stream.
+	'.mp4': 'video/mp4',
+	'.m4v': 'video/mp4',
+	'.mov': 'video/quicktime',
+	'.webm': 'video/webm',
+	'.mkv': 'video/x-matroska',
+	'.avi': 'video/x-msvideo',
+	'.wmv': 'video/x-ms-wmv',
+	'.flv': 'video/x-flv',
+	'.f4v': 'video/x-f4v',
+	'.ts': 'video/mp2t',
+	'.m2ts': 'video/mp2t',
+	'.mts': 'video/mp2t',
+	'.mpg': 'video/mpeg',
+	'.mpeg': 'video/mpeg',
+	'.mpv': 'video/mpeg',
+	'.vob': 'video/mpeg',
+	'.ogv': 'video/ogg',
+	'.3gp': 'video/3gpp',
+	'.3g2': 'video/3gpp2',
+	'.asf': 'video/x-ms-asf',
+	'.divx': 'video/x-msvideo',
+	'.rm': 'application/vnd.rn-realmedia',
+	'.rmvb': 'application/vnd.rn-realmedia-vbr'
 };
 
 // Generate ETag from file path, size, and mtime

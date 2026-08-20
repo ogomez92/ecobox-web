@@ -170,7 +170,17 @@
 		filesStore.loadStorage();
 	}
 
+	/**
+	 * The ⋮ menu offers one "convert" action whose meaning depends on the file:
+	 * a raw book becomes a readable book folder, a video becomes an audio file.
+	 * Both delete the original once the result verifies, so both report what
+	 * happened through the live region.
+	 */
 	async function handleConvert(file: FileEntry) {
+		if (file.isVideoFile) {
+			await handleExtractAudio(file);
+			return;
+		}
 		announce(t('upload.converting', { name: file.name }));
 		try {
 			const res = await fetch('/api/books/convert', {
@@ -190,6 +200,33 @@
 			}
 		} catch {
 			announce(t('upload.convertFailed', { name: file.name }));
+		}
+		filesStore.loadFiles(filesStore.currentPath);
+		filesStore.loadStorage();
+	}
+
+	async function handleExtractAudio(file: FileEntry) {
+		announce(t('upload.extracting', { name: file.name }));
+		try {
+			const res = await fetch('/api/media/extract-audio', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ path: file.path })
+			});
+			const data = res.ok ? await res.json() : { status: 'failed' };
+			if (data.status === 'converted') {
+				const subtitles = (data.subtitlePaths as string[] | undefined)?.length ?? 0;
+				announce(
+					subtitles > 0
+						? t('upload.extractedWithSubtitles', { name: file.name, n: subtitles })
+						: t('upload.extracted', { name: file.name })
+				);
+			} else {
+				const base = t('upload.extractFailed', { name: file.name });
+				announce(data.reason ? `${base} — ${data.reason}` : base);
+			}
+		} catch {
+			announce(t('upload.extractFailed', { name: file.name }));
 		}
 		filesStore.loadFiles(filesStore.currentPath);
 		filesStore.loadStorage();

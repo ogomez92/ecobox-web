@@ -4,9 +4,9 @@ import path from 'path';
 import { env } from '$env/dynamic/private';
 import type { FileEntry, StorageInfo } from '$lib/types';
 import { isBookExtension } from '$lib/utils/bookChunks';
+import { isAudioExtension, isVideoExtension } from '$lib/utils/mediaTypes';
 import { foldForSearch } from '$lib/utils/text';
 export { isBookExtension, BOOK_EXTENSIONS } from '$lib/utils/bookChunks';
-const AUDIO_EXTENSIONS = ['.mp3', '.m4a', '.m4b', '.aac', '.ogg', '.opus', '.wav', '.flac'];
 const DAISY_MARKERS = ['ncc.html', 'ncc.xml', 'Navigation.xml'];
 const CHAPTERED_MARKER = '.CHAPTERED';
 const RADIO_EXTENSION = '.radio';
@@ -156,6 +156,11 @@ export async function listDirectory(relativePath: string = ''): Promise<FileEntr
 				// Check for a raw, not-yet-converted book source file.
 				if (isBookExtension(entry.name)) {
 					fileEntry.isRawBook = true;
+				}
+				// Video plays audio-only, but the row says so — and it's what the
+				// "Extract audio" action keys off.
+				if (isVideoExtension(entry.name)) {
+					fileEntry.isVideoFile = true;
 				}
 			}
 
@@ -373,9 +378,20 @@ export async function createFolder(parentPath: string, name: string): Promise<st
 }
 
 export function isAudioFile(filename: string): boolean {
-	const ext = path.extname(filename).toLowerCase();
-	return AUDIO_EXTENSIONS.includes(ext);
+	return isAudioExtension(filename);
 }
+
+/**
+ * Video is played through the same `<audio>` element as everything else, so the
+ * whole "is this playable" question stays in one shared module.
+ */
+export {
+	isPlayableMedia,
+	isVideoExtension,
+	needsAudioExtraction,
+	AUDIO_EXTENSIONS,
+	VIDEO_EXTENSIONS
+} from '$lib/utils/mediaTypes';
 
 export async function getFileStats(relativePath: string): Promise<{ size: number; mtime: Date }> {
 	const filePath = resolvePath(relativePath);

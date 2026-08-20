@@ -4,21 +4,30 @@ import { resolveExistingPath } from './files';
 import type { SubtitleCue } from '$lib/types';
 
 /**
- * SubRip (.srt) sidecar subtitles.
+ * Sidecar subtitles (.srt / .vtt).
  *
  * A subtitle track is a plain sibling file: `Chapter 1.mp3` → `Chapter 1.srt`
- * (`Chapter 1.mp3.srt` is accepted too, since some rippers write that). Nothing
- * is embedded and nothing is registered — dropping the .srt next to the media is
- * the whole contract, which is also what makes it work for one file of a
- * chaptered/DAISY folder as much as for a standalone file.
+ * (`Chapter 1.mp3.srt` is accepted too, since some rippers write that, and so is
+ * `.vtt` in either form). Nothing is embedded and nothing is registered —
+ * dropping the file next to the media is the whole contract, which is also what
+ * makes it work for one file of a chaptered/DAISY folder as much as for a
+ * standalone file.
  *
- * The parser is deliberately forgiving: real-world .srt files come from dozens of
- * tools and routinely have missing indices, missing blank lines, `.` instead of
+ * Beyond the exact names, any sibling track whose name merely *starts* with the
+ * media name is accepted — `movie-forced.srt`, `movie.en.vtt`, `movie.mp4.es.srt`
+ * — because that is how downloaded and extracted tracks are actually named. See
+ * pickSubtitleFile for how a near-miss is kept from stealing another file's track.
+ *
+ * The parser is deliberately forgiving: real-world subtitle files come from dozens
+ * of tools and routinely have missing indices, missing blank lines, `.` instead of
  * `,` before the milliseconds, HTML/ASS markup, and legacy encodings. A file we
  * can't make sense of yields `[]` — subtitles must never break playback.
  */
 
-export const SUBTITLE_EXTENSION = '.srt';
+/** Sidecar formats, in the order they are preferred when both exist. */
+export const SUBTITLE_EXTENSIONS = ['.srt', '.vtt'];
+
+export type SubtitleFormat = 'srt' | 'vtt';
 
 /** Sanity ceiling: a subtitle file is text, a multi-MB one is a mistake. */
 const MAX_SUBTITLE_BYTES = 8 * 1024 * 1024;
@@ -30,6 +39,9 @@ const MAX_CUES = 50_000;
 /** `HH:MM:SS,mmm`, with the hours optional and `.` accepted for the decimal. */
 const TIMESTAMP = String.raw`(?:(\d+):)?(\d{1,3}):(\d{1,2})[.,](\d{1,3})`;
 const TIMING_RE = new RegExp(`^\\s*${TIMESTAMP}\\s*-->\\s*${TIMESTAMP}`);
+
+/** WebVTT blocks that carry no cues: their body is comments, CSS or region setup. */
+const VTT_BLOCK_RE = /^(NOTE|STYLE|REGION)(\s|$)/;
 
 function toSeconds(hours: string | undefined, minutes: string, seconds: string, millis: string): number {
 	return (
@@ -60,17 +72,17 @@ function decodeEntity(entity: string, body: string): string {
 }
 
 /**
- * Strip the markup subtitle authors sprinkle in — `<i>`/`<font …>` tags and
- * ASS/SSA override blocks like `{\an8}` — and normalize whitespace. Line breaks
- * *between* lines are kept: they're the cue's own layout, and the reader shows
- * them as written.
+ * Strip the markup subtitle authors sprinkle in — `<i>`/`<font …>` tags, WebVTT's
+ * `<v Speaker>`/`<c.loud>`/`<00:00:01.000>` spans, and ASS/SSA override blocks
+ * like `{\an8}` — and normalize whitespace. Line breaks *between* lines are kept:
+ * they're the cue's own layout, and the reader shows them as written.
  */
 function cleanCueText(lines: string[]): string {
 	return lines
 		.map((line) =>
 			line
 				.replace(/\{\\[^}]*\}/g, '') // {\an8}, {\pos(…)}
-				.replace(/<[^>]+>/g, '') // <i>, </i>, <font color="#fff">
+				.replace(/<[^>]+>/g, '') // <i>, </i>, <font color="#fff">, <v Bob>
 				.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, decodeEntity)
 				.replace(/\s+/g, ' ')
 				.trim()
@@ -80,17 +92,29 @@ function cleanCueText(lines: string[]): string {
 }
 
 /**
- * Parse a .srt document into time-ordered cues.
+ * Parse a .srt or .vtt document into time-ordered cues.
  *
  * Cues are found by their timing line rather than by blank-line blocks, so a file
  * that omits indices or separators still parses. Text runs until a blank line, the
- * next timing line, or the bare index that precedes one.
+ * next timing line, or the line that introduces one. The two formats differ only
+ * in what precedes a cue: SubRip puts a bare number there, WebVTT an optional
+ * free-text identifier (plus NOTE/STYLE/REGION blocks that carry no cues at all).
+ * Cue settings trailing a WebVTT timing line (`align:start position:10%`) need no
+ * handling — the timing pattern only claims the front of the line.
  */
-export function parseSrt(input: string): SubtitleCue[] {
+export function parseSubtitles(input: string, format: SubtitleFormat = 'srt'): SubtitleCue[] {
 	const lines = input.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/);
 	const cues: SubtitleCue[] = [];
+	const isVtt = format === 'vtt';
 
 	for (let i = 0; i < lines.length && cues.length < MAX_CUES; i++) {
+		// A WebVTT comment/style/region block runs to the next blank line and must be
+		// skipped wholesale — its body is not cue text.
+		if (isVtt && VTT_BLOCK_RE.test(lines[i]) && (i === 0 || lines[i - 1].trim() === '')) {
+			while (i < lines.length && lines[i].trim() !== '') i++;
+			continue;
+		}
+
 		const timing = TIMING_RE.exec(lines[i]);
 		if (!timing) continue;
 
@@ -103,8 +127,11 @@ export function parseSrt(input: string): SubtitleCue[] {
 			const line = lines[j];
 			if (line.trim() === '') break; // the normal cue separator
 			if (TIMING_RE.test(line)) break; // separator missing — next cue starts here
-			// A bare number immediately before a timing line is the *next* cue's index.
-			if (/^\s*\d+\s*$/.test(line) && j + 1 < lines.length && TIMING_RE.test(lines[j + 1])) break;
+			// The line right before a timing line introduces the *next* cue: a bare
+			// number in SubRip, any identifier in WebVTT (where a blank line between
+			// cues is mandatory, so nothing else can legitimately sit there).
+			const introducesNextCue = j + 1 < lines.length && TIMING_RE.test(lines[j + 1]);
+			if (introducesNextCue && (isVtt || /^\s*\d+\s*$/.test(line))) break;
 			text.push(line);
 		}
 		i = j - 1; // resume at the separator; the loop's i++ steps onto it
@@ -115,6 +142,14 @@ export function parseSrt(input: string): SubtitleCue[] {
 	}
 
 	return cues.sort((a, b) => a.start - b.start);
+}
+
+export const parseSrt = (input: string): SubtitleCue[] => parseSubtitles(input, 'srt');
+export const parseVtt = (input: string): SubtitleCue[] => parseSubtitles(input, 'vtt');
+
+/** Which parser dialect a file name asks for; unknown extensions read as SubRip. */
+export function subtitleFormatOf(fileName: string): SubtitleFormat {
+	return path.extname(fileName).toLowerCase() === '.vtt' ? 'vtt' : 'srt';
 }
 
 // MARK: - Reading
@@ -136,20 +171,82 @@ function decodeSubtitles(buffer: Buffer): string {
 
 const normalizeName = (name: string) => name.normalize('NFC').toLowerCase();
 
-/** `movie.mp4` → `movie.srt`, then `movie.mp4.srt`. In preference order. */
-function subtitleCandidates(fileName: string): string[] {
-	const ext = path.extname(fileName);
-	const base = ext ? fileName.slice(0, -ext.length) : fileName;
-	const candidates = [`${base}${SUBTITLE_EXTENSION}`];
-	if (ext) candidates.push(`${fileName}${SUBTITLE_EXTENSION}`);
-	return candidates.map(normalizeName);
+/** A name split at its final dot: `movie.mp4` → `movie` + `.mp4`. */
+function splitExtension(name: string): { base: string; ext: string } {
+	const ext = path.extname(name);
+	return { base: ext ? name.slice(0, -ext.length) : name, ext: ext.toLowerCase() };
 }
 
 /**
- * The sibling .srt for a media path, or null. Matching is case-insensitive and
- * Unicode-normalization-insensitive (accented names are stored NFD on disk as
- * often as NFC — see resolveExistingPath), so the directory is listed once and
- * compared rather than probed name by name.
+ * Characters that read as "and now a qualifier": `movie-forced`, `movie.en`,
+ * `movie_es`, `movie (cc)`. A prefix match that breaks at one of these is a far
+ * better bet than one that lands mid-word, so it is ranked first.
+ */
+const QUALIFIER_BOUNDARY = /^[.\-_ ([]/;
+
+/**
+ * Choose the subtitle track for `mediaFileName` out of one directory's entries,
+ * or null. Pure, so the (fiddly) ranking is unit-testable without a filesystem.
+ *
+ * Exact names win outright, in the order `<base>.srt`, `<base>.vtt`,
+ * `<name.ext>.srt`, `<name.ext>.vtt`. Only then does prefix matching run, and it
+ * is guarded: a candidate whose stem is another file's own name is skipped
+ * entirely, so in a folder of `ep1.mp3` … `ep10.mp3` the track `ep10.srt` can
+ * never be handed to `ep1.mp3`. What remains is ranked by whether the extra text
+ * starts at a qualifier boundary, then by how little was added, then by format.
+ */
+export function pickSubtitleFile(mediaFileName: string, entryNames: string[]): string | null {
+	const mediaFull = normalizeName(mediaFileName);
+	const mediaBase = normalizeName(splitExtension(mediaFileName).base);
+	if (!mediaBase) return null;
+
+	const subtitles: { name: string; stem: string; ext: string }[] = [];
+	// Every *other* file in the folder, by both its full name and its base name —
+	// the two forms a sidecar of that file would be named after.
+	const claimedByOthers = new Set<string>();
+
+	for (const name of entryNames) {
+		const { base, ext } = splitExtension(name);
+		if (SUBTITLE_EXTENSIONS.includes(ext)) {
+			subtitles.push({ name, stem: normalizeName(base), ext });
+			continue;
+		}
+		const normalized = normalizeName(name);
+		if (normalized === mediaFull) continue; // the media file itself claims nothing
+		claimedByOthers.add(normalized);
+		claimedByOthers.add(normalizeName(base));
+	}
+
+	for (const stem of [mediaBase, mediaFull]) {
+		for (const ext of SUBTITLE_EXTENSIONS) {
+			const exact = subtitles.find((s) => s.stem === stem && s.ext === ext);
+			if (exact) return exact.name;
+		}
+	}
+
+	const candidates = subtitles
+		.filter((s) => s.stem.startsWith(mediaBase) && !claimedByOthers.has(s.stem))
+		.map((s) => ({
+			...s,
+			boundary: QUALIFIER_BOUNDARY.test(s.stem.slice(mediaBase.length)) ? 0 : 1,
+			extRank: SUBTITLE_EXTENSIONS.indexOf(s.ext)
+		}))
+		.sort(
+			(a, b) =>
+				a.boundary - b.boundary ||
+				a.stem.length - b.stem.length ||
+				a.extRank - b.extRank ||
+				a.name.localeCompare(b.name)
+		);
+
+	return candidates[0]?.name ?? null;
+}
+
+/**
+ * The sibling subtitle file for a media path, or null. Matching is
+ * case-insensitive and Unicode-normalization-insensitive (accented names are
+ * stored NFD on disk as often as NFC — see resolveExistingPath), so the directory
+ * is listed once and compared rather than probed name by name.
  */
 export async function findSubtitleFile(mediaRelPath: string): Promise<string | null> {
 	const fileName = path.basename(mediaRelPath);
@@ -165,16 +262,17 @@ export async function findSubtitleFile(mediaRelPath: string): Promise<string | n
 		return null; // Folder gone or unreadable — simply no subtitles.
 	}
 
-	for (const candidate of subtitleCandidates(fileName)) {
-		const match = entries.find((entry) => !entry.isDirectory() && normalizeName(entry.name) === candidate);
-		if (match) return dirRel === '.' ? match.name : `${dirRel}/${match.name}`;
-	}
-	return null;
+	const names = entries.filter((entry) => !entry.isDirectory()).map((entry) => entry.name);
+	const match = pickSubtitleFile(fileName, names);
+	if (!match) return null;
+	return dirRel === '.' ? match : `${dirRel}/${match}`;
 }
 
 export interface SubtitleTrack {
-	/** Path of the .srt relative to MEDIA_ROOT. */
+	/** Path of the subtitle file relative to MEDIA_ROOT. */
 	path: string;
+	/** Which dialect it was parsed as. */
+	format: SubtitleFormat;
 	cues: SubtitleCue[];
 }
 
@@ -191,13 +289,14 @@ export async function getSubtitles(mediaRelPath: string): Promise<SubtitleTrack 
 	const stats = await fs.stat(absolutePath);
 	if (!stats.isFile() || stats.size > MAX_SUBTITLE_BYTES) return null;
 
+	const format = subtitleFormatOf(subtitleRel);
 	const key = `${stats.size}:${stats.mtimeMs}`;
 	const cached = cache.get(absolutePath);
-	if (cached?.key === key) return { path: subtitleRel, cues: cached.cues };
+	if (cached?.key === key) return { path: subtitleRel, format, cues: cached.cues };
 
-	const cues = parseSrt(decodeSubtitles(await fs.readFile(absolutePath)));
+	const cues = parseSubtitles(decodeSubtitles(await fs.readFile(absolutePath)), format);
 	if (cache.size > 64) cache.clear();
 	cache.set(absolutePath, { key, cues });
 
-	return { path: subtitleRel, cues };
+	return { path: subtitleRel, format, cues };
 }

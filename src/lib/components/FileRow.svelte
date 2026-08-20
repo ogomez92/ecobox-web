@@ -26,6 +26,7 @@
 		}
 		if (file.isRawBook) return 'book';
 		if (file.isRadioFile) return 'radio';
+		if (file.isVideoFile) return 'video';
 		return 'audio';
 	}
 
@@ -75,6 +76,9 @@
 			parts.push(t('fileTypes.rawBook'));
 		} else if (file.isRadioFile) {
 			parts.push(t('radio.label'));
+		} else if (file.isVideoFile) {
+			// Say both: it is a video file, and it will play as audio only.
+			parts.push(t('fileTypes.videoAudioOnly', { ext: getFileExtension() }));
 		} else {
 			parts.push(t('fileTypes.fileExt', { ext: getFileExtension() }));
 		}

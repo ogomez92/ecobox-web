@@ -6,8 +6,9 @@ import { getSubtitles } from '$server/services/subtitles';
  * Sidecar subtitles for a media file: `GET /api/media/subtitles?path=…`.
  *
  * Answers `{ available: false, cues: [] }` — never an error — when the file has
- * no sibling .srt, which is the common case: the player asks for every file it
- * loads and simply shows nothing when there's no track.
+ * no sibling .srt/.vtt, which is the common case: the player asks for every file
+ * it loads and simply shows nothing when there's no track. `format` says which
+ * dialect the track was; cues are identical either way.
  */
 export const GET: RequestHandler = async ({ url }) => {
 	const filePath = url.searchParams.get('path');
@@ -22,10 +23,10 @@ export const GET: RequestHandler = async ({ url }) => {
 			return json({ available: false, cues: [] });
 		}
 
-		return json({ available: true, path: track.path, cues: track.cues });
+		return json({ available: true, path: track.path, format: track.format, cues: track.cues });
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-			// The .srt vanished between listing and reading — treat as "no subtitles".
+			// The track vanished between listing and reading — treat as "no subtitles".
 			return json({ available: false, cues: [] });
 		}
 		if ((err as Error).message.includes('traversal')) {

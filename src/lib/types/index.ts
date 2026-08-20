@@ -13,6 +13,11 @@ export interface FileEntry {
 	isBookFolder?: boolean;
 	/** A raw, not-yet-converted book file (.epub/.docx/.txt) that can be converted. */
 	isRawBook?: boolean;
+	/**
+	 * A video file. It plays like any other media — the picture is never rendered —
+	 * but its audio can also be extracted to a real audio file (see mediaTypes.ts).
+	 */
+	isVideoFile?: boolean;
 	/** For book folders: false when conversion passed verify only loosely (original kept). */
 	bookVerified?: boolean;
 }
@@ -100,8 +105,8 @@ export interface BookInfo {
 }
 
 /**
- * One line of a sidecar .srt subtitle track. Times are seconds *within the media
- * file the .srt sits next to* — for a multi-file book that is the file's own
+ * One line of a sidecar .srt/.vtt subtitle track. Times are seconds *within the
+ * media file the track sits next to* — for a multi-file book that is the file's own
  * timeline, not the book's, since each file carries its own subtitles.
  */
 export interface SubtitleCue {
