@@ -12,29 +12,50 @@ import { settingsStore } from '$lib/stores/settings.svelte';
 // app is gated by APP_PASSWORD. Must match SonicRoom's .env CASTER_TOKENS.
 const CASTER_TOKEN = env.PUBLIC_SONICROOM_CASTER_TOKEN ?? '';
 
-// ICE servers — COPY of SonicRoom's client/src/hooks/useMediasoup.ts ICE_SERVERS
-// (self-hosted coturn at turn.gomsen.com). Credentials are visible to the
-// browser by design (WebRTC requires them client-side). Keep this list in sync
-// with the SonicRoom client if it ever changes.
-const ICE_SERVERS: RTCIceServer[] = [
+// ICE servers — mirrors SonicRoom's client/src/lib/runtime-config.ts.
+//
+// No TURN password is baked into this bundle. Coturn runs with
+// `use-auth-secret`, so we fetch a SHORT-LIVED credential from the server-side
+// minter when a cast starts. STUN needs no credentials and doubles as the
+// fallback if the minter is unreachable.
+const TURN_CREDENTIAL_URL = 'https://turn.gomsen.com/ice?app=ecobox';
+
+const STUN_ONLY_ICE: RTCIceServer[] = [
 	{ urls: 'stun:turn.gomsen.com:3478' },
-	{ urls: 'stun:stun.l.google.com:19302' },
-	{
-		urls: 'turn:turn.gomsen.com:3478?transport=udp',
-		username: 'gamesturn',
-		credential: 'sin6V0gFokHz78gM0GDfXmat'
-	},
-	{
-		urls: 'turn:turn.gomsen.com:3478?transport=tcp',
-		username: 'gamesturn',
-		credential: 'sin6V0gFokHz78gM0GDfXmat'
-	},
-	{
-		urls: 'turns:turn.gomsen.com:5349?transport=tcp',
-		username: 'gamesturn',
-		credential: 'sin6V0gFokHz78gM0GDfXmat'
-	}
+	{ urls: 'stun:stun.l.google.com:19302' }
 ];
+
+let iceCache: { servers: RTCIceServer[]; expiresAt: number } | null = null;
+let iceInFlight: Promise<RTCIceServer[]> | null = null;
+const ICE_SKEW_S = 60;
+
+async function iceServers(): Promise<RTCIceServer[]> {
+	if (iceCache && iceCache.expiresAt - ICE_SKEW_S > Date.now() / 1000) return iceCache.servers;
+	if (!iceInFlight) {
+		iceInFlight = (async () => {
+			try {
+				const res = await fetch(TURN_CREDENTIAL_URL, { credentials: 'omit' });
+				if (!res.ok) throw new Error(`minter returned ${res.status}`);
+				const body = (await res.json()) as { iceServers?: RTCIceServer[]; expiresAt?: number };
+				if (!Array.isArray(body.iceServers) || !body.iceServers.length) {
+					throw new Error('minter returned no iceServers');
+				}
+				iceCache = {
+					servers: body.iceServers,
+					expiresAt:
+						typeof body.expiresAt === 'number' ? body.expiresAt : Date.now() / 1000 + 300
+				};
+				return iceCache.servers;
+			} catch (err) {
+				console.warn('[cast] could not mint TURN credentials, using STUN only:', err);
+				return STUN_ONLY_ICE;
+			} finally {
+				iceInFlight = null;
+			}
+		})();
+	}
+	return iceInFlight;
+}
 
 // Stereo, hi-fi target for the music track. Far above SonicRoom's voice path
 // (mono 64k); negotiates up against the raised router ceiling (256000).
@@ -178,7 +199,7 @@ class RoomCaster {
 			console.info('[cast] step 5 transport params received');
 			const sendTransport = device.createSendTransport({
 				...(sendRes.params as Parameters<typeof device.createSendTransport>[0]),
-				iceServers: ICE_SERVERS
+				iceServers: await iceServers()
 			});
 			this.sendTransport = sendTransport;
 
