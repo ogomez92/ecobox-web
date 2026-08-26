@@ -68,6 +68,47 @@ Type-check with `pnpm run check`.
 
 Hot dev (`vite dev`) does not affect the running service — the service serves the last `build/` output.
 
+### Media storage (Storage Box over sshfs)
+
+`MEDIA_ROOT` is **not local disk**: it is a Hetzner Storage Box mounted over sshfs at
+`/mnt/storagebox` (systemd `mnt-storagebox.mount` + `.automount`, outside this repo).
+The link is fast but **far** — ~83 ms RTT — so bandwidth is never the bottleneck and
+round trips always are. Measured 2026-08-26:
+
+| operation | cost |
+|---|---|
+| bulk read / write | ~18 MB/s each way — matches raw `scp`, i.e. at line rate |
+| `stat`, warm | ~1 ms (60 s `attr_timeout`/`entry_timeout`, so listings are fine) |
+| **file creation** | **~480 ms** (~6 round trips), *regardless of file size* |
+| `rm` | ~160 ms |
+
+Two consequences, both easy to misdiagnose as "the app is slow":
+
+- **Creates serialize per directory.** Writing into one folder is capped at ~2.5 files/s
+  at *any* concurrency (the kernel holds the directory inode lock), versus 16.5 files/s
+  spread across 8 folders. A many-small-file upload therefore **cannot** be sped up by
+  uploading more files in parallel — the fix is staging on local disk (`/home/ecobox` is
+  local) and moving them across afterwards. Large single files are already at line rate.
+- **Positional reads cost a full RTT each.** The "~2 ms for a 1 GB m4b" figure under
+  "Embedded chapters" is a local-disk number; `mp4chapters.ts` does small random reads,
+  so against the Storage Box each one is ~83 ms.
+
+**FUSE readahead is tuned outside this repo, and reads collapse without it.** The bdi
+default `read_ahead_kb=128` caps sequential reads at ~2.8 MB/s (the bandwidth-delay
+product here is ~1.5 MB, so 128 KB is ~12x too small); at 4096 it does 12–23 MB/s.
+`/usr/local/sbin/fuse-tune` + `storagebox-tune.service` (oneshot, `PartOf=` /
+`WantedBy=mnt-storagebox.mount`) reapply it on every mount. It has to be a service that
+resolves the bdi at runtime from `/proc/self/mountinfo`, because sshfs has no readahead
+option (`max_read` is the SFTP request size, not the readahead window), mount units
+reject `ExecStartPost=`, and the bdi carries no identifying udev attributes while its
+number is reallocated on every remount. If reads ever feel slow again, check
+`read_ahead_kb` is not back at 128:
+
+```bash
+cat /sys/class/bdi/$(grep ' /mnt/storagebox ' /proc/self/mountinfo \
+  | grep fuse | awk '{print $3}')/read_ahead_kb    # want 4096, not 128
+```
+
 ### Native build approval (pnpm allow-list)
 
 pnpm 11.4+ refuses to run dependency install/build scripts unless they're explicitly approved, and exits 1 with `ERR_PNPM_IGNORED_BUILDS` on every `pnpm install`/`pnpm run *` until each is decided. Approval lives in `pnpm-workspace.yaml` under **`allowBuilds`** (a `pkg: true|false` map — this is the key pnpm actually gates on here; a matching `onlyBuiltDependencies` list sits alongside it). The trusted, must-build deps are already set `true`:
@@ -81,7 +122,7 @@ allowBuilds:
 
 If a pnpm upgrade ever rewrites those values back to the placeholder `set this to true or false` (it regenerates the block as a prompt when something is unapproved), just set them to `true` again and re-run `pnpm install`.
 
-**better-sqlite3 binding:** `vite build` runs DB code during prerender, so it fails with "Could not locate the bindings file" if the native binding isn't compiled for the current Node version (e.g. after a Node upgrade). With the deps approved above, a plain `pnpm install` recompiles it (watch for the `gyp info ok` line). Because that install runs as root, **also `chown -R ecobox:ecobox node_modules`** afterward (alongside `build`/`.svelte-kit`) so the service can read it. Verify the binding exists with `find node_modules/.pnpm/better-sqlite3@*/ -name '*.node'`, or just hit a DB-backed endpoint (`curl -s -o /dev/null -w '%{http_code}' localhost:4923/api/settings` → 200).
+**better-sqlite3 binding:** `vite build` runs DB code during prerender, so it fails with "Could not locate the bindings file" if the native binding isn't compiled for the current Node version (e.g. after a Node upgrade). With the deps approved above, a plain `pnpm install` recompiles it (watch for the `gyp info ok` line). Because that install runs as root, **also `chown -R ecobox:ecobox node_modules`** afterward (alongside `build`/`.svelte-kit`) so the service can read it. Verify the binding exists with `find node_modules/.pnpm/better-sqlite3@*/ -name '*.node'`, or just hit a DB-backed endpoint (`curl -s -o /dev/null -w '%{http_code}' localhost:4923/api/settings` → 200, or **401** once the app's login is enabled — either answer proves the service booted, which it cannot do with a broken binding).
 
 ### Running on Windows
 
