@@ -21,8 +21,10 @@ export const GET: RequestHandler = async () => {
 		if (settings.audioEffectsEnabled) parsed.audioEffectsEnabled = settings.audioEffectsEnabled === 'true';
 		if (settings.radioResumeBehavior) parsed.radioResumeBehavior = settings.radioResumeBehavior as 'always' | 'never' | 'ask';
 		if (settings.theme) parsed.theme = settings.theme as 'light' | 'dark' | 'system';
+		if (settings.autoplay) parsed.autoplay = settings.autoplay === 'true';
 		if (settings.winampShortcuts) parsed.winampShortcuts = settings.winampShortcuts === 'true';
 		if (settings.autoAdvanceTracks) parsed.autoAdvanceTracks = settings.autoAdvanceTracks === 'true';
+		if (settings.seekBackOnPause) parsed.seekBackOnPause = parseInt(settings.seekBackOnPause, 10);
 		if (settings.maskTitle !== undefined) parsed.maskTitle = settings.maskTitle;
 		if (settings.sonicroomUrl !== undefined) parsed.sonicroomUrl = settings.sonicroomUrl;
 		if (settings.ttsRate) parsed.ttsRate = parseFloat(settings.ttsRate);
@@ -62,11 +64,17 @@ export const PUT: RequestHandler = async ({ request }) => {
 		if (body.theme !== undefined) {
 			entries.push({ key: 'theme', value: body.theme });
 		}
+		if (body.autoplay !== undefined) {
+			entries.push({ key: 'autoplay', value: String(body.autoplay) });
+		}
 		if (body.winampShortcuts !== undefined) {
 			entries.push({ key: 'winampShortcuts', value: String(body.winampShortcuts) });
 		}
 		if (body.autoAdvanceTracks !== undefined) {
 			entries.push({ key: 'autoAdvanceTracks', value: String(body.autoAdvanceTracks) });
+		}
+		if (body.seekBackOnPause !== undefined) {
+			entries.push({ key: 'seekBackOnPause', value: String(body.seekBackOnPause) });
 		}
 		if (body.maskTitle !== undefined) {
 			entries.push({ key: 'maskTitle', value: body.maskTitle });

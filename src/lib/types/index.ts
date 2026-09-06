@@ -444,6 +444,13 @@ export const DEFAULT_ELEVEN_MODEL = 'eleven_multilingual_v2';
  */
 export const ELEVEN_LANG_CODE_MODELS: string[] = ['eleven_turbo_v2_5', 'eleven_flash_v2_5'];
 
+/**
+ * Offered rewind-on-pause amounts, in seconds. `0` is "off" — the default, since
+ * a pause that silently moves the position would surprise anyone who didn't ask
+ * for it.
+ */
+export const SEEK_BACK_ON_PAUSE_OPTIONS: number[] = [0, 1, 3, 5, 10, 30];
+
 export interface Settings {
 	seekInterval: number;
 	longSeekInterval: number;
@@ -456,6 +463,11 @@ export interface Settings {
 	winampShortcuts: boolean;
 	/** Auto-advance to the next file in the same folder when a single track finishes. Opt-in. */
 	autoAdvanceTracks: boolean;
+	/**
+	 * Seconds to rewind when playback is paused, so resuming replays a little
+	 * context. `0` (the default) means off. See SEEK_BACK_ON_PAUSE_OPTIONS.
+	 */
+	seekBackOnPause: number;
 	maskTitle: string;
 	/** Default SonicRoom server origin for "Cast to call". */
 	sonicroomUrl: string;
@@ -489,6 +501,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	autoplay: true,
 	winampShortcuts: false,
 	autoAdvanceTracks: false,
+	seekBackOnPause: 0,
 	maskTitle: '',
 	sonicroomUrl: '',
 	ttsRate: 1.0,

@@ -10,6 +10,7 @@ const defaultSettings: Settings = {
 	autoplay: true,
 	winampShortcuts: false,
 	autoAdvanceTracks: false,
+	seekBackOnPause: 0,
 	maskTitle: '',
 	sonicroomUrl: '',
 	ttsRate: 1.0,
@@ -28,6 +29,7 @@ class SettingsStore {
 	autoplay = $state(defaultSettings.autoplay);
 	winampShortcuts = $state(defaultSettings.winampShortcuts);
 	autoAdvanceTracks = $state(defaultSettings.autoAdvanceTracks);
+	seekBackOnPause = $state(defaultSettings.seekBackOnPause);
 	maskTitle = $state(defaultSettings.maskTitle);
 	sonicroomUrl = $state(defaultSettings.sonicroomUrl);
 	ttsRate = $state(defaultSettings.ttsRate);
@@ -63,6 +65,7 @@ class SettingsStore {
 		if (settings.autoplay !== undefined) this.autoplay = settings.autoplay;
 		if (settings.winampShortcuts !== undefined) this.winampShortcuts = settings.winampShortcuts;
 		if (settings.autoAdvanceTracks !== undefined) this.autoAdvanceTracks = settings.autoAdvanceTracks;
+		if (settings.seekBackOnPause !== undefined) this.seekBackOnPause = settings.seekBackOnPause;
 		if (settings.maskTitle !== undefined) this.maskTitle = settings.maskTitle;
 		if (settings.sonicroomUrl !== undefined) this.sonicroomUrl = settings.sonicroomUrl;
 		if (settings.ttsRate !== undefined) this.ttsRate = settings.ttsRate;
@@ -82,6 +85,7 @@ class SettingsStore {
 			autoplay: this.autoplay,
 			winampShortcuts: this.winampShortcuts,
 			autoAdvanceTracks: this.autoAdvanceTracks,
+			seekBackOnPause: this.seekBackOnPause,
 			maskTitle: this.maskTitle,
 			sonicroomUrl: this.sonicroomUrl,
 			ttsRate: this.ttsRate,
@@ -144,6 +148,12 @@ class SettingsStore {
 
 	setAutoAdvanceTracks(value: boolean) {
 		this.autoAdvanceTracks = value;
+		this.save();
+	}
+
+	setSeekBackOnPause(value: number) {
+		// 0 means off; anything negative would seek forward.
+		this.seekBackOnPause = Math.max(0, value);
 		this.save();
 	}
 

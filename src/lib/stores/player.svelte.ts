@@ -468,7 +468,35 @@ class PlayerStore {
 			this.stopRadioStream();
 			return;
 		}
+		// Only a pause that actually stops playback rewinds: pause() can be called on
+		// an already-paused player (the sleep timer, a lock-screen button), and each
+		// of those must not walk the position further back.
+		const wasPlaying = this.audio ? !this.audio.paused : false;
 		this.audio?.pause();
+		if (wasPlaying) this.applySeekBackOnPause();
+	}
+
+	/**
+	 * Rewind a few seconds when playback is paused, so resuming replays a little
+	 * context (opt-in — `seekBackOnPause: 0` means off).
+	 *
+	 * Runs *after* audio.pause() so nothing is heard at the rewound point, and
+	 * writes `currentTime` itself rather than waiting for the element's own
+	 * `timeupdate`: the position save that rides on the pause event reads it, and
+	 * the rewound point is what should be restored on the next open.
+	 *
+	 * In a chaptered book it clamps at the start of the *current* file — a pause
+	 * two seconds into a chapter rewinds to its beginning, never back into the
+	 * previous file.
+	 */
+	private applySeekBackOnPause() {
+		const seconds = settingsStore.seekBackOnPause;
+		if (!seconds || !this.audio || this.isRadioStream) return;
+
+		const target = Math.max(0, this.audio.currentTime - seconds);
+		this.currentTime = target;
+		this.seek(target);
+		this.updateCurrentChapter();
 	}
 
 	// Fully stop a live stream: pause, then drop the source so the browser closes the

@@ -15,7 +15,8 @@
 		type TtsAudioService,
 		type TtsVoice,
 		type ElfVoiceParams,
-		type SubtitleAnnounce
+		type SubtitleAnnounce,
+		SEEK_BACK_ON_PAUSE_OPTIONS
 	} from '$lib/types';
 	import { goto, afterNavigate } from '$app/navigation';
 
@@ -557,6 +558,26 @@
 					</select>
 					<p id="long-seek-interval-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
 						{t('settings.longSeekIntervalDesc')}
+					</p>
+				</div>
+
+				<div>
+					<label for="seek-back-on-pause" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+						{t('settings.seekBackOnPause')}
+					</label>
+					<select
+						id="seek-back-on-pause"
+						value={settingsStore.seekBackOnPause}
+						onchange={(e) => settingsStore.setSeekBackOnPause(parseInt((e.target as HTMLSelectElement).value, 10))}
+						aria-describedby="seek-back-on-pause-desc"
+						class="input"
+					>
+						{#each SEEK_BACK_ON_PAUSE_OPTIONS as option}
+							<option value={option}>{option === 0 ? t('settings.seekBackOnPauseOff') : `${option}s`}</option>
+						{/each}
+					</select>
+					<p id="seek-back-on-pause-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+						{t('settings.seekBackOnPauseDesc')}
 					</p>
 				</div>
 			</div>
