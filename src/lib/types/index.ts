@@ -543,3 +543,87 @@ export const DEFAULT_AUDIO_EFFECTS: AudioEffects = {
 	},
 	preset: 'flat'
 };
+
+// ---------------------------------------------------------------------------
+// Video description (Gemini)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a description attempt did not produce text. The client never renders these
+ * verbatim — each maps to a localized `describe.error.*` message — so adding a
+ * code means adding its translation, not a string change on the server.
+ */
+export type DescribeErrorCode =
+	/** Client-side only: the user asked for a description without marking a start. */
+	| 'noStart'
+	/** Client-side only: a start was marked but no end. */
+	| 'noEnd'
+	/** No Gemini API key is configured (server-side); the client offers the key dialog. */
+	| 'noKey'
+	/** The configured key was rejected (401/403). */
+	| 'badKey'
+	/** 429 from the API. */
+	| 'rateLimited'
+	/** The account is out of credit. */
+	| 'quota'
+	/** The API answered 5xx / was overloaded, or refused the request outright. */
+	| 'upstream'
+	/** The configured model name does not exist (a 404 — usually a stale override). */
+	| 'badModel'
+	/** The server could not reach the API at all. */
+	| 'network'
+	/** The request (ffmpeg or the API) exceeded its time limit. */
+	| 'timeout'
+	| 'notFound'
+	/** The path is not a video, so there is nothing to look at. */
+	| 'notVideo'
+	/** A video container that carries no video stream (audio-only .mp4 and friends). */
+	| 'noVideoStream'
+	/** Start/end missing, equal, reversed or out of the file. */
+	| 'badRange'
+	/** The marked segment is longer than `MAX_DESCRIBE_SECONDS`. */
+	| 'tooLong'
+	| 'ffmpegMissing'
+	| 'ffmpegFailed'
+	/** ffmpeg ran but produced an empty clip (marks past the end of the video). */
+	| 'emptyClip'
+	/** The clip was too big to inline and the upload never became usable. */
+	| 'uploadFailed'
+	/** The model declined to answer (a safety block or an abnormal finish). */
+	| 'refusal'
+	/** The model answered with no text. */
+	| 'empty'
+	| 'server';
+
+export interface DescribeSuccess {
+	ok: true;
+	description: string;
+	/** Echo of the segment actually described, in seconds. */
+	start: number;
+	end: number;
+	model: string;
+	/** Frames per second the model was asked to sample the clip at. */
+	fps: number;
+	/** Size of the clip that was sent, in bytes. */
+	clipBytes: number;
+	/** Whether the clip carried an audio track the model could hear. */
+	hasAudio: boolean;
+}
+
+export interface DescribeFailure {
+	ok: false;
+	code: DescribeErrorCode;
+	/** Short technical cause (ffmpeg's first stderr line, the API's message…). */
+	detail?: string;
+}
+
+export type DescribeResult = DescribeSuccess | DescribeFailure;
+
+/** Whether a Gemini key exists server-side, and where it came from. Never the key. */
+export interface DescribeKeyStatus {
+	configured: boolean;
+	source: 'env' | 'stored' | null;
+}
+
+/** Longest segment that may be described in one request. */
+export const MAX_DESCRIBE_SECONDS = 300;

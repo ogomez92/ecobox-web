@@ -169,16 +169,16 @@ src/
 │   ├── types/          # TypeScript interfaces (single index.ts)
 │   └── utils/          # Utility functions (format.ts, etc.)
 ├── routes/
-│   ├── api/            # REST endpoints: bookmarks, chaptered, download,
-│   │                   #   files, files-recursive, media, protect, radio,
-│   │                   #   recent, settings, storage, upload (negotiate + stream)
+│   ├── api/            # REST endpoints: bookmarks, chaptered, describe, download,
+│   │                   #   ensure-playable, files, files-recursive, media, protect,
+│   │                   #   radio, recent, settings, storage, upload (negotiate + stream)
 │   ├── browse/[...path]/ # File browser pages
 │   ├── play/[...path]/   # Media player page
 │   └── settings/         # Settings page
 └── server/
     ├── db/             # Drizzle schema + connection singleton
     └── services/       # files.ts, daisy.ts, id3chapters.ts, mp4chapters.ts,
-                        #   subtitles.ts, videoConvert.ts
+                        #   subtitles.ts, videoConvert.ts, videoDescribe.ts
 ```
 
 ### Media Types
@@ -211,12 +211,54 @@ agree). It splits video in two, and the split is the whole design:
 
 - **`PLAYABLE_VIDEO_EXTENSIONS`** (`.mp4 .m4v .mov .webm`) — the browser can demux
   these, so they stream as-is with their real `Content-Type` (`/api/media/[...path]`
-  carries the video MIME table) and are **left alone on upload**. `isPlayableMedia()`
-  counts them, so they take part in next/previous track and in `.CHAPTERED` folders.
+  carries the video MIME table). `isPlayableMedia()` counts them, so they take part
+  in next/previous track and in `.CHAPTERED` folders.
 - **`CONVERTIBLE_VIDEO_EXTENSIONS`** (`.mkv .avi .wmv .ts .mpg .vob .ogv …`) — no
-  browser opens these, so `UploadDialog` **auto-extracts their audio after upload**
+  browser opens these, so their audio is **auto-extracted after upload**
   (`needsAudioExtraction()`), the same way an uploaded `.epub` is auto-converted.
   Otherwise they would sit in the library as permanently unplayable rows.
+
+**The extension is only half the answer, and assuming otherwise was a real bug.**
+A demuxable container still has to carry a codec the browser can *decode*: a TV rip
+muxed as `.mp4` with an **E-AC-3** (Dolby Digital Plus) track opens perfectly and
+then plays **silence** — no error, no event, just nothing, which reads as "the app
+is broken". `BROWSER_AUDIO_CODECS` in `mediaTypes.ts` is the short list that
+actually decodes everywhere (`aac mp3 opus vorbis flac`); `ac3`/`eac3`/`dts`/
+`truehd`/`wmav2` are licensed codecs no desktop browser ships, and `alac` is
+Safari-only. The list is deliberately conservative because the two ways of being
+wrong are not symmetric: a false "playable" costs the user silence, a false
+"unplayable" costs one re-encode.
+
+**`POST /api/media/ensure-playable {path}`** is the automatic post-upload check —
+`UploadDialog` calls it for **every** uploaded video, and `ensureVideoPlayable()`
+does the least destructive thing that works:
+
+| what's wrong | what happens |
+|---|---|
+| container no browser demuxes (`.mkv`…) | `extractVideoAudio()` — sibling audio file, video deleted (unchanged) |
+| container fine, audio codec undecodable | **`reencodeVideoAudio()` — audio rewritten in place, picture kept** |
+| nothing | `{action:'skipped'}`, the common case; announces nothing |
+
+`reencodeVideoAudio()` **stream-copies the video** (`-c:v copy`) and re-encodes only
+the audio to AAC 128k, downmixed to stereo above 2 channels, text subtitles carried
+across as `mov_text`, `+faststart`. Two things about it matter:
+
+- **The picture is kept on purpose.** Throwing it away to fix an audio codec would
+  be an overreaction — the picture is exactly what "describe what's on screen"
+  reads, so extracting the audio would silently kill that feature for the file.
+- **The output keeps the source's name**, so `media_metadata`, `bookmarks` and
+  `recent_files` — all keyed by relative path — stay valid. It writes to a hidden
+  sibling (`.<base>.ecobox-reencode<ext>`; listings skip dotfiles, so a half-written
+  file is never a row) and `rename`s over the original **only after verifying** the
+  result: non-empty, audio codec now playable, video stream still present, duration
+  within 2% (2s floor). Any failure deletes the temp and leaves the original alone.
+- Only the **MP4 family** can be repaired this way (`REENCODABLE_VIDEO_EXTENSIONS` =
+  `.mp4 .m4v .mov`) — AAC has nowhere to live in a WebM, so a WebM with an odd codec
+  falls back to extraction.
+
+The manual ⋮ **"Extract audio"** action (`/api/media/extract-audio`) is unchanged and
+still means what it says: *give me an audio file and take the video away*. That is a
+different intent from "make this play", which is why it is a different route.
 
 **`POST /api/media/extract-audio {path}`** → `$server/services/videoConvert.ts`. It
 is offered by hand for *any* video (the ⋮ menu's "Extract audio", which shares
@@ -247,6 +289,90 @@ independently → only then delete the original**. Nothing is deleted on any fai
 Needs system **`ffmpeg`** + **`ffprobe`** (both already on this host, and on Windows
 via winget). Conversion runs synchronously (v1); the route's `dispatchExtract` seam
 is where a long transcode can later become a background job.
+
+### Video description ("what is on screen?")
+
+The one thing audio-only playback can never give a blind listener is the picture.
+**`POST /api/describe {path, start, end, language?}`** closes that gap: the user
+marks a segment in the player, ffmpeg cuts that span out as a real clip, and a
+model watches it.
+
+**Why Gemini and not Claude.** The Claude API takes images only — there is no
+`video` content block, and a `video/mp4` is refused by both the image block
+("Supported image formats are JPEG, PNG, GIF, and WebP") and the document block
+("Only PDF and plaintext documents are supported"). Frames sampled from a segment
+lose exactly what a blind listener most needs — motion, direction, who moved where
+— so the engine is `generativelanguage.googleapis.com` (`@google/genai`), which
+ingests video. Model is **`gemini-3.8-flash`**, overridable with
+`GEMINI_DESCRIBE_MODEL` because model names churn faster than this file does; a
+wrong name surfaces as the `badModel` code (a 404), not a mystery failure.
+
+- **Marks, then describe.** In `PlaybackView`, **`d`** marks the start, **`Shift+D`**
+  the end, **`Ctrl/Cmd+Shift+D`** asks — and the same three actions are footer
+  buttons ("Mark start" / "Mark end" / "Describe"), since a shortcut nobody can find
+  is not a feature. Bare `Ctrl+D` is deliberately **not** claimed (it stays the
+  browser's bookmark shortcut). The keys are live only for videos
+  (`isVideoExtension`), which includes containers the browser can't play: ffmpeg
+  reads an `.mkv` the `<audio>` element refuses. State lives in
+  `$lib/stores/videoDescribe.svelte.ts` and is **keyed to one file** — moving to the
+  next track or the next file of a chaptered folder drops the marks, because a mark
+  at 3:20 means nothing in the next episode.
+- **The clip.** One ffmpeg pass, `-ss` *before* `-i` (seek, don't decode from the
+  top of a 4 GB film) with `-t` bounding the work. The video is **re-encoded, not
+  stream-copied**: a copy can only cut on a keyframe, which drifts the marks by
+  seconds. 720p max (`scale='min(720,iw)':-2`) keeps on-screen text legible, and
+  crf 30 / veryfast keeps it small — a 10-second clip measures ~97 KB, so even a
+  300-second one (`MAX_DESCRIBE_SECONDS`) stays a few MB. The clip is written to a
+  **temp dir on local disk** (`os.tmpdir()`), never into MEDIA_ROOT — a file create
+  on the sshfs mount costs ~0.5 s — and is deleted in a `finally`.
+- **Audio rides along, and that is the point.** `-map 0:a:0?` (optional, so silent
+  videos still work) means the model *hears* the segment. "Never restate what the
+  listener can already hear" stops being a hope and becomes something it can check,
+  and it covers what subtitles never carry — a scream, a car, a song. This replaced
+  an earlier hack that fed the sidecar `.srt` in as text; `hasAudio` is reported back
+  and switches that rule in the system prompt.
+- **Sampling and resolution.** `videoMetadata.fps` from `planVideoFps()` (pure,
+  unit-tested): 2 fps up to 20 s, then 1, 0.5, 0.25 — a short mark is a specific
+  action and wants detail, a long one is a scene summary. `mediaResolution` is
+  **HIGH**: reading a street sign or a phone screen is the whole point of some
+  descriptions and does not survive downscaling. `thinkingLevel: LOW` — seeing is
+  perception, not deliberation, and someone is waiting.
+- **Inline vs upload.** Clips ≤ 12 MB go inline as base64 (one round trip); larger
+  ones go through `ai.files.upload`, poll until `ACTIVE`, and are **deleted after
+  the call** so they don't linger 48 h on the user's account. In practice the size
+  bound above means inline nearly always wins.
+- **The prompt is half the feature.** Describe only what can be SEEN; never restate
+  speech or sound; **read out on-screen text verbatim** (signs, captions, credits —
+  the information they cannot get any other way); lead with what CHANGES across the
+  segment. `language` (the UI locale) is mapped to a language name so the
+  description comes back in the user's own language.
+- **The key never reaches the browser.** `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) in
+  `.env`, or a key the user saves in `DescribeKeyDialog` (stored in the
+  **`ai_credentials`** table under provider `google`, which wins over the env).
+  **`/api/describe/key`** is write-only: `GET` answers `{configured, source}` and
+  never the key, `PUT` validates the `AIza…` shape before storing, `DELETE` falls
+  back to the env key. The dialog opens by itself the first time a description is
+  asked for with no key, and again on `badKey`, focusing the field.
+- **Every failure is a code, not a sentence.** `DescribeResult` is
+  `{ok:true,…} | {ok:false, code, detail?}` over ~20 `DescribeErrorCode`s, each with
+  a `describe.error*` translation in all seven locales — so the reason reaches a
+  screen reader in the user's language. Two mappings are worth knowing: a bad key
+  arrives as **HTTP 400** `API_KEY_INVALID` (not 401), and **429 covers two
+  different situations** — a rate limit you wait out, and an account with no credit
+  left; only the message separates `rateLimited` from `quota`, and telling someone
+  to "try again shortly" when they need to top up wastes their afternoon. Marks are
+  validated **before** the key is, so an unmarked segment never turns into a demand
+  for an API key.
+- **Output is announced.** The description lands in an **assertive** live region in
+  the player (the user asked for it and is waiting; a polite one would queue behind
+  running captions) and stays on screen in a labelled panel that also shows the
+  marked range, so it can be re-read. Marks, errors and progress announce through a
+  separate polite region.
+
+Needs system **ffmpeg**/**ffprobe** and the `@google/genai` package. Note that
+`@google/genai` and `protobufjs` are pinned **`false`** in `pnpm-workspace.yaml`'s
+`allowBuilds` — their install hooks are a no-op echo and a CLI shim respectively,
+neither needed to call the REST API.
 
 ### Sidecar subtitles (.srt / .vtt)
 
@@ -313,7 +439,7 @@ Both players share a code-based `handleKeydown` (media: `PlaybackView.svelte`; r
   - `b` = next track, `z` = previous track.
 - **`autoAdvanceTracks`** — when a single (non-chaptered, non-radio) file ends, play the next file in the **same folder**. Chaptered folders already auto-advance internally (`player.svelte.ts` `handleEnded`), so this only affects single files.
 
-Bare **`s`** toggles subtitles in the media player (see "Sidecar subtitles"); it sits in the default `switch`, so `winampShortcuts` doesn't claim it.
+Bare **`s`** toggles subtitles in the media player (see "Sidecar subtitles"); it sits in the default `switch`, so `winampShortcuts` doesn't claim it. So do **`d`** / **`Shift+D`** / **`Ctrl+Shift+D`** (mark start, mark end, describe — see "Video description"), which are inert unless the loaded file is a video.
 
 **Next/previous track (media player)** lives in `PlaybackView.switchTrack(±1)`: it lists the current file's folder siblings via `/api/files` (`isPlayableMedia`, i.e. audio + browser-playable video, natural sort), finds the current file, and `goto()`s the neighbour. It **never crosses folder boundaries and never wraps** past the first/last file (no-op at the edge). Chaptered folders instead map `b`/`z` to `nextChapter`/`previousChapter` (stays within the folder unit); radio is a no-op. Auto-advance reuses this same helper via the store's **`onTrackEnded`** callback — the store owns "a track ended", the view owns routing + sibling listing. To keep playing across the switch regardless of the `autoplay` setting, set **`playerStore.playOnNextLoad = true`** before navigating (`loadFile` consumes it, one-shot). The play route (`/play/[...path]/+page.svelte`) wraps `<PlaybackView>` in `{#key filePath}` so a track switch fully remounts (onMount reloads + plays the new file).
 
@@ -408,6 +534,7 @@ The four breakdown fields are mode-independent and are what the upload dialog us
 - `chaptered_metadata` — playback state for multi-file chaptered content
 - `chaptered_bookmarks` — bookmarks within chaptered folders (file + offset in that file)
 - `media_durations` — cached audio durations, invalidated by size + mtime (never user data; safe to delete)
+- `ai_credentials` — API keys for server-side AI providers (`google`), used by video description. Never serialized to the client.
 - `settings` — key-value settings storage
 - `book_metadata` — reading position (current chunk index) for converted books
 - `recent_files` — recently opened media, one row per path (see "Recent tab"). Rows
@@ -419,6 +546,7 @@ MEDIA_ROOT=/path/to/media       # Root directory for media files
 DATABASE_URL=file:./data/ecobox.db
 PORT=3000
 ORIGIN=https://your-domain.com  # For production CORS
+GEMINI_API_KEY=AIza...           # Optional: video description (else asked for in-app)
 ```
 
 ## Accessibility expectations

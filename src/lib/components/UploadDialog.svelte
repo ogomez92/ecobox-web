@@ -4,7 +4,7 @@
 	import { formatBytes } from '$lib/utils/format';
 	import { t } from '$lib/i18n/index.svelte';
 	import { isBookExtension } from '$lib/utils/bookChunks';
-	import { needsAudioExtraction } from '$lib/utils/mediaTypes';
+	import { isVideoExtension } from '$lib/utils/mediaTypes';
 	import type { UploadNegotiateRequest, UploadNegotiateResponse } from '$lib/types';
 
 	interface Props {
@@ -357,36 +357,39 @@
 				}
 			}
 
-			// Videos in a container no browser can demux are turned into audio files
-			// (the original goes once the result verifies), so they don't land in the
-			// library as permanently unplayable rows. Playable containers are left
-			// alone — extraction for those is a deliberate ⋮ menu action.
-			const unplayableVideos = filesToUpload.filter((f) =>
-				needsAudioExtraction(f.webkitRelativePath || f.name)
-			);
-			for (const file of unplayableVideos) {
+			// Every uploaded video is checked, because the extension only tells us the
+			// browser can *open* the container — an .mp4 carrying E-AC-3 opens fine and
+			// then plays silence. The server decides what each one needs and does the
+			// least destructive thing: usually nothing, an in-place audio rewrite for a
+			// bad codec, and extraction only for containers no browser demuxes.
+			const videos = filesToUpload.filter((f) => isVideoExtension(f.webkitRelativePath || f.name));
+			for (const file of videos) {
 				const rel = file.webkitRelativePath || file.name;
 				const videoPath = currentPath ? `${currentPath}/${rel}` : rel;
-				progressAnnouncement = t('upload.extracting', { name: file.name });
+				progressAnnouncement = t('upload.checkingVideo', { name: file.name });
 				try {
-					const res = await fetch('/api/media/extract-audio', {
+					const res = await fetch('/api/media/ensure-playable', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({ path: videoPath })
 					});
-					const data = res.ok ? await res.json() : { status: 'failed' };
-					if (data.status === 'converted') {
+					const data = res.ok ? await res.json() : { action: 'failed' };
+					if (data.action === 'reencoded') {
+						progressAnnouncement = t('upload.reencoded', { name: file.name });
+					} else if (data.action === 'extracted') {
 						const subtitles = (data.subtitlePaths as string[] | undefined)?.length ?? 0;
 						progressAnnouncement =
 							subtitles > 0
 								? t('upload.extractedWithSubtitles', { name: file.name, n: subtitles })
 								: t('upload.extracted', { name: file.name });
-					} else {
-						const base = t('upload.extractFailed', { name: file.name });
+					} else if (data.action === 'failed') {
+						const base = t('upload.convertVideoFailed', { name: file.name });
 						progressAnnouncement = data.reason ? `${base} — ${data.reason}` : base;
 					}
+					// 'skipped' is the common, happy case: the file already plays. Saying
+					// so for every video would bury the announcements that matter.
 				} catch {
-					progressAnnouncement = t('upload.extractFailed', { name: file.name });
+					progressAnnouncement = t('upload.convertVideoFailed', { name: file.name });
 				}
 			}
 

@@ -16,13 +16,25 @@
  * seconds and loses nothing; anything else (AC-3, DTS, PCM, WMA…) is transcoded to
  * AAC. While ffmpeg has the container open, text-based subtitle streams are written
  * out as sidecar .srt files, which the subtitle finder then picks up by name.
+ *
+ * There is a second, gentler repair below. A .mp4 whose audio is E-AC-3 demuxes
+ * perfectly and then plays silence — the container is fine, the codec is not — and
+ * throwing away the picture to fix that would be an overreaction: the picture is
+ * what "describe what's on screen" reads. `reencodeVideoAudio` therefore rewrites
+ * just the audio, stream-copying the video, and keeps the file's name. Which of the
+ * two a given file needs is `ensureVideoPlayable`'s decision.
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import { resolveExistingPath, getRelativePath, resolvePath } from './files';
-import { isVideoExtension } from '$lib/utils/mediaTypes';
+import {
+	isVideoExtension,
+	isBrowserPlayableAudioCodec,
+	isReencodableVideoExtension,
+	needsAudioExtraction
+} from '$lib/utils/mediaTypes';
 
 const execFileAsync = promisify(execFile);
 
@@ -328,4 +340,269 @@ export async function extractVideoAudio(relInputPath: string): Promise<VideoConv
 		copied: target.copy,
 		duration: outputDuration
 	};
+}
+
+// ---------------------------------------------------------------------------
+// In-place audio repair
+// ---------------------------------------------------------------------------
+
+export interface VideoReencodeResult {
+	status: 'reencoded' | 'skipped' | 'failed';
+	/** The source audio codec — the one replaced, or the one found already fine. */
+	audioCodec?: string;
+	/** Duration in seconds, as measured on the rewritten file. */
+	duration?: number;
+	/** Bytes of the rewritten file (dropping a 640 kbps 5.1 track usually shrinks it a lot). */
+	size?: number;
+	/** Why nothing was done, or what went wrong. */
+	reason?: string;
+}
+
+/**
+ * The first audio stream's codec, or null when the file has no audio or can't be
+ * probed. Callers treat null as "nothing to repair": a silent video is silent for
+ * reasons ffmpeg can't fix.
+ */
+export async function videoAudioCodec(absPath: string): Promise<string | null> {
+	const probe = await ffprobe(absPath);
+	const stream = probe?.streams?.find((s) => s.codec_type === 'audio');
+	return stream?.codec_name ?? null;
+}
+
+/**
+ * Replace a video's undecodable audio track in place, leaving the picture alone.
+ *
+ * The output keeps the source's **name**, which is the point: `media_metadata`,
+ * `bookmarks` and `recent_files` are all keyed by relative path, so a rename would
+ * strand the user's saved position. Everything is written to a hidden sibling
+ * first (listings skip dotfiles) and moved over the original only after the result
+ * verifies — a `rename` within one directory, so there is no moment where the file
+ * is half-written.
+ */
+export async function reencodeVideoAudio(relInputPath: string): Promise<VideoReencodeResult> {
+	// Canonicalize first: clients send NFC, accented names are often stored NFD, and
+	// ffmpeg matches bytes exactly.
+	let absInput: string;
+	try {
+		absInput = resolveExistingPath(relInputPath);
+		relInputPath = getRelativePath(absInput);
+	} catch (err) {
+		if (String((err as Error)?.message ?? '').includes('traversal')) throw err;
+		return { status: 'failed', reason: 'the file could not be found' };
+	}
+
+	if (!isReencodableVideoExtension(relInputPath)) {
+		return {
+			status: 'failed',
+			reason: `${path.extname(relInputPath) || 'that file'} cannot have its audio rewritten in place`
+		};
+	}
+
+	try {
+		const stats = await fs.stat(absInput);
+		if (!stats.isFile()) return { status: 'failed', reason: 'that path is not a file' };
+	} catch {
+		return { status: 'failed', reason: 'the file could not be found' };
+	}
+
+	const probe = await ffprobe(absInput);
+	if (!probe) {
+		return { status: 'failed', reason: 'ffprobe could not read the video (is ffmpeg installed?)' };
+	}
+
+	const streams = probe.streams ?? [];
+	const audioStream = streams.find((s) => s.codec_type === 'audio');
+	if (!audioStream) return { status: 'skipped', reason: 'the video has no audio track' };
+
+	const audioCodec = audioStream.codec_name ?? '';
+	if (isBrowserPlayableAudioCodec(audioCodec)) {
+		return { status: 'skipped', audioCodec, reason: 'the audio already plays in a browser' };
+	}
+
+	const videoStream = streams.find((s) => s.codec_type === 'video');
+	if (!videoStream) return { status: 'failed', reason: 'the file has no video stream to keep' };
+
+	const sourceDuration = probeDuration(probe, audioStream);
+	const extension = path.extname(relInputPath);
+
+	// A hidden sibling: same directory (so the move is a same-filesystem rename),
+	// same extension (so ffmpeg picks the matching muxer), and invisible to
+	// listings, which skip dotfiles — a half-written file must never show up as a
+	// row. A leftover from an interrupted run is ours to clear.
+	const tempAbs = path.join(
+		path.dirname(absInput),
+		`.${path.basename(absInput, extension)}.ecobox-reencode${extension}`
+	);
+	await fs.rm(tempAbs, { force: true }).catch(() => {});
+
+	// -c:v copy is what makes this cheap and lossless for the picture; only the
+	// audio is decoded. Text subtitles ride along as mov_text (the MP4 family's own
+	// subtitle format); picture-based tracks are dropped, exactly as in extraction.
+	// +faststart puts the index at the front, without which seeking needs the whole
+	// file. A cover-art PNG is left behind by mapping only the primary video stream.
+	const args = [
+		'-nostdin',
+		'-y',
+		'-v',
+		'error',
+		'-i',
+		absInput,
+		'-map',
+		`0:${videoStream.index}`,
+		'-map',
+		`0:${audioStream.index}`
+	];
+	const textSubtitles = streams.filter(
+		(s) => s.codec_type === 'subtitle' && TEXT_SUBTITLE_CODECS.has((s.codec_name ?? '').toLowerCase())
+	);
+	for (const sub of textSubtitles) args.push('-map', `0:${sub.index}`);
+
+	args.push('-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k');
+	// Surround downmixed to stereo: smaller, and multichannel AAC playback is
+	// patchy across browsers.
+	if ((audioStream.channels ?? 2) > 2) args.push('-ac', '2');
+	if (textSubtitles.length > 0) args.push('-c:s', 'mov_text');
+	args.push('-map_metadata', '0', '-movflags', '+faststart', tempAbs);
+
+	try {
+		await execFileAsync('ffmpeg', args, { maxBuffer: 8 * 1024 * 1024, timeout: FFMPEG_TIMEOUT_MS });
+	} catch (err) {
+		console.error('ffmpeg audio re-encode failed:', err);
+		await fs.rm(tempAbs, { force: true }).catch(() => {});
+		const e = err as NodeJS.ErrnoException & { stderr?: string; killed?: boolean };
+		if (e.code === 'ENOENT') return { status: 'failed', reason: 'ffmpeg is not installed on the server' };
+		if (e.killed) return { status: 'failed', reason: 'the conversion took too long and was stopped' };
+		const firstLine = (e.stderr || e.message || '').split('\n').find((l) => l.trim())?.trim();
+		return { status: 'failed', reason: firstLine ? `ffmpeg failed (${firstLine})` : 'ffmpeg could not rewrite the audio' };
+	}
+
+	// Verify independently of ffmpeg's exit code, and against the thing we set out
+	// to achieve: a playable audio codec, the picture still present, and the full
+	// running time. This file is about to overwrite the user's only copy.
+	const outputProbe = await ffprobe(tempAbs);
+	const outputAudio = outputProbe?.streams?.find((s) => s.codec_type === 'audio');
+	const outputDuration = probeDuration(outputProbe, outputAudio);
+	let outputSize = 0;
+	try {
+		outputSize = (await fs.stat(tempAbs)).size;
+	} catch {
+		outputSize = 0;
+	}
+
+	// A stream copy is sample-exact, so any real shortfall is a truncated file; 2%
+	// (with a 2s floor for short clips) absorbs the usual container rounding.
+	const tolerated = Math.max(2, sourceDuration * 0.02);
+	let failure: string | null = null;
+	if (outputSize === 0) {
+		failure = 'the rewritten file was empty';
+	} else if (!isBrowserPlayableAudioCodec(outputAudio?.codec_name)) {
+		// Also catches an unreadable output: no probe means no codec name.
+		failure = `the rewritten audio was still ${outputAudio?.codec_name ?? 'unreadable'}`;
+	} else if (!outputProbe?.streams?.some((s) => s.codec_type === 'video')) {
+		failure = 'the rewritten file lost its video stream';
+	} else if (sourceDuration > 0 && outputDuration < sourceDuration - tolerated) {
+		failure = `the rewritten audio was too short (${Math.round(outputDuration)}s of ${Math.round(sourceDuration)}s)`;
+	}
+
+	if (failure) {
+		await fs.rm(tempAbs, { force: true }).catch(() => {});
+		return { status: 'failed', audioCodec, reason: failure };
+	}
+
+	try {
+		await fs.rename(tempAbs, absInput);
+	} catch (err) {
+		console.error('Failed to move the rewritten video over the original:', err);
+		await fs.rm(tempAbs, { force: true }).catch(() => {});
+		return { status: 'failed', audioCodec, reason: 'the rewritten file could not replace the original' };
+	}
+
+	return { status: 'reencoded', audioCodec, duration: outputDuration, size: outputSize };
+}
+
+// ---------------------------------------------------------------------------
+// Choosing a repair
+// ---------------------------------------------------------------------------
+
+export interface EnsurePlayableResult {
+	action: 'reencoded' | 'extracted' | 'skipped' | 'failed';
+	/** 'extracted' only: the audio file produced, and any subtitle sidecars written. */
+	audioPath?: string;
+	subtitlePaths?: string[];
+	/** The offending source codec, when there was one. */
+	audioCodec?: string;
+	duration?: number;
+	reason?: string;
+}
+
+/**
+ * Make an uploaded video playable, doing the least destructive thing that works.
+ *
+ * The three cases, in order of how much they cost the user:
+ *  - **A container no browser demuxes** (.mkv, .avi…) — nothing survives it, so the
+ *    audio is extracted to a sibling file and the video goes. Unchanged behaviour.
+ *  - **A demuxable container with an undecodable audio codec** (the .mp4 + E-AC-3
+ *    TV rip) — rewrite the audio in place and keep the picture.
+ *  - **Everything already fine** — do nothing at all.
+ *
+ * A playable container we can't rewrite in place (WebM has nowhere to put AAC)
+ * falls back to extraction: a sibling audio file is worse than one tidy file, but
+ * far better than a row that plays silence.
+ */
+export async function ensureVideoPlayable(relInputPath: string): Promise<EnsurePlayableResult> {
+	if (!isVideoExtension(relInputPath)) {
+		return { action: 'skipped', reason: 'not a video' };
+	}
+
+	const asExtraction = async (): Promise<EnsurePlayableResult> => {
+		const result = await extractVideoAudio(relInputPath);
+		return result.status === 'converted'
+			? {
+					action: 'extracted',
+					audioPath: result.audioPath,
+					subtitlePaths: result.subtitlePaths,
+					duration: result.duration
+				}
+			: { action: 'failed', reason: result.reason };
+	};
+
+	// No browser opens these at all — the codec inside is beside the point.
+	if (needsAudioExtraction(relInputPath)) return asExtraction();
+
+	let absInput: string;
+	try {
+		absInput = resolveExistingPath(relInputPath);
+	} catch (err) {
+		if (String((err as Error)?.message ?? '').includes('traversal')) throw err;
+		return { action: 'failed', reason: 'the file could not be found' };
+	}
+
+	// `resolveExistingPath` happily canonicalizes a path that isn't there yet (it is
+	// also used for write targets), so a missing file would otherwise probe to null
+	// and be reported as "nothing to fix" — which is not the same answer at all.
+	try {
+		const stats = await fs.stat(absInput);
+		if (!stats.isFile()) return { action: 'failed', reason: 'that path is not a file' };
+	} catch {
+		return { action: 'failed', reason: 'the file could not be found' };
+	}
+
+	const codec = await videoAudioCodec(absInput);
+	if (codec === null) {
+		// The file is there, so this is a silent video or one ffprobe can't read.
+		// Neither is something re-encoding would fix.
+		return { action: 'skipped', reason: 'no readable audio track' };
+	}
+	if (isBrowserPlayableAudioCodec(codec)) return { action: 'skipped', audioCodec: codec };
+
+	if (!isReencodableVideoExtension(relInputPath)) return asExtraction();
+
+	const result = await reencodeVideoAudio(relInputPath);
+	if (result.status === 'reencoded') {
+		return { action: 'reencoded', audioCodec: result.audioCodec, duration: result.duration };
+	}
+	if (result.status === 'skipped') {
+		return { action: 'skipped', audioCodec: result.audioCodec, reason: result.reason };
+	}
+	return { action: 'failed', audioCodec: result.audioCodec, reason: result.reason };
 }

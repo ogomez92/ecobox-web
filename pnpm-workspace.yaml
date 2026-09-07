@@ -6,10 +6,17 @@
 #   msedge-tts     — Edge read-aloud TTS postinstall
 # Keep them true after a pnpm bump — if pnpm rewrites these to "set this to true
 # or false", just set them back.
+#
+# The two false entries are deliberate, not undecided: @google/genai's only
+# install-time hook is a no-op `preinstall` echo (its `prepare` is for git
+# installs), and protobufjs's postinstall only wires up its CLI — neither is
+# needed to call the Gemini REST API, and not running them is the safer default.
 allowBuilds:
+  '@google/genai': false
   better-sqlite3: true
   esbuild: true
   msedge-tts: true
+  protobufjs: false
 
 onlyBuiltDependencies:
   - better-sqlite3

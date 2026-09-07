@@ -12,16 +12,18 @@
 	import SleepTimer from './SleepTimer.svelte';
 	import EffectsPanel from './EffectsPanel.svelte';
 	import CastDialog from './CastDialog.svelte';
+	import DescribeKeyDialog from './DescribeKeyDialog.svelte';
 	import { playerStore } from '$lib/stores/player.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { subtitlesStore } from '$lib/stores/subtitles.svelte';
-	import { isPlayableMedia } from '$lib/utils/mediaTypes';
+	import { videoDescribeStore } from '$lib/stores/videoDescribe.svelte';
+	import { isPlayableMedia, isVideoExtension } from '$lib/utils/mediaTypes';
 	import { recentStore } from '$lib/stores/recent.svelte';
 	import { audioEffects } from '$lib/services/audioEffects';
 	import { roomCaster } from '$lib/services/roomCaster.svelte';
 	import { formatDuration } from '$lib/utils/format';
-	import { t } from '$lib/i18n/index.svelte';
-	import type { ChapteredBookManifest } from '$lib/types';
+	import { i18n, t } from '$lib/i18n/index.svelte';
+	import { MAX_DESCRIBE_SECONDS, type ChapteredBookManifest } from '$lib/types';
 
 	/**
 	 * Either flavour of audio bookmark. Single files store a time against the file;
@@ -46,6 +48,9 @@
 	let showSleepTimer = $state(false);
 	let showEffects = $state(false);
 	let showCast = $state(false);
+	let showDescribeKey = $state(false);
+	let describeKeyReason = $state<'missing' | 'invalid'>('missing');
+	let describeButtonRef: HTMLButtonElement | null = $state(null);
 	let bookmarks = $state<PlaybackBookmark[]>([]);
 
 	// Presentation rows for the shared BookmarkList (keyed by bookmark id; time → detail).
@@ -78,6 +83,7 @@
 	let timeInfoAnnouncement = $state('');
 	let bookmarkAnnouncement = $state('');
 	let subtitleAnnouncement = $state('');
+	let describeAnnouncement = $state('');
 
 	const title = $derived(playerStore.currentTitle);
 	const chapterTitle = $derived(playerStore.currentChapter?.title);
@@ -112,6 +118,153 @@
 	const announcesSubtitles = $derived(settingsStore.subtitleAnnounce !== 'off');
 	// A cue's line breaks are layout, not pauses — speak it as one sentence.
 	const spokenSubtitle = $derived(announcesSubtitles ? subtitleText.replace(/\n/g, ' ') : '');
+
+	// --- Video description ---------------------------------------------------
+	// A video plays through the same <audio> element as everything else, so the
+	// picture is simply not there for anyone. Marking a segment and asking Claude
+	// what it shows is offered for every video container, playable or not: ffmpeg
+	// can read an .mkv the browser refuses to open.
+	//
+	// What a description would be *of*: the page's own file normally, and whichever
+	// file a chaptered folder currently has loaded. (Reading `currentFile` only in
+	// that case keeps the buttons right during SSR, where the store is not yet the
+	// file this page is about.)
+	const describeTarget = $derived(
+		playerStore.isChapteredPlayback ? (playerStore.currentFile ?? filePath) : filePath
+	);
+	const isVideo = $derived(!isRadio && isVideoExtension(describeTarget));
+
+	// Marks belong to one file. Moving through a chaptered folder loads a different
+	// file under the same page, and a mark at 3:20 means nothing in the next one.
+	// Keyed on the same value the description is *about*, so a mark made before the
+	// file finishes loading isn't wiped by the load itself.
+	$effect(() => {
+		videoDescribeStore.resetFor(describeTarget);
+	});
+
+	const describeErrorText = $derived.by(() => {
+		const code = videoDescribeStore.errorCode;
+		if (!code) return '';
+		switch (code) {
+			case 'noStart': return t('describe.errorNoStart');
+			case 'noEnd': return t('describe.errorNoEnd');
+			case 'noKey': return t('describe.errorNoKey');
+			case 'badKey': return t('describe.errorBadKey');
+			case 'rateLimited': return t('describe.errorRateLimited');
+			case 'quota': return t('describe.errorQuota');
+			case 'upstream': return t('describe.errorUpstream');
+			case 'badModel': return t('describe.errorBadModel');
+			case 'network': return t('describe.errorNetwork');
+			case 'timeout': return t('describe.errorTimeout');
+			case 'notFound': return t('describe.errorNotFound');
+			case 'notVideo': return t('describe.errorNotVideo');
+			case 'noVideoStream': return t('describe.errorNoVideoStream');
+			case 'badRange': return t('describe.errorBadRange');
+			case 'tooLong': return t('describe.errorTooLong', { minutes: Math.floor(MAX_DESCRIBE_SECONDS / 60) });
+			case 'ffmpegMissing': return t('describe.errorFfmpegMissing');
+			case 'ffmpegFailed': return t('describe.errorFfmpegFailed');
+			case 'emptyClip': return t('describe.errorEmptyClip');
+			case 'uploadFailed': return t('describe.errorUploadFailed');
+			case 'refusal': return t('describe.errorRefusal');
+			case 'empty': return t('describe.errorEmpty');
+			default: return t('describe.errorServer');
+		}
+	});
+
+	const describeSegmentLabel = $derived.by(() => {
+		const start = videoDescribeStore.startMark;
+		const end = videoDescribeStore.endMark;
+		if (start === null) return t('describe.noMarks');
+		if (end === null) return t('describe.startOnly', { start: formatDuration(start) });
+		return t('describe.segment', {
+			start: formatDuration(start),
+			end: formatDuration(end),
+			duration: formatDuration(Math.max(0, end - start))
+		});
+	});
+
+	function announceDescribe(message: string) {
+		describeAnnouncement = message;
+		// Cleared so the same message announces again next time it is triggered.
+		setTimeout(() => { describeAnnouncement = ''; }, 100);
+	}
+
+	function markDescribeStart() {
+		const time = playerStore.currentTime;
+		videoDescribeStore.markStart(time);
+		announceDescribe(t('describe.startMarked', { time: formatDuration(time) }));
+	}
+
+	function markDescribeEnd() {
+		const time = playerStore.currentTime;
+		videoDescribeStore.markEnd(time);
+		// An end at or before the start can never be described — say so now rather
+		// than letting the user press Describe and wait for a refusal.
+		if (videoDescribeStore.startMark !== null && time <= videoDescribeStore.startMark) {
+			videoDescribeStore.reportError('badRange');
+			announceDescribe(t('describe.errorBadRange'));
+			return;
+		}
+		announceDescribe(t('describe.endMarked', { time: formatDuration(time) }));
+	}
+
+	function clearDescribeMarks() {
+		videoDescribeStore.clear();
+		announceDescribe(t('describe.cleared'));
+		requestAnimationFrame(() => describeButtonRef?.focus());
+	}
+
+	/** Send the marked segment off, announcing the wait and then the outcome. */
+	async function runDescription() {
+		announceDescribe(t('describe.working'));
+		const ok = await videoDescribeStore.describe(describeTarget, i18n.locale);
+		if (ok) return; // the description's own live region carries it
+
+		// A key problem is recoverable right here: reopen the dialog instead of
+		// leaving the user with an error and nowhere to go.
+		const code = videoDescribeStore.errorCode;
+		if (code === 'noKey' || code === 'badKey') {
+			describeKeyReason = code === 'badKey' ? 'invalid' : 'missing';
+			showDescribeKey = true;
+		}
+		// Everything else is announced by the panel's role="alert".
+	}
+
+	/**
+	 * The Describe action. Marks are checked before the key is, so an unmarked
+	 * segment never turns into a request for an API key.
+	 */
+	async function requestDescription() {
+		if (!isVideo || videoDescribeStore.isDescribing) return;
+
+		const problem = videoDescribeStore.markError();
+		if (problem) {
+			videoDescribeStore.reportError(problem);
+			announceDescribe(describeErrorText);
+			return;
+		}
+
+		const status = videoDescribeStore.keyStatus ?? (await videoDescribeStore.loadKeyStatus());
+		if (!status.configured) {
+			describeKeyReason = 'missing';
+			showDescribeKey = true;
+			return;
+		}
+
+		await runDescription();
+	}
+
+	function closeDescribeKey() {
+		showDescribeKey = false;
+		requestAnimationFrame(() => describeButtonRef?.focus());
+	}
+
+	function onDescribeKeySaved() {
+		showDescribeKey = false;
+		announceDescribe(t('describe.key.saved'));
+		requestAnimationFrame(() => describeButtonRef?.focus());
+		runDescription();
+	}
 
 	// Bookmarks in a multi-file book live in their own table: a bare time would be
 	// ambiguous across 50 files, so each row also records the file it points into.
@@ -279,6 +432,7 @@
 		}
 		cancelSleepTimer();
 		subtitlesStore.clear();
+		videoDescribeStore.cancel();
 		// Stop casting first — audioEffects.destroy() closes the context and would
 		// otherwise leave the caster producing a dead track.
 		if (roomCaster.isCasting) roomCaster.stop();
@@ -406,6 +560,7 @@
 			if (fromDialog) return;
 			e.preventDefault();
 			if (showEffects) { closeEffectsPanel(); return; }
+			if (showDescribeKey) { closeDescribeKey(); return; }
 			if (showCast) { showCast = false; return; }
 			if (showGoToTime) { showGoToTime = false; return; }
 			if (showBookmarks) {
@@ -421,7 +576,8 @@
 		}
 
 		// For other keys, bail when any modal is open
-		if (showGoToTime || showBookmarks || showChapters || showSleepTimer || showCast) return;
+		if (showGoToTime || showBookmarks || showChapters || showSleepTimer || showCast || showDescribeKey)
+			return;
 
 		// F key toggles effects panel even when it's open
 		if (e.code === 'KeyF' && !isRadio) {
@@ -550,6 +706,20 @@
 				e.preventDefault();
 				addBookmark();
 				break;
+
+			// D: mark the start of a segment to describe; Shift+D marks its end;
+			// Ctrl/Cmd+Shift+D asks Claude what happens in it. Bare Ctrl+D is left
+			// to the browser (bookmark this page) — we never claim a key we don't use.
+			case 'KeyD': {
+				if (!isVideo || e.altKey) return;
+				const withCtrl = e.ctrlKey || e.metaKey;
+				if (withCtrl && !e.shiftKey) return;
+				e.preventDefault();
+				if (withCtrl) requestDescription();
+				else if (e.shiftKey) markDescribeEnd();
+				else markDescribeStart();
+				break;
+			}
 
 			// S: Toggle subtitles (visible box + live region)
 			case 'KeyS':
@@ -832,6 +1002,59 @@
 			</div>
 		{/if}
 
+		<!-- Video description. The picture is never rendered anywhere in this app, so
+		     this panel is the only place its content ever appears. The description
+		     itself sits in an ASSERTIVE live region: the user asked for it and is
+		     waiting on it, and a polite one would queue behind running captions. -->
+		{#if isVideo && (videoDescribeStore.hasStart || videoDescribeStore.description || videoDescribeStore.errorCode || videoDescribeStore.isDescribing)}
+			<section
+				class="mb-6 rounded-lg border border-gray-300 dark:border-gray-700 bg-white/70 dark:bg-gray-800/70 p-4"
+				aria-labelledby="describe-panel-heading"
+				aria-busy={videoDescribeStore.isDescribing}
+			>
+				<div class="flex items-start justify-between gap-3">
+					<h2
+						id="describe-panel-heading"
+						class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
+					>
+						{t('describe.heading')}
+					</h2>
+					{#if videoDescribeStore.hasStart || videoDescribeStore.description}
+						<button
+							type="button"
+							class="btn-ghost text-sm px-2 py-1"
+							onclick={clearDescribeMarks}
+							aria-label={t('describe.clearAria')}
+						>
+							{t('describe.clear')}
+						</button>
+					{/if}
+				</div>
+
+				<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">{describeSegmentLabel}</p>
+
+				{#if videoDescribeStore.isDescribing}
+					<p class="mt-2 text-sm text-gray-600 dark:text-gray-400">{t('describe.working')}</p>
+				{/if}
+
+				<div aria-live="assertive" aria-atomic="true">
+					{#if videoDescribeStore.description}
+						<p class="mt-3 text-base leading-relaxed text-gray-900 dark:text-gray-100 whitespace-pre-line">
+							{videoDescribeStore.description}
+						</p>
+					{/if}
+				</div>
+
+				{#if describeErrorText}
+					<p class="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">
+						{describeErrorText}{#if videoDescribeStore.errorDetail}
+							<span class="opacity-70"> ({videoDescribeStore.errorDetail})</span>
+						{/if}
+					</p>
+				{/if}
+			</section>
+		{/if}
+
 		<!-- Seek bar (hide for radio) -->
 		{#if !isRadio}
 			<div class="mb-6">
@@ -964,6 +1187,43 @@
 						{t('subtitles.button')}
 					</button>
 				{/if}
+
+				<!-- Describe what is on screen. Only for videos: everything else has no
+				     picture to miss. -->
+				{#if isVideo}
+					<button
+						type="button"
+						class="btn-secondary {videoDescribeStore.hasStart ? 'ring-2 ring-primary-500 text-primary-600 dark:text-primary-400' : ''}"
+						onclick={markDescribeStart}
+						aria-label={t('describe.markStartAria')}
+					>
+						<Icon name="mark-start" size={20} class="mr-2" />
+						{t('describe.markStart')}
+					</button>
+
+					<button
+						type="button"
+						class="btn-secondary {videoDescribeStore.hasEnd ? 'ring-2 ring-primary-500 text-primary-600 dark:text-primary-400' : ''}"
+						onclick={markDescribeEnd}
+						aria-label={t('describe.markEndAria')}
+					>
+						<Icon name="mark-end" size={20} class="mr-2" />
+						{t('describe.markEnd')}
+					</button>
+
+					<button
+						bind:this={describeButtonRef}
+						type="button"
+						class="btn-secondary"
+						onclick={requestDescription}
+						disabled={videoDescribeStore.isDescribing}
+						aria-busy={videoDescribeStore.isDescribing}
+						aria-label={t('describe.buttonAria')}
+					>
+						<Icon name="video" size={20} class="mr-2" />
+						{videoDescribeStore.isDescribing ? t('describe.working') : t('describe.button')}
+					</button>
+				{/if}
 			{/if}
 
 			<button
@@ -1082,6 +1342,16 @@
 	/>
 {/if}
 
+<!-- Claude API key prompt — opened the first time a description is asked for
+     without a key on the server, and again if the stored key is rejected. -->
+{#if showDescribeKey}
+	<DescribeKeyDialog
+		reason={describeKeyReason}
+		onsaved={onDescribeKeySaved}
+		onclose={closeDescribeKey}
+	/>
+{/if}
+
 <!-- Live region for announcements -->
 <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 	{seekUnitAnnouncement}
@@ -1094,6 +1364,9 @@
 </div>
 <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 	{subtitleAnnouncement}
+</div>
+<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+	{describeAnnouncement}
 </div>
 
 <!-- Subtitle live regions. Both are rendered so the one in use is registered with

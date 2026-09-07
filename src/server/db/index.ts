@@ -107,6 +107,12 @@ sqlite.exec(`
 		elf_volume INTEGER
 	);
 
+	CREATE TABLE IF NOT EXISTS ai_credentials (
+		provider TEXT PRIMARY KEY,
+		api_key TEXT,
+		updated_at INTEGER NOT NULL
+	);
+
 	CREATE TABLE IF NOT EXISTS deletion_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		path TEXT NOT NULL,

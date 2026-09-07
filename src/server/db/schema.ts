@@ -101,6 +101,22 @@ export const ttsCredentials = sqliteTable('tts_credentials', {
 });
 
 /**
+ * Keys for the AI providers the app talks to server-side — currently only
+ * Anthropic, used by the video description feature. Kept out of `settings`
+ * because that table is served wholesale to the client: a key stored here is
+ * read on the server and never serialized back (see /api/describe/key).
+ */
+export const aiCredentials = sqliteTable('ai_credentials', {
+	// 'anthropic'
+	provider: text('provider').primaryKey(),
+	// SECRET — never returned to the client.
+	apiKey: text('api_key'),
+	updatedAt: integer('updated_at', { mode: 'timestamp' })
+		.notNull()
+		.$defaultFn(() => new Date())
+});
+
+/**
  * "Recently opened" log, one row per media path (the path is the key, so opening
  * the same file twice moves it up the list rather than adding a duplicate).
  *
@@ -156,6 +172,8 @@ export type BookMetadata = typeof bookMetadata.$inferSelect;
 export type NewBookMetadata = typeof bookMetadata.$inferInsert;
 export type BookBookmark = typeof bookBookmarks.$inferSelect;
 export type NewBookBookmark = typeof bookBookmarks.$inferInsert;
+export type AiCredential = typeof aiCredentials.$inferSelect;
+export type NewAiCredential = typeof aiCredentials.$inferInsert;
 export type TtsCredential = typeof ttsCredentials.$inferSelect;
 export type NewTtsCredential = typeof ttsCredentials.$inferInsert;
 export type RecentFile = typeof recentFiles.$inferSelect;

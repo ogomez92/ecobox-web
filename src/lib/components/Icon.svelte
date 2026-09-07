@@ -33,6 +33,8 @@
 		| 'broadcast'
 		| 'captions'
 		| 'video'
+		| 'mark-start'
+		| 'mark-end'
 		| 'info';
 
 	interface Props {
@@ -83,6 +85,9 @@
 		// A film strip: a video row still plays as audio, but the icon says what the
 		// file on disk actually is.
 		video: 'M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1zM8 4v16M16 4v16M3 9h5M3 15h5M16 9h5M16 15h5',
+		// Segment marks: a bar at the edge with the span running away from it.
+		'mark-start': 'M5 4v16M9 12h11M16 8l4 4-4 4',
+		'mark-end': 'M19 4v16M15 12H4M8 8l-4 4 4 4',
 		info: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
 	};
 </script>
