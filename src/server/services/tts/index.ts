@@ -6,6 +6,7 @@
 import type { TtsAudioService, TtsVoice, ElevenVoiceSettings, ElfVoiceParams, TtsQuota } from '$lib/types';
 import { resolveCredential } from './credentials';
 import { TtsError } from './errors';
+import { silentMp3 } from './silence';
 import { elevenSynthesize, elevenVoices, elevenSubscription } from './elevenlabs';
 import { azureSynthesize, azureVoices, edgeSynthesize, edgeVoices } from './azure';
 import { googleSynthesize, googleVoices } from './google';
@@ -38,7 +39,10 @@ function toArrayBuffer(buf: ArrayBuffer | Buffer): ArrayBuffer {
 /** Synthesize MP3 audio for the given text. Throws TtsError on failure. */
 export async function synthesize(input: SynthesizeInput): Promise<ArrayBuffer> {
 	const text = (input.text || '').trim();
-	if (!text) throw new TtsError(400, 'No text to synthesize');
+	// A unit with nothing to say is a book-shaped reality, not a client bug: rejecting
+	// it reads to the reader as a dead provider and downgrades the session to Web
+	// Speech. Answer with silence so it just advances. See silence.ts.
+	if (!text) return toArrayBuffer(await silentMp3());
 	const cred = await resolveCredential(input.service);
 	const voiceId = input.voiceId || cred.voiceId;
 

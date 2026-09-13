@@ -57,3 +57,35 @@ export async function assertFfmpeg(engine: string): Promise<void> {
 		});
 	});
 }
+
+/**
+ * Byte length of a RIFF/WAVE buffer's `data` chunk — i.e. how much audio the engine
+ * actually produced. Zero means the engine ran fine and had nothing to pronounce.
+ *
+ * That case is real and common, not an edge case: a converted book routinely contains
+ * paragraphs that are only an em-dash, an ellipsis or a stray zero-width space (a
+ * scene break, a stripped markdown rule), and `groupChunks` flushes at every paragraph
+ * boundary, so each becomes a synthesis unit of its own. ECI answers those with a
+ * well-formed but empty 44-byte WAV and exit 0 — success, nothing to say — which must
+ * not be confused with a crash (non-zero exit), because the two need opposite handling.
+ *
+ * Walks the chunk list rather than assuming the canonical 44-byte header, since a WAV
+ * may carry LIST/fact chunks ahead of `data`.
+ */
+export function wavSampleBytes(buf: Buffer): number {
+	if (
+		buf.length < 12 ||
+		buf.toString('latin1', 0, 4) !== 'RIFF' ||
+		buf.toString('latin1', 8, 12) !== 'WAVE'
+	)
+		return 0;
+	let off = 12;
+	while (off + 8 <= buf.length) {
+		const id = buf.toString('latin1', off, off + 4);
+		const size = buf.readUInt32LE(off + 4);
+		// Trust the buffer over a declared size that overruns it (truncated capture).
+		if (id === 'data') return Math.max(0, Math.min(size, buf.length - (off + 8)));
+		off += 8 + size + (size % 2); // chunks are word-aligned
+	}
+	return 0;
+}

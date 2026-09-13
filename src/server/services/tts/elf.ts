@@ -15,7 +15,8 @@ import { spawn } from 'child_process';
 import type { TtsVoice, ElfVoiceParams } from '$lib/types';
 import { env } from '$env/dynamic/private';
 import { TtsError } from './errors';
-import { assertExecutable, assertFfmpeg } from './localEngine';
+import { assertExecutable, assertFfmpeg, wavSampleBytes } from './localEngine';
+import { silentMp3 } from './silence';
 
 const TIMEOUT_MS = 30000;
 
@@ -198,9 +199,14 @@ export async function elfSynthesize(opts: {
 		if (e instanceof TtsError) throw e;
 		throw new TtsError(500, 'ELF synthesis failed');
 	}
-	if (synth.code !== 0 || synth.stdout.length === 0) {
+	if (synth.code !== 0) {
 		throw new TtsError(502, synth.stderr || 'ELF produced no audio');
 	}
+	// Exit 0 with no samples means "nothing to pronounce" — a paragraph that is just an
+	// em-dash, an ellipsis or a zero-width space — not a failure. Hand back real silence
+	// instead of transcoding the empty WAV into a frameless, undecodable MP3, which the
+	// browser rejects and the reader mistakes for a dead provider. See silentMp3().
+	if (wavSampleBytes(synth.stdout) === 0) return silentMp3();
 
 	// Transcode the WAV to MP3 to match the audio/mpeg pipeline + on-disk cache.
 	let mp3;

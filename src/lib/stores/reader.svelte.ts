@@ -29,6 +29,12 @@ import { groupChunks, singletonUnits, unitForChunk, type Unit } from '$lib/utils
 
 const VOICE_KEY = 'ecobox-tts-voice';
 const PREFETCH_AHEAD = 3;
+/**
+ * How long to wait before re-trying a unit that failed to speak, once, before giving
+ * up on the chosen engine. A dropped fetch (the screen went off mid-read, the wifi
+ * blinked) shouldn't cost the user their voice for the rest of the session.
+ */
+const SPEAK_RETRY_MS = 500;
 
 /**
  * Case- and accent-insensitive folding for find/highlight, so "policia" matches
@@ -79,6 +85,9 @@ class ReaderStore {
 	private speakToken = 0;
 	private resumeInPlace = false;
 	private fellBack = false;
+	/** Chunk index whose synthesis we've already re-tried once (see SPEAK_RETRY_MS). */
+	private retriedUnit: number | null = null;
+	private retryTimer: ReturnType<typeof setTimeout> | null = null;
 	private positionSavedForNavigation = false;
 	private lastPositionSaveTime = 0;
 	private rateRestartTimer: ReturnType<typeof setTimeout> | null = null;
@@ -180,6 +189,7 @@ class ReaderStore {
 		this.error = null;
 		this.notice = null;
 		this.fellBack = false;
+		this.retriedUnit = null;
 		this.currentChunkIndex = 0;
 		this.isPlaying = false;
 		// Adopt the global default rate + selected service (sliders persist changes back).
@@ -337,6 +347,8 @@ class ReaderStore {
 
 	private onUnitEnded(token: number, unit: Unit) {
 		if (token !== this.speakToken) return;
+		// This unit played, so the next failure anywhere is a fresh one, not a repeat.
+		this.retriedUnit = null;
 		const nextStart = unit.endIndex + 1;
 		if (nextStart < this.chunks.length) {
 			this.currentChunkIndex = nextStart;
@@ -362,7 +374,22 @@ class ReaderStore {
 			this.armResumeOnGesture();
 			return;
 		}
-		// An audio provider failed mid-read: fall back to Web Speech for the session.
+		// Retry this unit once before writing the engine off. Most mid-read failures are
+		// transient (a fetch dropped while the screen was off, a blip in the provider),
+		// and falling back on the first one strands the user on Web Speech until they
+		// close and reopen the book — a heavy, hard-to-discover price for a blip.
+		if (this.engine?.kind === 'audio' && this.retriedUnit !== this.currentChunkIndex) {
+			this.retriedUnit = this.currentChunkIndex;
+			const tokenAtFailure = this.speakToken;
+			if (this.retryTimer) clearTimeout(this.retryTimer);
+			this.retryTimer = setTimeout(() => {
+				this.retryTimer = null;
+				// Only if nothing moved on in the meantime (a seek/stop bumps the token).
+				if (tokenAtFailure === this.speakToken && this.isPlaying) this.speakCurrent();
+			}, SPEAK_RETRY_MS);
+			return;
+		}
+		// The retry failed too: fall back to Web Speech for the session.
 		if (this.engine?.kind === 'audio' && !this.fellBack) {
 			this.fellBack = true;
 			this.notice = t('reader.ttsFellBack');
@@ -714,6 +741,7 @@ class ReaderStore {
 		this.isPlaying = false;
 		this.isSynthesizing = false;
 		if (this.rateRestartTimer) clearTimeout(this.rateRestartTimer);
+		if (this.retryTimer) clearTimeout(this.retryTimer);
 		if (!wasSaved && this.bookFolderPath) {
 			this.doSavePosition(capturedIndex);
 		}

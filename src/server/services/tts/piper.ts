@@ -32,7 +32,8 @@ import { spawn } from 'child_process';
 import type { TtsVoice } from '$lib/types';
 import { env } from '$env/dynamic/private';
 import { TtsError } from './errors';
-import { assertExecutable, assertFfmpeg } from './localEngine';
+import { assertExecutable, assertFfmpeg, wavSampleBytes } from './localEngine';
+import { silentMp3 } from './silence';
 
 // Neural synthesis loads the ONNX model on every spawn, so it's slower to start than
 // ELF's formant path — give it a generous ceiling (the disk cache makes it one-time).
@@ -277,7 +278,10 @@ export async function piperSynthesize(opts: {
 	// Piper reads one line of stdin per utterance and would emit one WAV per line;
 	// flatten newlines so a multi-sentence unit produces a single WAV.
 	const text = (opts.text || '').replace(/\s+/g, ' ').trim();
-	if (!text) throw new TtsError(400, 'No text to synthesize');
+	// A unit with nothing in it is a book-shaped reality, not a client bug (see
+	// wavSampleBytes) — answer with silence so the reader advances instead of
+	// treating a 400 as a dead provider and downgrading to Web Speech.
+	if (!text) return silentMp3();
 
 	const { modelPath, configPath, speaker, baseLengthScale } = await resolveVoice(opts.voiceId);
 	// piper1-gpl CLI: model + config by path, WAV to stdout via `-f -`. Phonemization
@@ -295,9 +299,11 @@ export async function piperSynthesize(opts: {
 		if (e instanceof TtsError) throw e;
 		throw new TtsError(500, 'Piper synthesis failed');
 	}
-	if (synth.code !== 0 || synth.stdout.length === 0) {
+	if (synth.code !== 0) {
 		throw new TtsError(502, synth.stderr || 'Piper produced no audio');
 	}
+	// Ran fine but produced no samples = nothing to pronounce; see elf.ts / silentMp3().
+	if (wavSampleBytes(synth.stdout) === 0) return silentMp3();
 
 	// Transcode the WAV to MP3 to match the audio/mpeg pipeline + on-disk cache.
 	let mp3;
