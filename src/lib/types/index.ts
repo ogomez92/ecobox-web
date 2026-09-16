@@ -545,7 +545,7 @@ export const DEFAULT_AUDIO_EFFECTS: AudioEffects = {
 };
 
 // ---------------------------------------------------------------------------
-// Video description (Gemini)
+// Video description (Claude)
 // ---------------------------------------------------------------------------
 
 /**
@@ -558,7 +558,7 @@ export type DescribeErrorCode =
 	| 'noStart'
 	/** Client-side only: a start was marked but no end. */
 	| 'noEnd'
-	/** No Gemini API key is configured (server-side); the client offers the key dialog. */
+	/** No Anthropic API key is configured (server-side); the client offers the key dialog. */
 	| 'noKey'
 	/** The configured key was rejected (401/403). */
 	| 'badKey'
@@ -581,15 +581,11 @@ export type DescribeErrorCode =
 	| 'noVideoStream'
 	/** Start/end missing, equal, reversed or out of the file. */
 	| 'badRange'
-	/** The marked segment is longer than `MAX_DESCRIBE_SECONDS`. */
-	| 'tooLong'
 	| 'ffmpegMissing'
 	| 'ffmpegFailed'
-	/** ffmpeg ran but produced an empty clip (marks past the end of the video). */
+	/** ffmpeg ran but produced no frames (marks past the end of the video). */
 	| 'emptyClip'
-	/** The clip was too big to inline and the upload never became usable. */
-	| 'uploadFailed'
-	/** The model declined to answer (a safety block or an abnormal finish). */
+	/** The model declined to answer (a policy refusal). */
 	| 'refusal'
 	/** The model answered with no text. */
 	| 'empty'
@@ -601,13 +597,19 @@ export interface DescribeSuccess {
 	/** Echo of the segment actually described, in seconds. */
 	start: number;
 	end: number;
+	/** The model that actually answered (a refusal fallback may differ from the configured one). */
 	model: string;
-	/** Frames per second the model was asked to sample the clip at. */
-	fps: number;
-	/** Size of the clip that was sent, in bytes. */
-	clipBytes: number;
-	/** Whether the clip carried an audio track the model could hear. */
-	hasAudio: boolean;
+	/** How many frames the model was shown. */
+	frames: number;
+	/** Seconds between consecutive frames. */
+	interval: number;
+	/**
+	 * True when the segment was longer than `MAX_DESCRIBE_FRAMES` seconds, so the
+	 * frames were spread thinner than one per second. The player warns about it.
+	 */
+	sampled: boolean;
+	/** Whether a sidecar subtitle track was handed to the model as context. */
+	hasSubtitles: boolean;
 }
 
 export interface DescribeFailure {
@@ -619,11 +621,14 @@ export interface DescribeFailure {
 
 export type DescribeResult = DescribeSuccess | DescribeFailure;
 
-/** Whether a Gemini key exists server-side, and where it came from. Never the key. */
+/** Whether an Anthropic key exists server-side, and where it came from. Never the key. */
 export interface DescribeKeyStatus {
 	configured: boolean;
 	source: 'env' | 'stored' | null;
 }
 
-/** Longest segment that may be described in one request. */
-export const MAX_DESCRIBE_SECONDS = 300;
+/**
+ * Most frames sent for one description. Segments up to this many seconds are
+ * sampled once a second; longer ones are spread over this many frames instead.
+ */
+export const MAX_DESCRIBE_FRAMES = 50;

@@ -303,18 +303,17 @@ is where a long transcode can later become a background job.
 
 The one thing audio-only playback can never give a blind listener is the picture.
 **`POST /api/describe {path, start, end, language?}`** closes that gap: the user
-marks a segment in the player, ffmpeg cuts that span out as a real clip, and a
-model watches it.
+marks a segment in the player, ffmpeg pulls still frames out of that span, and
+**Claude** (`@anthropic-ai/sdk`) describes the sequence.
 
-**Why Gemini and not Claude.** The Claude API takes images only — there is no
-`video` content block, and a `video/mp4` is refused by both the image block
-("Supported image formats are JPEG, PNG, GIF, and WebP") and the document block
-("Only PDF and plaintext documents are supported"). Frames sampled from a segment
-lose exactly what a blind listener most needs — motion, direction, who moved where
-— so the engine is `generativelanguage.googleapis.com` (`@google/genai`), which
-ingests video. Model is **`gemini-3.8-flash`**, overridable with
-`GEMINI_DESCRIBE_MODEL` because model names churn faster than this file does; a
-wrong name surfaces as the `badModel` code (a 404), not a mystery failure.
+**Frames, not video.** The Claude API takes images only — there is no `video`
+content block — so the segment is sent as a run of JPEG frames, each preceded by a
+`Frame at m:ss:` label, in one user message. That turned out to be the faster
+design, not a compromise: the earlier Gemini implementation shipped a real clip
+and spent most of its wait on video ingestion, whereas a 10-frame request is
+answered in ~5 s end to end and the 50-frame maximum in ~17 s (measured here).
+Model is **`claude-opus-5`**, overridable with `CLAUDE_DESCRIBE_MODEL`; a wrong
+name surfaces as the `badModel` code (a 404), not a mystery failure.
 
 - **Marks, then describe.** In `PlaybackView`, **`d`** marks the start, **`Shift+D`**
   the end, **`Ctrl/Cmd+Shift+D`** asks — and the same three actions are footer
@@ -326,62 +325,73 @@ wrong name surfaces as the `badModel` code (a 404), not a mystery failure.
   `$lib/stores/videoDescribe.svelte.ts` and is **keyed to one file** — moving to the
   next track or the next file of a chaptered folder drops the marks, because a mark
   at 3:20 means nothing in the next episode.
-- **The clip.** One ffmpeg pass, `-ss` *before* `-i` (seek, don't decode from the
-  top of a 4 GB film) with `-t` bounding the work. The video is **re-encoded, not
-  stream-copied**: a copy can only cut on a keyframe, which drifts the marks by
-  seconds. 720p max (`scale='min(720,iw)':-2`) keeps on-screen text legible, and
-  crf 30 / veryfast keeps it small — a 10-second clip measures ~97 KB, so even a
-  300-second one (`MAX_DESCRIBE_SECONDS`) stays a few MB. The clip is written to a
-  **temp dir on local disk** (`os.tmpdir()`), never into MEDIA_ROOT — a file create
-  on the sshfs mount costs ~0.5 s — and is deleted in a `finally`.
-- **Audio rides along, and that is the point.** `-map 0:a:0?` (optional, so silent
-  videos still work) means the model *hears* the segment. "Never restate what the
-  listener can already hear" stops being a hope and becomes something it can check,
-  and it covers what subtitles never carry — a scream, a car, a song. This replaced
-  an earlier hack that fed the sidecar `.srt` in as text; `hasAudio` is reported back
-  and switches that rule in the system prompt.
-- **Sampling and resolution.** `videoMetadata.fps` from `planVideoFps()` (pure,
-  unit-tested): 2 fps up to 20 s, then 1, 0.5, 0.25 — a short mark is a specific
-  action and wants detail, a long one is a scene summary. `mediaResolution` is
-  **HIGH**: reading a street sign or a phone screen is the whole point of some
-  descriptions and does not survive downscaling. `thinkingLevel: LOW` — seeing is
-  perception, not deliberation, and someone is waiting.
-- **Inline vs upload.** Clips ≤ 12 MB go inline as base64 (one round trip); larger
-  ones go through `ai.files.upload`, poll until `ACTIVE`, and are **deleted after
-  the call** so they don't linger 48 h on the user's account. In practice the size
-  bound above means inline nearly always wins.
+- **Sampling: one frame per second, at most `MAX_DESCRIBE_FRAMES` (50).**
+  `planFrames()` (pure, unit-tested) samples every second up to 50 s; a longer
+  segment is spread evenly over 50 frames instead and flagged **`sampled`**, which
+  the player reads out as a warning *before* the description ("only N moments were
+  looked at, one every X seconds…"). There is **no duration limit**: marking a
+  whole film costs the same 50 frames and simply yields a coarser summary. Frames
+  are capped at 1280 px wide (on-screen text stays legible; the model sees up to
+  2576 px anyway) and cost ~450 tokens each at this library's 768×432 sources,
+  ~1,200 at 720p.
+- **Two extraction paths, chosen by the interval.** At one frame per second, one
+  ffmpeg pass with the `fps` filter (`-ss` before `-i`, `-t` and `-frames:v`
+  bounding it) — 0.1–0.3 s. Sparser than that, **one independent `-ss` seek per
+  frame**, four at a time: the `fps` filter has to decode every frame it skips
+  (~8 s for a 50-minute span), while 50 seeks take ~1.5 s however far apart they
+  are. Frames go to a **temp dir on local disk** (`os.tmpdir()`), never into
+  MEDIA_ROOT, and are deleted in a `finally`. Marks past the end of the file
+  produce no frame and are skipped; zero frames is the `emptyClip` code.
+- **The model cannot hear the segment**, so "never restate what the listener can
+  already hear" is enforced through **subtitles**: when the file has a sidecar
+  `.srt`/`.vtt` (`getSubtitles`), the cues overlapping the segment go in as text
+  (`subtitleContext`, capped at 4,000 chars) marked as *what the listener hears and
+  you must not repeat*, and the system prompt switches its speaker-identification
+  rule accordingly. Non-speech sound is invisible to the model; that is the one
+  thing the clip-based design had that this one does not.
+- **Thinking is off** (`thinking: {type: 'disabled'}`): seeing is perception, not
+  deliberation, and someone is waiting. Because a model with no thinking channel
+  can occasionally leak a tag into its text, the system prompt ends with the
+  standard "do not include internal or system XML tags" line. The request
+  **streams** (`client.beta.messages.stream(...).finalMessage()`) so a slow answer
+  cannot trip an HTTP timeout, and sends `fallbacks: 'default'` (beta
+  `server-side-fallback-2026-07-01`) so a policy refusal is re-run on a sibling
+  model inside the same call; the model that actually answered is returned as
+  `model`. A refusal that survives that comes back as the `refusal` code with the
+  API's `stop_details` explanation as `detail`.
 - **The prompt is half the feature.** Describe only what can be SEEN; never restate
   speech or sound; **read out on-screen text verbatim** (signs, captions, credits —
   the information they cannot get any other way); lead with what CHANGES across the
-  segment. `language` (the UI locale) is mapped to a language name so the
-  description comes back in the user's own language.
-- **The key never reaches the browser.** `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) in
-  `.env`, or a key the user saves in `DescribeKeyDialog` (stored in the
-  **`ai_credentials`** table under provider `google`, which wins over the env).
-  **`/api/describe/key`** is write-only: `GET` answers `{configured, source}` and
-  never the key, `PUT` validates the `AIza…` shape before storing, `DELETE` falls
-  back to the env key. The dialog opens by itself the first time a description is
-  asked for with no key, and again on `badKey`, focusing the field.
+  frames; never mention frames, sampling or being shown anything. `language` (the
+  UI locale) is mapped to a language name so the description comes back in the
+  user's own language.
+- **The key never reaches the browser.** `ANTHROPIC_API_KEY` in `.env`, or a key the
+  user saves in `DescribeKeyDialog` (stored in the **`ai_credentials`** table under
+  provider `anthropic`, which wins over the env). **`/api/describe/key`** is
+  write-only: `GET` answers `{configured, source}` and never the key, `PUT`
+  validates the `sk-ant-…` shape before storing, `DELETE` falls back to the env
+  key. The dialog opens by itself the first time a description is asked for with
+  no key, and again on `badKey`, focusing the field.
 - **Every failure is a code, not a sentence.** `DescribeResult` is
-  `{ok:true,…} | {ok:false, code, detail?}` over ~20 `DescribeErrorCode`s, each with
+  `{ok:true,…} | {ok:false, code, detail?}` over the `DescribeErrorCode`s, each with
   a `describe.error*` translation in all seven locales — so the reason reaches a
-  screen reader in the user's language. Two mappings are worth knowing: a bad key
-  arrives as **HTTP 400** `API_KEY_INVALID` (not 401), and **429 covers two
-  different situations** — a rate limit you wait out, and an account with no credit
-  left; only the message separates `rateLimited` from `quota`, and telling someone
-  to "try again shortly" when they need to top up wastes their afternoon. Marks are
+  screen reader in the user's language. The SDK's typed error classes do the
+  mapping (`AuthenticationError`/`PermissionDeniedError` → `badKey`,
+  `NotFoundError` → `badModel`, `RateLimitError` → `rateLimited`,
+  `APIConnectionTimeoutError` → `timeout`, `APIConnectionError` → `network`); the
+  one ambiguity is a **400**, which is both a malformed request and "credit balance
+  too low" — only the message separates `upstream` from `quota`. Marks are
   validated **before** the key is, so an unmarked segment never turns into a demand
   for an API key.
 - **Output is announced.** The description lands in an **assertive** live region in
   the player (the user asked for it and is waiting; a polite one would queue behind
   running captions) and stays on screen in a labelled panel that also shows the
-  marked range, so it can be re-read. Marks, errors and progress announce through a
-  separate polite region.
+  marked range, so it can be re-read. The `sampled` warning sits in the same region
+  ahead of the text. Marks, errors and progress announce through a separate polite
+  region.
 
-Needs system **ffmpeg**/**ffprobe** and the `@google/genai` package. Note that
-`@google/genai` and `protobufjs` are pinned **`false`** in `pnpm-workspace.yaml`'s
-`allowBuilds` — their install hooks are a no-op echo and a CLI shim respectively,
-neither needed to call the REST API.
+Needs system **ffmpeg**/**ffprobe** and the `@anthropic-ai/sdk` package (pure JS,
+nothing to approve in `pnpm-workspace.yaml`).
 
 ### Sidecar subtitles (.srt / .vtt)
 
@@ -556,7 +566,7 @@ MEDIA_ROOT=/path/to/media       # Root directory for media files
 DATABASE_URL=file:./data/ecobox.db
 PORT=3000
 ORIGIN=https://your-domain.com  # For production CORS
-GEMINI_API_KEY=AIza...           # Optional: video description (else asked for in-app)
+ANTHROPIC_API_KEY=sk-ant-...     # Optional: video description (else asked for in-app)
 ```
 
 ## Accessibility expectations

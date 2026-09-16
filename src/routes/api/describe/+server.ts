@@ -21,7 +21,6 @@ async function dispatchDescribe(...args: Parameters<typeof describeVideoSegment>
 function statusFor(code: DescribeErrorCode): number {
 	switch (code) {
 		case 'badRange':
-		case 'tooLong':
 		case 'notVideo':
 		case 'noVideoStream':
 			return 400;

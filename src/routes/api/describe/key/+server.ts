@@ -3,12 +3,12 @@ import type { RequestHandler } from './$types';
 import {
 	clearDescribeKey,
 	describeKeyStatus,
-	looksLikeGeminiKey,
+	looksLikeAnthropicKey,
 	saveDescribeKey
 } from '$server/services/describeKey';
 
 /**
- * The Gemini key for video description. Write-only from the client's side: it can
+ * The Anthropic key for video description. Write-only from the client's side: it can
  * be set, replaced and removed, but never read back — GET answers only whether one
  * exists and whether it came from the environment or the dialog.
  */
@@ -23,7 +23,7 @@ export const GET: RequestHandler = async () => {
 	}
 };
 
-/** PUT `{ apiKey }` → the new status. A stored key overrides `GEMINI_API_KEY`. */
+/** PUT `{ apiKey }` → the new status. A stored key overrides `ANTHROPIC_API_KEY`. */
 export const PUT: RequestHandler = async ({ request }) => {
 	let body: { apiKey?: unknown };
 	try {
@@ -38,7 +38,7 @@ export const PUT: RequestHandler = async ({ request }) => {
 	}
 	// Catch the common paste errors (a truncated key, another provider's key) here
 	// rather than after the user has waited for a whole request to fail.
-	if (!looksLikeGeminiKey(apiKey)) {
+	if (!looksLikeAnthropicKey(apiKey)) {
 		return json({ ok: false, code: 'malformed' }, { status: 400 });
 	}
 
@@ -51,7 +51,7 @@ export const PUT: RequestHandler = async ({ request }) => {
 	}
 };
 
-/** DELETE → forget the stored key. A `GEMINI_API_KEY` in the env takes over again. */
+/** DELETE → forget the stored key. An `ANTHROPIC_API_KEY` in the env takes over again. */
 export const DELETE: RequestHandler = async () => {
 	try {
 		clearDescribeKey();

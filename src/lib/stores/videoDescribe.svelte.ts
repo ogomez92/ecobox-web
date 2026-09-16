@@ -26,6 +26,12 @@ class VideoDescribeStore {
 	/** The segment `description` covers, for the heading above it. */
 	describedStart = $state<number | null>(null);
 	describedEnd = $state<number | null>(null);
+	/**
+	 * Set when the segment was too long to sample once a second, so the description
+	 * is a coarser summary: how many frames were looked at and how far apart. The
+	 * view turns it into a warning read out with the description.
+	 */
+	sampled = $state<{ frames: number; interval: number } | null>(null);
 
 	errorCode = $state<DescribeErrorCode | null>(null);
 	/** Server-supplied technical detail, shown alongside the translated message. */
@@ -68,6 +74,7 @@ class VideoDescribeStore {
 		this.description = '';
 		this.describedStart = null;
 		this.describedEnd = null;
+		this.sampled = null;
 		this.errorCode = null;
 		this.errorDetail = null;
 	}
@@ -190,6 +197,7 @@ class VideoDescribeStore {
 				this.description = data.description;
 				this.describedStart = data.start;
 				this.describedEnd = data.end;
+				this.sampled = data.sampled ? { frames: data.frames, interval: data.interval } : null;
 				return true;
 			}
 

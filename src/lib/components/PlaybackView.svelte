@@ -23,7 +23,7 @@
 	import { roomCaster } from '$lib/services/roomCaster.svelte';
 	import { formatDuration } from '$lib/utils/format';
 	import { i18n, t } from '$lib/i18n/index.svelte';
-	import { MAX_DESCRIBE_SECONDS, type ChapteredBookManifest } from '$lib/types';
+	import type { ChapteredBookManifest } from '$lib/types';
 
 	/**
 	 * Either flavour of audio bookmark. Single files store a time against the file;
@@ -160,11 +160,9 @@
 			case 'notVideo': return t('describe.errorNotVideo');
 			case 'noVideoStream': return t('describe.errorNoVideoStream');
 			case 'badRange': return t('describe.errorBadRange');
-			case 'tooLong': return t('describe.errorTooLong', { minutes: Math.floor(MAX_DESCRIBE_SECONDS / 60) });
 			case 'ffmpegMissing': return t('describe.errorFfmpegMissing');
 			case 'ffmpegFailed': return t('describe.errorFfmpegFailed');
 			case 'emptyClip': return t('describe.errorEmptyClip');
-			case 'uploadFailed': return t('describe.errorUploadFailed');
 			case 'refusal': return t('describe.errorRefusal');
 			case 'empty': return t('describe.errorEmpty');
 			default: return t('describe.errorServer');
@@ -1038,6 +1036,16 @@
 				{/if}
 
 				<div aria-live="assertive" aria-atomic="true">
+					{#if videoDescribeStore.description && videoDescribeStore.sampled}
+						<!-- Read out before the description, so the listener knows it is a
+						     coarse summary before they hear it as a precise one. -->
+						<p class="mt-3 text-sm text-amber-700 dark:text-amber-400">
+							{t('describe.sampled', {
+								frames: videoDescribeStore.sampled.frames,
+								seconds: Math.round(videoDescribeStore.sampled.interval * 10) / 10
+							})}
+						</p>
+					{/if}
 					{#if videoDescribeStore.description}
 						<p class="mt-3 text-base leading-relaxed text-gray-900 dark:text-gray-100 whitespace-pre-line">
 							{videoDescribeStore.description}
