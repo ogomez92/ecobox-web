@@ -393,11 +393,113 @@ name surfaces as the `badModel` code (a 404), not a mystery failure.
 Needs system **ffmpeg**/**ffprobe** and the `@anthropic-ai/sdk` package (pure JS,
 nothing to approve in `pnpm-workspace.yaml`).
 
+**Credentials are token-first.** `withDescribeClient()` in `describeKey.ts` is the
+only place an Anthropic client is built, for both describe paths. It tries an
+**auth token** (`ai_credentials` row `anthropic-token`, else `ANTHROPIC_AUTH_TOKEN`
+in `.env`; sent as a bearer with the `oauth-2025-04-20` beta) and falls back to the
+**API key** (`anthropic` row, else `ANTHROPIC_API_KEY`) only when the token is
+*unusable*: 401/403, **429** (an OAuth token has its own quota and the API reports
+exhaustion as a bare `rate_limit_error` "Error"), or a 400 credit-balance body. A
+bad model or a refusal is not retried with the key. A token that failed is put on a
+10-minute cooldown so a 700-chunk run does not pay a dead round trip per chunk.
+`/api/describe/key` reports `source: 'token' | 'stored' | 'env'`, and the key dialog
+opens only with no credential at all (`noKey`) or when every credential was
+rejected (`badKey`); a pasted `sk-ant-oat…` in that dialog is stored as the token.
+As of 2026-09-16 the token in `.env` answers 429 to everything, so in practice every
+call runs on the key after one logged `Anthropic token unusable (429)` line.
+
+### Whole-video description (audio-description track)
+
+**`Ctrl+Alt+D`** (footer button "Describe all") describes the *entire* video as a
+timed track, built by `$server/services/videoDescribeFull.ts` and played back like
+subtitles. It reuses the segment feature's frame extraction, probe and error
+mapping (exported from `videoDescribe.ts`) and **changes nothing about the segment
+feature** — separate prompt, route, store and table.
+
+- **Chunks.** `planChunks(duration)` (pure, unit-tested) cuts the file into
+  consecutive `FULL_DESCRIBE_CHUNK_SECONDS` (10 s) windows, one frame per second
+  (`chunkFrameCount`, so ten frames each), the last window shorter; a trailing
+  remainder under 1 s is folded into the previous chunk. Same dense `fps` ffmpeg
+  path as a short segment, same temp dir on local disk.
+- **Memory, not just a loop.** Every call is handed a JSON block the model wrote
+  after the previous chunk — `SceneMemory` = `summary`, `characters[{name,
+  appearance, lastSeen}]`, `setting`, `onScreenText[]`, `openThreads[]` — plus the
+  last three descriptions verbatim (`previousDescriptions`), and returns
+  `{description, memory}` via **structured output** (`output_config.format` with
+  `ANSWER_SCHEMA`; `parseChunkAnswer` still tolerates fences/prose and carries the
+  old memory over if a fallback model answers in prose). `normalizeMemory` bounds
+  it (30 characters, 12-item lists, 300-char fields, newest win) so it cannot grow
+  until it crowds out the frames. The listener never hears the memory. The prompt
+  (`buildFullSystemPrompt`) adds three rules to the segment rules: **say what is
+  NEW** since the last description (or nothing), **use a name only once it is
+  established** (subtitles / on-screen text / credits) and otherwise a *stable
+  descriptive handle* reused across chunks, and keep each description to what can
+  be spoken in ~10 s. Verified on a 25 s clip: chunk 2 reused "the man in glasses"
+  from chunk 1, did not re-describe the mall, and the memory carried the CHAMPS
+  SPORTS sign and an open thread.
+- **A background job, resumable.** `POST /api/describe/full {path, language,
+  action?: start|restart|cancel}` returns at once; the run persists to the
+  `video_descriptions` table (one row per path: `status`, `done_chunks`, `cues`
+  JSON, `memory` JSON, `size`+`mtime` of the file it was made from) **after every
+  chunk**, so a cancel, crash or redeploy loses at most one chunk and the next
+  `start` resumes from `done_chunks`. A `running` row with no in-process job (a
+  restart happened) is reported as `paused`. `restart` wipes the row; a changed
+  file (size/mtime) or a different `language` also starts over. `GET
+  ?path=` returns `FullDescribeStatus` (`idle|running|paused|done|failed`, progress,
+  cues so far — playable while it is still going). `DELETE ?path=` forgets the
+  track, and the files `DELETE` handler calls `purgeFullDescriptionsForPath` so a
+  deleted video or folder takes its tracks with it (and aborts a live run).
+  **The track is also saved next to the video as `<base>.description.vtt`** (a
+  WebVTT file with `Kind: descriptions` and a `Language:` header, empty cues left
+  out, rewritten after every chunk by `writeSidecar`) — the durable copy that
+  travels with the file and opens in any VTT-capable player. With **no DB row but a
+  sidecar on disk** (rebuilt DB, video copied from elsewhere), `GET` and `start`
+  report it as `done` with the file's cues (`readSidecar`/`importedStatus`); `restart`
+  and `DELETE` remove the file too. `pickSubtitleFile` skips the `.description`
+  qualifier (`isDescriptionSidecar`), so it is never served as captions nor fed back
+  to the model as "what the listener hears". A write failure (read-only folder) is
+  logged and the run continues from the row. The panel shows "Saved next to the
+  video as …" (`status.sidecar`).
+  Transient API failures (`rateLimited`/`upstream`/`network`/`timeout`) are retried
+  three times with 15/30/60 s pauses before the run is marked `failed` with the
+  same `DescribeErrorCode`s as a segment. Sequential by design (the memory chain);
+  ~5 s a chunk, so a 45-minute episode is ~20 minutes.
+- **Player.** `$lib/stores/fullDescribe.svelte.ts` mirrors the subtitles store
+  (track in memory, `cueAt()` binary search, reloaded per `describeTarget`) and
+  polls every 4 s while `running`. `PlaybackView` shows the current cue in a box
+  above the seek bar and speaks it through its **own** pair of live regions at the
+  **subtitle** politeness setting (`subtitleAnnounce`: assertive by default, polite,
+  or off), so a caption and a description in the same second do not overwrite each
+  other. A "Whole-video description" panel shows state, a `role="progressbar"`, the
+  error, and Stop / Resume / Start over / Remove / Descriptions buttons. Run
+  transitions (done, stopped, failed) announce through a polite region; the state a
+  file is merely *found* in on load does not. **`Alt+D`** toggles playback of the
+  track (per device, `localStorage['ecobox-descriptions-enabled']`). Starting is
+  never a single keypress: `FullDescribeDialog` states the job size (chunks, frames,
+  running time, or chunks left when resuming) and waits for Start, because a film
+  is hundreds of calls of real API credit. Ctrl+Alt+D while running = Stop.
+- **Cost estimate in the dialog.** `GET /api/describe/full/estimate?path=&language=`
+  (`estimateFullDescription`) extracts the *first chunk's real frames*, builds the
+  real prompt and sends it to the API's **free token counter** (`countTokens`), then
+  scales by frame count and chunk count plus a measured allowance for the memory
+  and previous descriptions later chunks carry (`MEMORY_ALLOWANCE_TOKENS`, 700) and
+  `OUTPUT_TOKENS_PER_CHUNK` (350). Price comes from `MODEL_PRICES` (USD/MTok by
+  model-id prefix; unknown model → tokens shown, no price). With no credential or a
+  failed count it falls back to the ~750 px/token rule (`exact:false`). The dialog
+  scales the figure to the chunks *left* when resuming. **There is no API for the
+  account's remaining credit** (the Admin usage/cost reports need an admin key and
+  report spend, not balance), so the dialog says to check the Console instead of
+  pretending. Measured 2026-09-16 on 768×432 sources with `claude-opus-5`: ~5.9k
+  input tokens per 10 s chunk (10 frames ≈ 4.5k, prompt + memory ≈ 1.4k), so a 25 s
+  clip ≈ $0.12 and a 47-minute episode (328 chunks, 2.1M input tokens) ≈ $13.6 —
+  the estimate answers in under a second either way.
+- Strings are `describeAll.*` in all seven locales.
+
 ### Sidecar subtitles (.srt / .vtt)
 
 A media file gets subtitles by having a **sibling `.srt` or `.vtt`** next to it. Nothing is registered or embedded; dropping the file next to the media is the whole contract, which is also why it works for one file *inside* a chaptered/DAISY folder as much as for a standalone file, and why an extracted `movie.eng.srt` needs no further wiring.
 
-**Which file is picked** is `pickSubtitleFile()` — pure, so the (fiddly) ranking is unit-tested without a filesystem. Exact names win outright, in the order `<base>.srt`, `<base>.vtt`, `<name.ext>.srt`, `<name.ext>.vtt` (the `Chapter 1.mp3.srt` form some rippers write). **Only then does prefix matching run**: any track whose name merely *starts* with the media name — `movie-forced.srt`, `movie.en.vtt`, `movie.mp4.es.srt` — because that is how downloaded and extracted tracks are actually named. Prefix matching is guarded two ways, or it would hand a file the wrong track: a candidate whose stem is **another file's own name is skipped entirely** (in a folder of `ep1.mp3` … `ep10.mp3`, `ep10.srt` can never be given to `ep1.mp3`), and what remains is ranked by whether the extra text starts at a **qualifier boundary** (`. - _ ( [`), then by how little was added, then by format.
+**Which file is picked** is `pickSubtitleFile()` — pure, so the (fiddly) ranking is unit-tested without a filesystem. A `<base>.description.vtt` (the whole-video description track) is excluded before ranking. Exact names win outright, in the order `<base>.srt`, `<base>.vtt`, `<name.ext>.srt`, `<name.ext>.vtt` (the `Chapter 1.mp3.srt` form some rippers write). **Only then does prefix matching run**: any track whose name merely *starts* with the media name — `movie-forced.srt`, `movie.en.vtt`, `movie.mp4.es.srt` — because that is how downloaded and extracted tracks are actually named. Prefix matching is guarded two ways, or it would hand a file the wrong track: a candidate whose stem is **another file's own name is skipped entirely** (in a folder of `ep1.mp3` … `ep10.mp3`, `ep10.srt` can never be given to `ep1.mp3`), and what remains is ranked by whether the extra text starts at a **qualifier boundary** (`. - _ ( [`), then by how little was added, then by format.
 
 - **`GET /api/media/subtitles?path=…`** → `{available, path?, format?, cues:[{start,end,text}]}`. It answers `{available:false, cues:[]}` — never an error — when there's no track, because the player asks for every file it loads. `$server/services/subtitles.ts` does the work: the sibling directory is listed **once** and compared case-insensitively and NFC-normalized (accented names are stored NFD as often as NFC), then parsed and cached per file keyed on size + mtime. **`format` is the only thing that distinguishes srt from vtt in the response** — cues are identical, so the whole client (store, caption box, live region, `S` shortcut) is format-agnostic and needed no change to gain WebVTT.
 - **One forgiving parser serves both formats** (`parseSubtitles(input, 'srt'|'vtt')`, unit-tested in `subtitles.test.ts`): cues are found by their *timing line* rather than by blank-line blocks, so files with missing indices or missing separators still parse. It accepts `.` or `,` before the milliseconds, short ms fields, the hour-less `MM:SS,mmm` form, CRLF, and strips `<i>`/`<font>` tags, `{\an8}` ASS overrides and HTML entities. WebVTT then needs almost nothing extra — trailing cue settings (`align:start position:10%`) are ignored because the timing pattern only claims the front of the line, and `<v Speaker>`/`<c.loud>`/`<00:00:01.000>` spans fall to the existing tag strip. The two real differences are **format-gated**: `NOTE`/`STYLE`/`REGION` blocks are skipped wholesale, and the line before a timing line is dropped as a **cue identifier** (in SubRip only a bare *number* is, since a `.srt` cue's last line may legitimately butt up against the next timing line). Encoding follows the DAISY rule — UTF-16 by BOM, else UTF-8, else windows-1252 when UTF-8 yields replacement chars (Spanish/French .srt files are routinely latin-1). Anything unparseable yields `[]`: subtitles must never break playback.
@@ -429,7 +531,7 @@ Folders **without** navigation (plain `.CHAPTERED`) have no clip times, so durat
 - **Reader** (`$lib/stores/reader.svelte.ts`, `ReaderView`/`ReaderControls`/`FindInBook`): the whole chunk list loads once; play/pause/seek/find are in-memory. The reader owns position/navigation/persistence/MediaSession and delegates "make sound" to a pluggable **`TtsEngine`** (`$lib/services/tts/`): `WebSpeechEngine` (local `speechSynthesis`, units = single sentences) or `AudioEngine` (server-synthesized providers, played through a shared `<audio>` element, units = grouped sentences with prefetch). **Rate is global** (the `ttsRate` setting; the reader slider persists to it). **Web Speech voice is device-local** (`localStorage['ecobox-tts-voice']`); **audio-service voice/model are server-side** per service (`tts_credentials`). The book **content is voiced only by the engine — never put it in an `aria-live` region**; the surrounding controls/status keep normal ARIA.
 - **TTS services** (`ttsService` setting): `webspeech` (default) plus server-synthesized `elevenlabs` / `azure` (key) / `azure-edge` (keyless Microsoft Edge read-aloud, experimental) / `google` / `elf` (keyless, **fully local** — see below) / `piper` (keyless, **fully local**, neural, user-imported voices — see below). Synthesis is proxied server-side (`/api/tts/synthesize`, adapters in `$server/services/tts/`) so API keys (`tts_credentials` table, sanitized by `/api/tts/config` — the key is never returned) stay off the client. Voices: `/api/tts/voices`; key check: `/api/tts/validate`. Keys can also seed from env (`ELEVENLABS_API_KEY`, `AZURE_SPEECH_KEY`/`AZURE_SPEECH_REGION`, `GOOGLE_TTS_API_KEY`). ElevenLabs is fed previous/next unit text for context and its model is selectable (default `eleven_multilingual_v2`). Its `voice_settings` (stability / similarity / style / speaker boost) are tunable in Settings and persisted on the `tts_credentials` row; they're sent from the client like `model` and folded into the audio-cache key (`unitHash`) so re-tuning re-synthesizes. `language_code` is sent only for the v2.5 models (`ELEVEN_LANG_CODE_MODELS`) — others auto-detect. **Larger units** for audio services are a runtime view (`$lib/utils/ttsUnits.ts`) over the immutable sentence chunks — `book_metadata.currentChunkIndex` stays the canonical sentence position, so switching services never breaks saved positions. On a provider error mid-read the reader retries the unit once (`SPEAK_RETRY_MS`) and only then falls back to Web Speech for the session — a single dropped fetch shouldn't cost the user their voice until they close and reopen the book, which is the only way back.
 - **A unit with nothing to say must return silence, never an error** (`$server/services/tts/silence.ts`). Books are full of units that carry no pronounceable content — a paragraph that is just an em-dash or an ellipsis (a scene break), a stray zero-width space left by the converter — and since `groupChunks` flushes at every paragraph boundary, each becomes its own synthesis unit. There were **121 of them across this install's 10 books**. Rejecting one (a 400 for empty text) or transcoding the engine's empty WAV (which yields a 45-byte MP3 holding an ID3 tag and *zero audio frames*) both break the reader the same way: the browser can't decode a frameless MP3, `<audio>` fires `error`, and the reader treats any failure as a dead provider — so one em-dash ended ELF playback for the rest of the book. `synthesize()` answers empty text with `silentMp3()`, and the local adapters check `wavSampleBytes()` (exit 0 with no samples = nothing to pronounce, which is *not* the same as a crash) and do likewise. ~0.15 s of real silence keeps the pipeline uniform: the element loads it, fires `ended`, and the reader advances, leaving a brief pause where the separator was.
-- **ELF (local engine)** (`$server/services/tts/elf.ts`): a keyless, fully on-device service — a classic on-device ECI (6.1) voice. ecobox ships its own engine under `elf/` (vendored ECI dylibs ported to Linux ELF; see `elf/README.md`): `lib/` holds `eci.so` + per-language modules, `bin/eci_synth` is a one-shot synthesizer built from `src/` (vendored `eci/` wrapper + `eci_synth.c`, `make`). The adapter spawns `eci_synth --lib-dir … --voice-id "Reed-en-US"` per unit (text on stdin → WAV on stdout, ~10 ms), then pipes through **ffmpeg** to MP3 to match the audio/mpeg pipeline + on-disk cache. `eci_synth --list --lib-dir …` is the voice catalogue (8 presets × the languages the bundle can actually speak: en/es/fr/de/it/pt/fi, plus ja/ko/zh on Windows). Availability is decided per module by `module_available()`, which checks the module file is present — so a trimmed bundle never advertises a voice that would fail at playback (this is why zh-TW never appears: no `cht.syn` ships). **CJK is gated on POSIX only** (`lang_is_gated`): the mid-utterance crash belongs to the *converted* ja/ko/zh dylibs, not to the engine, so the Windows bundle ships the originals + their `*rom.dll` romanizers and CJK works there — verified with multi-sentence passages and repeat runs. No key/network: it's keyless like `azure-edge` (both in `TTS_KEYLESS_SERVICES`; `configured:true` always). Bundle location is `ELF_DIR` (`.env`, default `<cwd>/elf`). **Reading rate is baked into synthesis** for ELF (unlike the other audio services, which time-stretch the MP3 client-side via `<audio>.playbackRate` — that smears consonants on a formant voice). The reader's rate multiplier is passed as `eci_synth --rate M` and mapped to the engine's native `eciSpeed` (`rate_to_eci_speed`: `≈ 50 + ln(M)/0.019`, clamped 0..250 — `eciSpeed` is ~logarithmic in speed; re-calibrate the `0.019` slope if the engine/voice changes). ELF then plays at `playbackRate=1`, folds the rate into both the in-memory and on-disk (`unitHash`) cache keys, and — since rate can't be retuned live — re-speaks the current unit on a rate change (like Web Speech; gated by the engine's `liveRate` flag). **Voice parameters** (head size / pitch / inflection / roughness / breathiness / volume, each 0–100) are exposed in Settings behind a "Customize voice" toggle and passed to `eci_synth` as `--head-size`/`--pitch`/… flags, applied via `SetVoiceParam` over the chosen preset; they persist on the `tts_credentials` row (`elf_*` columns) and fold into the `unitHash` cache key when customized. **Volume is always applied and defaults to 100** (loudest) even when customization is off. **The engine's two text-"guessing" passes are forced OFF for every synthesis and intentionally NOT exposed as settings**, but via two *different* mechanisms — a known port quirk: (1) **Abbreviation expansion** is disabled by `eciSetParam(eciDictionary, 1)` in `engine_open` (`elf/src/eci/engine.c`) so "Dr."/"St."/"lbs." are read as written, not expanded (only the abbreviation dictionaries, not the main/root pronunciation ones); this `SetParam` works (default 0→1, confirmed by `GetParam`; polarity per the IBM 6.x ABI, dictionary 0=enabled/1=disabled). (2) **Phrase prediction** (guessed prosodic phrase breaks in unpunctuated text) is disabled by prepending the inline ECI directive `` `pp0 `` to the input text (`PHRASE_PREDICTION_OFF` in `elf.ts`), honored via the `eciInputType=1` backquote channel (the same path the dict rides on). **`eciSetParam(eciPhrasePrediction, 0)` is INERT in this port** — `GetParam` round-trips it but synthesis is byte-identical at 0/1 (verified by WAV diff); the `SetParam` call is kept in `engine_open` only as a belt-and-suspenders intent marker (`eciPhrasePrediction` is param 11 in `elf/src/eci/eci.h`). The upstream Eloquence driver does the same `` `pp1 ``/`` `pp0 `` text embed. **Neither setting is part of the `unitHash` cache key** (abbreviation flag is baked into the binary; the `` `pp0 `` prefix is added in `elfSynthesize` *after* the route computes the hash), so clear the TTS cache to re-synthesize already-cached ELF audio — older audio still carries phrase prediction. **Pronunciation dictionaries** (`$server/services/tts/elfDict.ts`): ELF text is rewritten by a server-side substitution pass before synthesis, sourced from `elf/lib/dictionaries/<langid>{main,root,abbr}.dic` (the eloquence_threshold-style TSV files: `key<TAB>replacement`, replacements may carry ECI backtick annotations like `` `1 `` / `` `[…] `` which the engine interprets because `eciInputType=1`). The engine's *own* `LoadDict`/`SetDict` path is **non-functional** in this port (entries silently ignored; editing a `.dic` then loading it segfaults `eci_synth`), so we substitute in text instead. The dict is keyed off the **voice's** language (parsed from voiceId, e.g. `Reed-en-US`→`enu`), **not** the book's `lang`; matching is case-sensitive whole-word; all three volumes apply (so curated user abbreviations still work even though the engine's built-in expansion is off). Substitution happens in `/api/tts/synthesize` **before** `unitHash`, so the audio cache key reflects it automatically (editing a `.dic` → different substituted text → re-synthesis; the in-memory dict is mtime-reloaded). Non-ELF services are untouched. Needs system `ffmpeg` + `libc++`/`libc++abi` (present on this host). **On Windows the same adapter drives a natively-built engine**: `elf/lib-win32/` holds the *original* 32-bit ECI runtime (`eci.dll` + the `.syn` language modules + `eci.ini`) and `elf/bin/eci_synth.exe` is committed, so a checkout needs no toolchain. `elf.ts` selects binary + module dir from `process.platform`; `dictionariesDir()` stays on `elf/lib/dictionaries`, which both builds share. One C source tree builds both, guarded by `#ifdef _WIN32` — the Windows ABI is **`__stdcall`** (the `ECI_CALL` macro in `eci/eci.h`, applied to the whole `EciApi` table *and* to `ECICallback`), the DLL doesn't export `eci{Get,Set}DefaultParam` (resolved with `LOAD_OPT`), and the POSIX drain loop is compiled out because Windows' `eciSynchronize` blocks while its `eciSpeaking` returns a truthy non-Boolean. Rebuild with `elf/src/build-win32.ps1` and an **i686** mingw-w64 gcc — the DLL is i386, so a 64-bit `eci_synth.exe` could never load it. Full rationale in `elf/README.md` § "The Windows build".
+- **ELF (local engine)** (`$server/services/tts/elf.ts`): a keyless, fully on-device service — a classic on-device ECI (6.1) voice. ecobox ships its own engine under `elf/` (vendored ECI dylibs ported to Linux ELF; see `elf/README.md`): `lib/` holds `eci.so` + per-language modules, `bin/eci_synth` is a one-shot synthesizer built from `src/` (vendored `eci/` wrapper + `eci_synth.c`, `make`). The adapter spawns `eci_synth --lib-dir … --voice-id "Reed-en-US"` per unit (text on stdin → WAV on stdout, ~10 ms), then pipes through **ffmpeg** to MP3 to match the audio/mpeg pipeline + on-disk cache. `eci_synth --list --lib-dir …` is the voice catalogue (8 presets × the languages the bundle can actually speak: en/es/fr/de/it/pt/fi, plus ja/ko/zh on Windows). Availability is decided per module by `module_available()`, which checks the module file is present — so a trimmed bundle never advertises a voice that would fail at playback (this is why zh-TW never appears: no `cht.syn` ships). **CJK is gated on POSIX only** (`lang_is_gated`): the mid-utterance crash belongs to the *converted* ja/ko/zh dylibs, not to the engine, so the Windows bundle ships the originals + their `*rom.dll` romanizers and CJK works there — verified with multi-sentence passages and repeat runs. No key/network: it's keyless like `azure-edge` (both in `TTS_KEYLESS_SERVICES`; `configured:true` always). Bundle location is `ELF_DIR` (`.env`, default `<cwd>/elf`). `lib/` is upstream **apple-eloquence-elf 1.3.0**. Its Linux CJK modules still segfault (re-tested 2026-10-02), so they are not vendored. On POSIX the generated `eci.ini` reaches the bundle through a `lib` symlink in the work dir, with `./`-relative `Path=` entries. Never make those absolute: about 155+ characters of module path overflow an engine buffer and crash the first synthesis (see `elf/README.md` § "Install path length"). **Reading rate is baked into synthesis** for ELF (unlike the other audio services, which time-stretch the MP3 client-side via `<audio>.playbackRate` — that smears consonants on a formant voice). The reader's rate multiplier is passed as `eci_synth --rate M` and mapped to the engine's native `eciSpeed` (`rate_to_eci_speed`: `≈ 50 + ln(M)/0.019`, clamped 0..250 — `eciSpeed` is ~logarithmic in speed; re-calibrate the `0.019` slope if the engine/voice changes). ELF then plays at `playbackRate=1`, folds the rate into both the in-memory and on-disk (`unitHash`) cache keys, and — since rate can't be retuned live — re-speaks the current unit on a rate change (like Web Speech; gated by the engine's `liveRate` flag). **Voice parameters** (head size / pitch / inflection / roughness / breathiness / volume, each 0–100) are exposed in Settings behind a "Customize voice" toggle and passed to `eci_synth` as `--head-size`/`--pitch`/… flags, applied via `SetVoiceParam` over the chosen preset; they persist on the `tts_credentials` row (`elf_*` columns) and fold into the `unitHash` cache key when customized. **Volume is always applied and defaults to 100** (loudest) even when customization is off. **The engine's two text-"guessing" passes are forced OFF for every synthesis and intentionally NOT exposed as settings**, but via two *different* mechanisms — a known port quirk: (1) **Abbreviation expansion** is disabled by `eciSetParam(eciDictionary, 1)` in `engine_open` (`elf/src/eci/engine.c`) so "Dr."/"St."/"lbs." are read as written, not expanded (only the abbreviation dictionaries, not the main/root pronunciation ones); this `SetParam` works (default 0→1, confirmed by `GetParam`; polarity per the IBM 6.x ABI, dictionary 0=enabled/1=disabled). (2) **Phrase prediction** (guessed prosodic phrase breaks in unpunctuated text) is disabled by prepending the inline ECI directive `` `pp0 `` to the input text (`PHRASE_PREDICTION_OFF` in `elf.ts`), honored via the `eciInputType=1` backquote channel (the same path the dict rides on). **`eciSetParam(eciPhrasePrediction, 0)` is INERT in this port** — `GetParam` round-trips it but synthesis is byte-identical at 0/1 (verified by WAV diff); the `SetParam` call is kept in `engine_open` only as a belt-and-suspenders intent marker (`eciPhrasePrediction` is param 11 in `elf/src/eci/eci.h`). The upstream Eloquence driver does the same `` `pp1 ``/`` `pp0 `` text embed. **Neither setting is part of the `unitHash` cache key** (abbreviation flag is baked into the binary; the `` `pp0 `` prefix is added in `elfSynthesize` *after* the route computes the hash), so clear the TTS cache to re-synthesize already-cached ELF audio — older audio still carries phrase prediction. **Pronunciation dictionaries** (`$server/services/tts/elfDict.ts`): ELF text is rewritten by a server-side substitution pass before synthesis, sourced from `elf/lib/dictionaries/<langid>{main,root,abbr}.dic` (the eloquence_threshold-style TSV files: `key<TAB>replacement`, replacements may carry ECI backtick annotations like `` `1 `` / `` `[…] `` which the engine interprets because `eciInputType=1`). The engine's *own* `LoadDict`/`SetDict` path is **non-functional** in this port (entries silently ignored; editing a `.dic` then loading it segfaults `eci_synth`), so we substitute in text instead. The dict is keyed off the **voice's** language (parsed from voiceId, e.g. `Reed-en-US`→`enu`), **not** the book's `lang`; matching is case-sensitive whole-word; all three volumes apply (so curated user abbreviations still work even though the engine's built-in expansion is off). Substitution happens in `/api/tts/synthesize` **before** `unitHash`, so the audio cache key reflects it automatically (editing a `.dic` → different substituted text → re-synthesis; the in-memory dict is mtime-reloaded). Non-ELF services are untouched. Needs system `ffmpeg` + `libc++`/`libc++abi` (present on this host). **On Windows the same adapter drives a natively-built engine**: `elf/lib-win32/` holds the *original* 32-bit ECI runtime (`eci.dll` + the `.syn` language modules + `eci.ini`) and `elf/bin/eci_synth.exe` is committed, so a checkout needs no toolchain. `elf.ts` selects binary + module dir from `process.platform`; `dictionariesDir()` stays on `elf/lib/dictionaries`, which both builds share. One C source tree builds both, guarded by `#ifdef _WIN32` — the Windows ABI is **`__stdcall`** (the `ECI_CALL` macro in `eci/eci.h`, applied to the whole `EciApi` table *and* to `ECICallback`), the DLL doesn't export `eci{Get,Set}DefaultParam` (resolved with `LOAD_OPT`), and the POSIX drain loop is compiled out because Windows' `eciSynchronize` blocks while its `eciSpeaking` returns a truthy non-Boolean. Rebuild with `elf/src/build-win32.ps1` and an **i686** mingw-w64 gcc — the DLL is i386, so a 64-bit `eci_synth.exe` could never load it. Full rationale in `elf/README.md` § "The Windows build".
 - **Piper (local engine)** (`$server/services/tts/piper.ts`): a second keyless, fully on-device service — but **neural** (VITS), not formant like ELF. The engine is **`OHF-Voice/piper1-gpl`** (the maintained successor to rhasspy/piper), installed as the **`piper-tts`** pip package into a **self-contained virtualenv at `<PIPER_DIR>/venv`** (`PIPER_DIR` default `<cwd>/piper1`). The package bundles its own `onnxruntime` and an **embedded espeak-ng phonemizer + data** — no system espeak, no vendored libs, no `LD_LIBRARY_PATH`. The venv is **machine-specific and NOT committed** (gitignored as `/piper1/`); recreate it per-machine with the one-time setup below. It ships **no voices** — the user **imports** them in Settings. Each voice is a `<stem>.onnx` model + `<stem>.onnx.json` config pair; uploads go through `POST /api/tts/piper/voices` (multipart, `config.body.maxSize` 1 GB, CSRF-guarded like any form POST) and are stored under **`PIPER_VOICES_DIR`** (`.env`, default `<dataDir>/piper-voices` — i.e. next to the db, **outside** the bundle so they survive deploys). `GET`/`DELETE` on that route list/remove imports. The adapter spawns the venv's CLI `<PIPER_DIR>/venv/bin/piper -m … -c … -f - [-s …] [--length_scale …]` per unit (single-line text on stdin → WAV on stdout via `-f -`; multi-speaker via `-s`), then pipes through **ffmpeg** to MP3 like ELF. (The old rhasspy CLI's `-q` and `--espeak_data` flags are **gone** in piper1-gpl — don't re-add them.) `piperVoices()` enumerates `data/piper-voices/*.onnx` that have a readable `.onnx.json` (one voice per single-speaker model, one per speaker for multi-speaker → id `"<stem>"` or `"<stem>#<id>"`); `lang` comes from the config's `language.code` (`en_US`→`en-US`). **Like ELF, the reading rate is baked into synthesis** — passed as `--length_scale` (a duration multiplier = `baseLengthScale / rate`, where `baseLengthScale` is the voice config's own `inference.length_scale`), so Piper re-paces the waveform natively instead of time-stretching the MP3 (higher fidelity; stretching is reserved for the cloud services, where re-synth would re-bill/add latency). Consequently `liveRate=false`, rate **is** in the cache key, and the reader re-speaks the current unit on a rate change. The ELF-vs-stretch split is no longer hard-coded to `'elf'`: it's the shared **`TTS_BAKED_RATE_SERVICES` / `bakesRate()`** predicate (`['elf','piper']`) used by `AudioEngine` (`liveRate`, `playbackRate`, in-memory cache key) and the synthesize route (on-disk `unitHash` rate fold). No voice-param knobs and **no new DB columns** — voice selection reuses `tts_credentials.voiceId`. **`/api/tts/voices` does NOT cache `piper`** (its list is mutable at runtime; other services keep the 5-min cache). Needs system `ffmpeg` (plus Python ≥3.9; the box has 3.12 + `python3.12-venv`). **Why the venv (engine upgrade, 2026-06):** we used to vendor the prebuilt rhasspy/piper **1.2.0** C++ binary under `piper/`, but it **aborts** on voices built with Piper ≥1.3 — `terminate … "Phonemes must be one codepoint (phoneme id map)"` — because newer voices encode multi-codepoint phonemes (e.g. diphthongs `aɪ aʊ ɔɪ eɪ oʊ`). The `phoneme_id_map` keys are single-codepoint in 1.2-era voices and the binary asserts that. piper1-gpl removed the assertion and runs **both** old and new voices, but ships **only as a Python package** (no standalone C++ binary), hence the venv. A voice's target version is stamped as `piper_version` in its `.onnx.json`. One-time venv setup (per machine / CPU arch — the venv has absolute paths baked in, so it isn't portable and isn't in git):
 
 ```bash
@@ -509,6 +611,49 @@ and the fallback walk skips protected ancestors rather than routing into them. T
 walk takes injectable `describe` / `isHidden` so the rule is unit-tested without a
 filesystem or a database (`recentFiles.test.ts`).
 
+### Sorting the file list
+
+`$lib/utils/fileSort.ts` is the one comparator (pure, unit-tested): five fields in
+`SORT_FIELDS` order — **name, recent, duration, size, date** — which is also the
+order of the **Ctrl+1 … Ctrl+5** shortcuts and of the sort bar. The choice persists
+per device (`localStorage['ecobox-file-sort']`). A field chosen for the first time
+starts in its natural direction (`DEFAULT_DIRECTION`: name A→Z, everything else
+"most first"); choosing the current field again — by shortcut or column header —
+flips it, while the sort bar's radios never flip (re-selecting means "keep it") and a
+separate button reverses. Entries with no value for the field (never played, unknown
+duration, folders under size) sort **last in both directions**, so reversing never
+buries the real results. Folders come first for every field except **recent**, where
+folders and files interleave on one timeline.
+
+Two values back this that the client cannot derive, both added by `GET /api/files`
+(never by `listDirectory`, which search and upload also use):
+
+- **`duration`** comes from the `media_durations` cache *only* (`getCachedDurations`,
+  one SQL lookup keyed by the size+mtime the listing already stat'ed — no file is ever
+  opened for a listing). `GET /api/files/durations?path=` is the on-demand half: it
+  parses the playable files **directly in that folder, never subfolders**, caches
+  them, and the store (`ensureDurations`) calls it only when the duration sort is
+  active and some file is unknown. Measured here: ~1.1 s cold for an 8-episode folder,
+  6 ms warm, and the next listing has the values for free. Progress/completion are
+  announced (`durationsCalculating` / `durationsReady`), and the second re-sort keeps
+  the focused file focused.
+- **`lastPlayedAt`** (epoch ms) is the newest of `recent_files.accessed_at`,
+  `media_metadata.last_played_date` and `book_metadata.last_read_date`
+  (`$server/services/lastPlayed.ts`). A **folder** inherits the newest value of
+  anything *under* it (a `LIKE 'folder/%'` per table), because browsing is never
+  recorded but the folder you last played from is what "recent" means. Rows under
+  "recent" show "played 3 days ago" under the name and in the accessible name;
+  other sorts don't, to keep rows short.
+
+Changing the sort **never moves focus**: `applySort` remembers the focused file's
+path and remaps `focusedIndex` after the re-sort, re-focusing the row only if focus
+was in the list (a keyed re-order moves the DOM node, which blurs it in some
+browsers). **Chrome reserves bare Ctrl+digit for tab switching and never delivers
+it to the page**, so the handler matches on `e.code` with or without Shift —
+**Ctrl+Shift+1…5** is the form that works everywhere; Firefox and the Cmd form on
+macOS vary. Folder rows have no size: `st_size` is always 4096 for a directory, so
+it is neither shown nor read out nor sorted on.
+
 ### Creating folders
 
 The **Alt+N** actions menu has a **New folder** item (last, so Alt+N still opens on
@@ -554,7 +699,8 @@ The four breakdown fields are mode-independent and are what the upload dialog us
 - `chaptered_metadata` — playback state for multi-file chaptered content
 - `chaptered_bookmarks` — bookmarks within chaptered folders (file + offset in that file)
 - `media_durations` — cached audio durations, invalidated by size + mtime (never user data; safe to delete)
-- `ai_credentials` — API keys for server-side AI providers (`google`), used by video description. Never serialized to the client.
+- `ai_credentials` — server-side AI credentials, used by video description: provider `anthropic` (API key) and `anthropic-token` (auth token, tried first). Never serialized to the client.
+- `video_descriptions` — whole-video description tracks, one row per video path: progress, cues JSON, model memory JSON (see "Whole-video description"). Purged with the file; `dbCleanup` does not touch it.
 - `settings` — key-value settings storage
 - `book_metadata` — reading position (current chunk index) for converted books
 - `recent_files` — recently opened media, one row per path (see "Recent tab"). Rows
@@ -567,6 +713,7 @@ DATABASE_URL=file:./data/ecobox.db
 PORT=3000
 ORIGIN=https://your-domain.com  # For production CORS
 ANTHROPIC_API_KEY=sk-ant-...     # Optional: video description (else asked for in-app)
+ANTHROPIC_AUTH_TOKEN=sk-ant-oat… # Optional: tried before the key; key is the fallback
 ```
 
 ## Accessibility expectations

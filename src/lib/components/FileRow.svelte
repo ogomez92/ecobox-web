@@ -1,8 +1,16 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
 	import ActionsDropdown from './ActionsDropdown.svelte';
-	import { formatBytes, formatDate, formatDateAccessible } from '$lib/utils/format';
+	import {
+		formatBytes,
+		formatDate,
+		formatDateAccessible,
+		formatDuration,
+		formatDurationAccessible,
+		formatRelativeTime
+	} from '$lib/utils/format';
 	import { t } from '$lib/i18n/index.svelte';
+	import { encodePathSegments } from '$lib/utils/urlPath';
 	import type { FileEntry } from '$lib/types';
 
 	interface Props {
@@ -12,9 +20,30 @@
 		onprotect?: () => void;
 		onconvert?: () => void;
 		isUnlocked?: boolean;
+		/**
+		 * Say when the entry was last played (visibly under the name and in the
+		 * accessible name). On only while the list is sorted by "recent" — for any
+		 * other order it would be noise on every row of a folder already heard.
+		 */
+		showLastPlayed?: boolean;
 	}
 
-	let { file, focused = false, ondelete, onprotect, onconvert, isUnlocked = false }: Props = $props();
+	let {
+		file,
+		focused = false,
+		ondelete,
+		onprotect,
+		onconvert,
+		isUnlocked = false,
+		showLastPlayed = false
+	}: Props = $props();
+
+	const hasDuration = $derived(!file.isDirectory && file.duration !== undefined && file.duration > 0);
+	const lastPlayedText = $derived(
+		showLastPlayed && file.lastPlayedAt
+			? t('explorer.lastPlayed', { time: formatRelativeTime(new Date(file.lastPlayedAt)) })
+			: ''
+	);
 
 	let rowEl: HTMLTableRowElement | undefined = $state();
 
@@ -33,15 +62,15 @@
 	function getHref(): string {
 		if (file.isDirectory) {
 			// Book folders go to the reader; DAISY/chaptered folders go to the player.
-			if (file.isBookFolder) return `/read/${file.path}`;
+			if (file.isBookFolder) return `/read/${encodePathSegments(file.path)}`;
 			if (file.isDaisyBook || file.isChapteredFolder) {
-				return `/play/${file.path}`;
+				return `/play/${encodePathSegments(file.path)}`;
 			}
-			return `/browse/${file.path}`;
+			return `/browse/${encodePathSegments(file.path)}`;
 		}
 		// A raw book file isn't playable until converted — the click triggers convert.
 		if (file.isRawBook) return '#';
-		return `/play/${file.path}`;
+		return `/play/${encodePathSegments(file.path)}`;
 	}
 
 	function handlePrimaryClick(e: MouseEvent) {
@@ -83,8 +112,10 @@
 			parts.push(t('fileTypes.fileExt', { ext: getFileExtension() }));
 		}
 
-		parts.push(formatBytes(file.size));
+		if (hasDuration) parts.push(formatDurationAccessible(file.duration!));
+		if (!file.isDirectory) parts.push(formatBytes(file.size));
 		parts.push(formatDateAccessible(file.modifiedAt));
+		if (lastPlayedText) parts.push(lastPlayedText);
 
 		return parts.join(', ');
 	}
@@ -132,11 +163,19 @@
 					class={file.isDirectory ? 'text-primary-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-400'}
 				/>
 			</div>
-			<span class="font-medium truncate">{file.name}</span>
+			<span class="min-w-0">
+				<span class="block font-medium truncate">{file.name}</span>
+				{#if lastPlayedText}
+					<span class="block text-xs text-gray-500 dark:text-gray-400 truncate">{lastPlayedText}</span>
+				{/if}
+			</span>
 		</a>
 	</td>
+	<td class="py-2 px-4 text-sm text-gray-500 dark:text-gray-400 hidden md:table-cell tabular-nums">
+		{hasDuration ? formatDuration(file.duration!) : ''}
+	</td>
 	<td class="py-2 px-4 text-sm text-gray-500 dark:text-gray-400 hidden sm:table-cell">
-		{formatBytes(file.size)}
+		{file.isDirectory ? '' : formatBytes(file.size)}
 	</td>
 	<td class="py-2 px-4 text-sm text-gray-500 dark:text-gray-400 hidden sm:table-cell">
 		<span aria-label={formatDateAccessible(file.modifiedAt)}>

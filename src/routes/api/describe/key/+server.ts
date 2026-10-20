@@ -23,7 +23,10 @@ export const GET: RequestHandler = async () => {
 	}
 };
 
-/** PUT `{ apiKey }` → the new status. A stored key overrides `ANTHROPIC_API_KEY`. */
+/**
+ * PUT `{ apiKey }` → the new status. A stored key overrides `ANTHROPIC_API_KEY`; a
+ * pasted `sk-ant-oat…` auth token is stored as the token and tried first.
+ */
 export const PUT: RequestHandler = async ({ request }) => {
 	let body: { apiKey?: unknown };
 	try {
@@ -51,7 +54,7 @@ export const PUT: RequestHandler = async ({ request }) => {
 	}
 };
 
-/** DELETE → forget the stored key. An `ANTHROPIC_API_KEY` in the env takes over again. */
+/** DELETE → forget the stored key and token. Environment credentials take over again. */
 export const DELETE: RequestHandler = async () => {
 	try {
 		clearDescribeKey();

@@ -150,6 +150,12 @@ static int parse_voice_id(const char *id, int *slot, int *dialect) {
     return 0;
 }
 
+#ifndef _WIN32
+/* Name of the work-dir symlink to the bundle that eci.ini's Path= entries go
+ * through (see setup_workdir). */
+#  define BUNDLE_LINK "lib"
+#endif
+
 /* Where we were before chdir'ing into the work dir, so cleanup can step back
  * out (Windows refuses to remove a process's own current directory). */
 static char g_original_cwd[ELOQ_PATH_MAX] = {0};
@@ -238,7 +244,21 @@ static int setup_workdir(const char *lib_dir, char *tmpdir, size_t n) {
     if (rewrite_ini_template(lib_dir, tmpl, f) != 0)
         write_generated_ini(f, lib_dir);
 #else
-    write_generated_ini(f, lib_dir);
+    /* Point the INI at the bundle through a short relative symlink, never the
+     * absolute lib dir. The engine copies each Path= value into a small fixed
+     * buffer, and a long one overruns it into an adjacent function pointer: the
+     * first synthesis then jumps through path-string bytes and segfaults (seen
+     * here from ~155 chars of module path; upstream apple-eloquence-elf 1.3.0
+     * fixed the same crash with ./-relative entries). Relative paths resolve
+     * against the cwd, which is this work dir by the time the engine reads it. */
+    char link_path[ELOQ_PATH_MAX + 32];
+    snprintf(link_path, sizeof(link_path), "%s/" BUNDLE_LINK, tmpdir);
+    if (symlink(lib_dir, link_path) != 0) {
+        fprintf(stderr, "eci_synth: symlink %s: %s\n", link_path, strerror(errno));
+        fclose(f);
+        return -1;
+    }
+    write_generated_ini(f, "./" BUNDLE_LINK);
 #endif
     fclose(f);
 
@@ -274,6 +294,9 @@ static void cleanup_workdir(const char *tmpdir) {
     char p[ELOQ_PATH_MAX + 32];
     snprintf(p, sizeof(p), "%s" PSEP "eci.ini", tmpdir); unlink(p);
     snprintf(p, sizeof(p), "%s" PSEP "eci.dbg", tmpdir); unlink(p);
+#ifndef _WIN32
+    snprintf(p, sizeof(p), "%s/" BUNDLE_LINK, tmpdir); unlink(p);
+#endif
     rmdir(tmpdir);
 }
 

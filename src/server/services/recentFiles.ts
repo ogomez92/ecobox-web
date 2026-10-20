@@ -23,6 +23,7 @@ import fs from 'fs/promises';
 import { db } from '$server/db';
 import { recentFiles } from '$server/db/schema';
 import { desc, notInArray } from 'drizzle-orm';
+import { encodePathSegments } from '$lib/utils/urlPath';
 import type { RecentEntry, RecentKind } from '$lib/types';
 import {
 	resolvePath,
@@ -106,20 +107,20 @@ export async function describePath(relativePath: string): Promise<RecentKind | n
 export function hrefFor(kind: RecentKind, path: string): string {
 	switch (kind) {
 		case 'book':
-			return `/read/${path}`;
+			return `/read/${encodePathSegments(path)}`;
 		case 'daisy':
 		case 'chaptered':
 		case 'file':
 		case 'radio':
-			return `/play/${path}`;
+			return `/play/${encodePathSegments(path)}`;
 		case 'rawbook': {
 			const parent = parentOf(path);
 			const focus = `?focus=${encodeURIComponent(nameOf(path))}`;
-			return parent ? `/browse/${parent}${focus}` : `/${focus}`;
+			return parent ? `/browse/${encodePathSegments(parent)}${focus}` : `/${focus}`;
 		}
 		case 'folder':
 		default:
-			return path ? `/browse/${path}` : '/';
+			return path ? `/browse/${encodePathSegments(path)}` : '/';
 	}
 }
 

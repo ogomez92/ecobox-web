@@ -3,10 +3,14 @@ import type { RequestHandler } from './$types';
 import { listDirectory, deleteFile, createFolder, validateFolderName } from '$server/services/files';
 import { recordDeletion } from '$server/services/deletionHistory';
 import { purgeCacheForPath } from '$server/services/tts/cache';
+import { purgeFullDescriptionsForPath } from '$server/services/videoDescribeFull';
 import { db } from '$server/db';
 import { bookBookmarks } from '$server/db/schema';
 import { eq, or, sql } from 'drizzle-orm';
 import { getProtectedSet, isPathProtected, isUnlocked } from '$server/services/protection';
+import { getCachedDurations } from '$server/services/audioDuration';
+import { getLastPlayed } from '$server/services/lastPlayed';
+import { isPlayableMedia } from '$lib/utils/mediaTypes';
 
 export const GET: RequestHandler = async ({ url, cookies }) => {
 	const path = url.searchParams.get('path') || '';
@@ -42,10 +46,27 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 			});
 		}
 
+		// Sort data the client can't derive: durations *already in the cache* (a
+		// query, never a parse — `/api/files/durations` fills the gaps on demand)
+		// and when each entry was last opened. Both are best-effort lookups.
+		const playable = files.filter((f) => !f.isDirectory && isPlayableMedia(f.name));
+		const [durations, lastPlayed] = await Promise.all([
+			getCachedDurations(
+				playable.map((f) => ({
+					path: f.path,
+					size: f.size,
+					mtime: Math.round(new Date(f.modifiedAt).getTime())
+				}))
+			),
+			getLastPlayed(files.map((f) => ({ path: f.path, isDirectory: f.isDirectory })))
+		]);
+
 		// Add isProtected flag to each file (only matters when unlocked)
 		const filesWithProtection = files.map(file => ({
 			...file,
-			isProtected: protectedSet.has(file.path)
+			isProtected: protectedSet.has(file.path),
+			duration: durations.get(file.path),
+			lastPlayedAt: lastPlayed.get(file.path)
 		}));
 
 		return json({
@@ -154,6 +175,13 @@ export const DELETE: RequestHandler = async ({ url }) => {
 				);
 		} catch (bmErr) {
 			console.error('Failed to purge book bookmarks:', bmErr);
+		}
+		// Drop any whole-video description tracks for this path (the file, or every
+		// video under a deleted folder), stopping a run in progress. Best-effort too.
+		try {
+			purgeFullDescriptionsForPath(path);
+		} catch (descErr) {
+			console.error('Failed to purge video descriptions:', descErr);
 		}
 		// Record every deletion in the history. Best-effort: never let history
 		// bookkeeping fail an actual deletion.

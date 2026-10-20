@@ -55,6 +55,41 @@ async function readDuration(absolutePath: string, size: number): Promise<number>
 }
 
 /**
+ * Durations already in the cache, and *only* those: a pure SQLite lookup that never
+ * opens a media file. The caller supplies the stat it already has, so a folder
+ * listing can carry every known duration at the cost of one query per 400 rows
+ * while stale or never-parsed files simply stay unknown. `getDurations` is the
+ * on-demand complement that fills the gaps (and the cache).
+ */
+export async function getCachedDurations(
+	entries: { path: string; size: number; mtime: number }[]
+): Promise<Map<string, number>> {
+	const durations = new Map<string, number>();
+	if (entries.length === 0) return durations;
+
+	const byPath = new Map(entries.map((e) => [e.path, e]));
+	const paths = [...byPath.keys()];
+	try {
+		for (let i = 0; i < paths.length; i += SQL_BATCH) {
+			const rows = await db
+				.select()
+				.from(schema.mediaDurations)
+				.where(inArray(schema.mediaDurations.path, paths.slice(i, i + SQL_BATCH)));
+			for (const row of rows) {
+				const entry = byPath.get(row.path);
+				if (entry && entry.size === row.size && entry.mtime === row.mtime) {
+					durations.set(row.path, row.duration);
+				}
+			}
+		}
+	} catch (err) {
+		// A listing must never fail because the duration cache did.
+		console.error('Duration cache read failed:', err);
+	}
+	return durations;
+}
+
+/**
  * Durations (seconds) for media-root-relative paths, in a map keyed by the same
  * paths. Unreadable files map to 0 rather than dropping out, so callers can lay
  * out a timeline without holes.

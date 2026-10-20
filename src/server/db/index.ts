@@ -129,6 +129,24 @@ sqlite.exec(`
 		accessed_at INTEGER NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS video_descriptions (
+		path TEXT PRIMARY KEY,
+		language TEXT NOT NULL,
+		size INTEGER NOT NULL,
+		mtime INTEGER NOT NULL,
+		duration REAL NOT NULL,
+		chunk_seconds INTEGER NOT NULL,
+		total_chunks INTEGER NOT NULL,
+		done_chunks INTEGER NOT NULL DEFAULT 0,
+		status TEXT NOT NULL,
+		error_code TEXT,
+		error_detail TEXT,
+		cues TEXT NOT NULL DEFAULT '[]',
+		memory TEXT,
+		model TEXT,
+		updated_at INTEGER NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_recent_files_accessed ON recent_files(accessed_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_bookmarks_media_path ON bookmarks(media_path);
 	CREATE INDEX IF NOT EXISTS idx_chaptered_bookmarks_folder ON chaptered_bookmarks(folder_path);

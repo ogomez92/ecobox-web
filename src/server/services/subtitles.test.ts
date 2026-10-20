@@ -261,3 +261,18 @@ describe('subtitle file lookup', () => {
 		await expect(findSubtitleFile('../../etc/passwd')).rejects.toThrow(/traversal/);
 	});
 });
+
+describe('pickSubtitleFile — description sidecars', () => {
+	it('never hands the whole-video description track out as captions', () => {
+		expect(pickSubtitleFile('movie.mp4', ['movie.mp4', 'movie.description.vtt'])).toBeNull();
+		expect(pickSubtitleFile('movie.mp4', ['movie.mp4', 'movie.description.vtt', 'movie.en.srt'])).toBe(
+			'movie.en.srt'
+		);
+		expect(pickSubtitleFile('movie.mp4', ['movie.mp4', 'Movie.DESCRIPTION.srt'])).toBeNull();
+	});
+
+	it('does not let a description sidecar block another file\'s captions', () => {
+		// `ep1.description.vtt` must not "claim" a stem that hides ep1.en.srt.
+		expect(pickSubtitleFile('ep1.mp4', ['ep1.mp4', 'ep1.description.vtt', 'ep1.en.srt'])).toBe('ep1.en.srt');
+	});
+});

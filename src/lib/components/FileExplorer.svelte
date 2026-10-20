@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import Icon from './Icon.svelte';
 	import Breadcrumbs from './Breadcrumbs.svelte';
 	import FileRow from './FileRow.svelte';
@@ -14,6 +14,8 @@
 	import { recentStore } from '$lib/stores/recent.svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import { goto } from '$app/navigation';
+	import { encodePathSegments } from '$lib/utils/urlPath';
+	import { SORT_FIELDS, type SortField } from '$lib/utils/fileSort';
 	import type { FileEntry } from '$lib/types';
 
 	interface Props {
@@ -138,7 +140,7 @@
 		if (path === '') {
 			goto('/');
 		} else {
-			goto(`/browse/${path}`);
+			goto(`/browse/${encodePathSegments(path)}`);
 		}
 	}
 
@@ -154,7 +156,7 @@
 		if (parent === '') {
 			goto(`/${focusQuery}`);
 		} else {
-			goto(`/browse/${parent}${focusQuery}`);
+			goto(`/browse/${encodePathSegments(parent ?? '')}${focusQuery}`);
 		}
 	}
 
@@ -406,6 +408,22 @@
 			return;
 		}
 
+		// Ctrl+1 … Ctrl+5 (Cmd on Mac) choose the sort order — name, recent,
+		// duration, size, date — and the same key again flips the direction. Focus
+		// does not move; the new order is announced instead. Shift may be held
+		// (Ctrl+Shift+digit): Chrome reserves bare Ctrl+digit for tab switching
+		// and never lets a page see it, so the Shift form is the one that works
+		// everywhere.
+		if ((e.ctrlKey || e.metaKey) && !e.altKey && activeTab === 'files') {
+			const n = digitOf(e);
+			if (n) {
+				if (showUploadDialog || deleteTarget) return;
+				e.preventDefault();
+				void applySort(SORT_FIELDS[n - 1]);
+				return;
+			}
+		}
+
 		if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
 		if (inField) return;
 		if (showUploadDialog || deleteTarget) return;
@@ -432,18 +450,129 @@
 		actionsMenuOpen = true;
 	}
 
-	function getSortIcon(field: 'name' | 'size' | 'modifiedAt'): 'chevron-up' | 'chevron-down' {
+	let tbodyEl: HTMLTableSectionElement | undefined = $state();
+
+	function getSortIcon(field: SortField): 'chevron-up' | 'chevron-down' {
 		if (filesStore.sortField === field) {
 			return filesStore.sortDirection === 'asc' ? 'chevron-up' : 'chevron-down';
 		}
 		return 'chevron-down';
 	}
 
-	function sortStateLabel(field: 'name' | 'size' | 'modifiedAt'): string {
+	function sortFieldLabel(field: SortField): string {
+		switch (field) {
+			case 'name': return t('explorer.colName');
+			case 'lastPlayed': return t('explorer.colRecent');
+			case 'duration': return t('explorer.colDuration');
+			case 'size': return t('explorer.colSize');
+			case 'modifiedAt': return t('explorer.colDate');
+		}
+	}
+
+	/** "A to Z", "longest first", … — the direction in the field's own words. */
+	const SORT_DIRECTION_KEYS = {
+		name: { asc: 'explorer.sortDir.name.asc', desc: 'explorer.sortDir.name.desc' },
+		lastPlayed: { asc: 'explorer.sortDir.lastPlayed.asc', desc: 'explorer.sortDir.lastPlayed.desc' },
+		duration: { asc: 'explorer.sortDir.duration.asc', desc: 'explorer.sortDir.duration.desc' },
+		size: { asc: 'explorer.sortDir.size.asc', desc: 'explorer.sortDir.size.desc' },
+		modifiedAt: { asc: 'explorer.sortDir.modifiedAt.asc', desc: 'explorer.sortDir.modifiedAt.desc' }
+	} as const;
+	function sortDirectionLabel(field: SortField, direction: 'asc' | 'desc'): string {
+		return t(SORT_DIRECTION_KEYS[field][direction]);
+	}
+
+	const currentDirectionLabel = $derived(
+		sortDirectionLabel(filesStore.sortField, filesStore.sortDirection)
+	);
+
+	function sortStateLabel(field: SortField): string {
 		if (filesStore.sortField !== field) return '';
-		return filesStore.sortDirection === 'asc'
-			? `, ${t('explorer.sortStateAsc')}`
-			: `, ${t('explorer.sortStateDesc')}`;
+		return `, ${t('explorer.sortStateCurrent', { direction: currentDirectionLabel })}`;
+	}
+
+	/** Is keyboard focus inside the file list right now? */
+	function focusIsInList(): boolean {
+		return !!tbodyEl && tbodyEl.contains(document.activeElement);
+	}
+
+	/**
+	 * After the order changed, keep the user on the file they were on: remap
+	 * `focusedIndex` to that file's new position and, if focus was in the list,
+	 * put it back on the row — moving a focused element in the DOM (which a keyed
+	 * re-sort does) blurs it in some browsers.
+	 */
+	async function keepFocusOn(path: string | undefined, refocus: boolean) {
+		await tick();
+		if (!path) return;
+		const index = filesStore.sortedFiles.findIndex((f) => f.path === path);
+		if (index === -1) return;
+		focusedIndex = index;
+		if (refocus) rowRefs[index]?.focus();
+	}
+
+	function sortAnnouncement(): string {
+		const field = filesStore.sortField;
+		let message = t('explorer.sortAnnounce', {
+			field: sortFieldLabel(field),
+			direction: sortDirectionLabel(field, filesStore.sortDirection)
+		});
+		if (field === 'duration' && filesStore.durationsLoading) {
+			message += ' ' + t('explorer.durationsCalculating');
+		}
+		return message;
+	}
+
+	/**
+	 * Change the sort from any control (Ctrl+digit, the sort bar, a column
+	 * header). Focus stays where it was — on the same file if it was in the list,
+	 * or on the control that was used — and the new order is announced. With
+	 * `toggle`, re-choosing the current field flips its direction.
+	 */
+	async function applySort(field: SortField, options: { toggle?: boolean } = {}) {
+		const path = filesStore.sortedFiles[focusedIndex]?.path;
+		const refocus = focusIsInList();
+		filesStore.setSort(field, options);
+		await keepFocusOn(path, refocus);
+		announce(sortAnnouncement());
+	}
+
+	async function toggleSortDirection() {
+		const path = filesStore.sortedFiles[focusedIndex]?.path;
+		const refocus = focusIsInList();
+		filesStore.toggleSortDirection();
+		await keepFocusOn(path, refocus);
+		announce(sortAnnouncement());
+	}
+
+	// The duration sort may finish *after* it was chosen (durations are computed
+	// on demand): when the computation ends, the order changes once more — keep
+	// the focused file focused, and say that the list is now complete.
+	let durationsWereLoading = false;
+	let focusPathDuringDurations: string | undefined;
+	let refocusAfterDurations = false;
+	$effect(() => {
+		const loading = filesStore.durationsLoading;
+		if (loading && !durationsWereLoading) {
+			untrack(() => {
+				focusPathDuringDurations = filesStore.sortedFiles[focusedIndex]?.path;
+				refocusAfterDurations = focusIsInList();
+			});
+		} else if (!loading && durationsWereLoading) {
+			untrack(() => {
+				void keepFocusOn(focusPathDuringDurations, refocusAfterDurations);
+				if (filesStore.sortField === 'duration') {
+					announce(t(filesStore.durationsFailed ? 'explorer.durationsFailed' : 'explorer.durationsReady'));
+				}
+			});
+		}
+		durationsWereLoading = loading;
+	});
+
+	/** 1–5 for a digit key, matched on `code` too (Shift+digit types a symbol). */
+	function digitOf(e: KeyboardEvent): number {
+		const fromCode = /^(?:Digit|Numpad)([1-5])$/.exec(e.code);
+		if (fromCode) return Number(fromCode[1]);
+		return /^[1-5]$/.test(e.key) ? Number(e.key) : 0;
 	}
 
 	function handleTableKeydown(e: KeyboardEvent) {
@@ -693,7 +822,7 @@
 				<!-- Parent directory link for mobile -->
 				{#if !isAtRoot}
 					<a
-						href={parentPath() === '' ? '/' : `/browse/${parentPath()}`}
+						href={parentPath() === '' ? '/' : `/browse/${encodePathSegments(parentPath() ?? '')}`}
 						class="flex items-center gap-2 px-4 py-3 text-primary-600 dark:text-primary-400 hover:bg-gray-50 dark:hover:bg-gray-750 border-b border-gray-200 dark:border-gray-700 sm:hidden"
 					>
 						<Icon name="chevron-up" size={20} />
@@ -706,13 +835,61 @@
 					</div>
 				{/if}
 
+				<!--
+					Sort bar: one tab stop (native radios), arrows move between fields
+					and select as they go, like the player's seek-unit chips. It is the
+					only sort control reachable on a phone, where the size/date column
+					headers are hidden. Choosing the current field again here keeps its
+					direction; the separate button flips it.
+				-->
+				<div class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700">
+					<fieldset class="flex flex-wrap items-center gap-1.5 min-w-0">
+						<legend class="sr-only">{t('explorer.sortBy')}</legend>
+						{#each SORT_FIELDS as field, i (field)}
+							<label class="cursor-pointer">
+								<input
+									type="radio"
+									name="file-sort"
+									value={field}
+									checked={filesStore.sortField === field}
+									onchange={() => applySort(field, { toggle: false })}
+									aria-label={t('explorer.sortOption', { label: sortFieldLabel(field), n: i + 1 })}
+									class="sr-only peer"
+								/>
+								<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-sm transition-colors
+									peer-checked:bg-primary-600 peer-checked:text-white
+									peer-focus-visible:ring-2 peer-focus-visible:ring-primary-500 peer-focus-visible:ring-offset-2 dark:peer-focus-visible:ring-offset-gray-800
+									bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400
+									hover:bg-gray-200 dark:hover:bg-gray-600">
+									{sortFieldLabel(field)}
+									{#if filesStore.sortField === field}
+										<Icon name={getSortIcon(field)} size={12} />
+									{/if}
+								</span>
+							</label>
+						{/each}
+					</fieldset>
+					<button
+						type="button"
+						onclick={toggleSortDirection}
+						class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+						aria-label={t('explorer.sortDirectionAria', { direction: currentDirectionLabel })}
+					>
+						<Icon name={getSortIcon(filesStore.sortField)} size={16} />
+						<span>{currentDirectionLabel}</span>
+					</button>
+					{#if filesStore.durationsLoading}
+						<span class="text-xs text-gray-500 dark:text-gray-400">{t('explorer.durationsCalculating')}</span>
+					{/if}
+				</div>
+
 				<table class="w-full" role="grid" aria-label={t('explorer.fileList')}>
 					<thead class="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
 						<tr>
 							<th class="text-left py-2 px-4">
 								<button
 									type="button"
-									onclick={() => filesStore.setSort('name')}
+									onclick={() => applySort('name')}
 									class="flex items-center gap-1 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
 									aria-label={`${t('explorer.sortByName')}${sortStateLabel('name')}`}
 								>
@@ -722,10 +899,23 @@
 									{/if}
 								</button>
 							</th>
+							<th class="text-left py-2 px-4 hidden md:table-cell">
+								<button
+									type="button"
+									onclick={() => applySort('duration')}
+									class="flex items-center gap-1 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
+									aria-label={`${t('explorer.sortByDuration')}${sortStateLabel('duration')}`}
+								>
+									{t('explorer.colDuration')}
+									{#if filesStore.sortField === 'duration'}
+										<Icon name={getSortIcon('duration')} size={14} />
+									{/if}
+								</button>
+							</th>
 							<th class="text-left py-2 px-4 hidden sm:table-cell">
 								<button
 									type="button"
-									onclick={() => filesStore.setSort('size')}
+									onclick={() => applySort('size')}
 									class="flex items-center gap-1 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
 									aria-label={`${t('explorer.sortBySize')}${sortStateLabel('size')}`}
 								>
@@ -738,7 +928,7 @@
 							<th class="text-left py-2 px-4 hidden sm:table-cell">
 								<button
 									type="button"
-									onclick={() => filesStore.setSort('modifiedAt')}
+									onclick={() => applySort('modifiedAt')}
 									class="flex items-center gap-1 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
 									aria-label={`${t('explorer.sortByDate')}${sortStateLabel('modifiedAt')}`}
 								>
@@ -754,12 +944,13 @@
 						</tr>
 					</thead>
 					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-					<tbody onkeydown={handleTableKeydown}>
+					<tbody bind:this={tbodyEl} onkeydown={handleTableKeydown}>
 						{#each filesStore.sortedFiles as file, index (file.path)}
 							<FileRow
 								bind:this={rowRefs[index]}
 								{file}
 								focused={focusedIndex === index}
+								showLastPlayed={filesStore.sortField === 'lastPlayed'}
 								ondelete={() => deleteTarget = file}
 								onprotect={() => filesStore.toggleProtection(file.path)}
 								onconvert={() => handleConvert(file)}

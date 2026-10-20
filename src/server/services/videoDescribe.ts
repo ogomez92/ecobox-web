@@ -31,6 +31,10 @@
  *
  * Nothing here writes into MEDIA_ROOT: frames go to a temp directory on local disk
  * and are deleted before the call returns.
+ *
+ * `videoDescribeFull.ts` (describe the *whole* video, chunk by chunk) reuses the
+ * frame extraction, probe and error mapping exported from here; the segment
+ * behaviour itself is unchanged by that.
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -40,7 +44,7 @@ import path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
 import { env } from '$env/dynamic/private';
 import { resolveExistingPath, getRelativePath } from './files';
-import { resolveDescribeKey } from './describeKey';
+import { hasDescribeCredentials, withDescribeClient, type DescribeAuthKind } from './describeKey';
 import { getSubtitles } from './subtitles';
 import { isVideoExtension } from '$lib/utils/mediaTypes';
 import {
@@ -55,13 +59,16 @@ const execFileAsync = promisify(execFile);
 /** Frame extraction is quick; this is a stuck-process guard. */
 const FFMPEG_TIMEOUT_MS = 5 * 60 * 1000;
 /** How long we wait on the API before telling the user it timed out. */
-const API_TIMEOUT_MS = 3 * 60 * 1000;
+export const API_TIMEOUT_MS = 3 * 60 * 1000;
+
+/** Required on every request signed with an OAuth bearer token. */
+const OAUTH_BETA = 'oauth-2025-04-20';
 
 /**
  * Overridable because model names churn faster than this file does; a wrong name
  * surfaces as `badModel` (a 404), not a mystery failure.
  */
-const MODEL = env.CLAUDE_DESCRIBE_MODEL?.trim() || 'claude-opus-5';
+export const MODEL = env.CLAUDE_DESCRIBE_MODEL?.trim() || 'claude-opus-5';
 
 /**
  * A description is a sentence to a short paragraph; this is generous headroom, not
@@ -252,14 +259,16 @@ export function subtitleContext(cues: SubtitleCue[], start: number, end: number)
 
 interface ProbeStream {
 	codec_type?: string;
+	width?: number;
+	height?: number;
 }
 
-interface Probe {
+export interface Probe {
 	streams?: ProbeStream[];
 	format?: { duration?: string };
 }
 
-async function ffprobe(absPath: string): Promise<Probe | null> {
+export async function ffprobe(absPath: string): Promise<Probe | null> {
 	try {
 		const { stdout } = await execFileAsync(
 			'ffprobe',
@@ -274,7 +283,7 @@ async function ffprobe(absPath: string): Promise<Probe | null> {
 }
 
 /** A failure that already knows which `DescribeErrorCode` the client should see. */
-class DescribeError extends Error {
+export class DescribeError extends Error {
 	constructor(
 		readonly code: DescribeErrorCode,
 		readonly detail?: string
@@ -379,7 +388,7 @@ async function extractSparse(absPath: string, times: number[], dir: string) {
 	await Promise.all(Array.from({ length: Math.min(SEEK_POOL, times.length) }, worker));
 }
 
-interface Frame {
+export interface Frame {
 	/** Seconds into the file. */
 	time: number;
 	jpeg: Buffer;
@@ -390,7 +399,7 @@ interface Frame {
  * could not produce (marks past the end of the file) are skipped, so the model
  * only ever sees frames that exist.
  */
-async function extractFrames(
+export async function extractFrames(
 	absPath: string,
 	start: number,
 	plan: FramePlan,
@@ -422,7 +431,7 @@ async function extractFrames(
  * SDK's typed classes carry the status; the one ambiguity left is a 400, which is
  * both "malformed request" and "your credit balance is too low".
  */
-function classifyApiError(err: unknown): DescribeError {
+export function classifyApiError(err: unknown): DescribeError {
 	if (err instanceof Anthropic.APIConnectionTimeoutError) {
 		return new DescribeError('timeout', concise(err.message));
 	}
@@ -465,6 +474,16 @@ function concise(message: string): string {
 }
 
 /**
+ * The beta flags a request carries. A bearer token needs the OAuth beta on top of
+ * the fallback one; an API key must not send it.
+ */
+export function betasFor(auth: DescribeAuthKind): string[] {
+	return auth === 'token'
+		? ['server-side-fallback-2026-07-01', OAUTH_BETA]
+		: ['server-side-fallback-2026-07-01'];
+}
+
+/**
  * Hand the frames to the model, labelled and in order, and collect the text.
  *
  * Thinking is off: seeing and describing is perception, not deliberation, and
@@ -473,14 +492,12 @@ function concise(message: string): string {
  * sibling model inside the same call rather than handing the user a refusal.
  */
 async function describeFrames(options: {
-	apiKey: string;
 	frames: Frame[];
 	system: string;
 	opening: string;
 	closing: string;
 }): Promise<{ text: string; model: string }> {
-	const { apiKey, frames, system, opening, closing } = options;
-	const client = new Anthropic({ apiKey, timeout: API_TIMEOUT_MS, maxRetries: 1 });
+	const { frames, system, opening, closing } = options;
 
 	const content: Anthropic.Beta.BetaContentBlockParam[] = [{ type: 'text', text: opening }];
 	for (const frame of frames) {
@@ -494,17 +511,21 @@ async function describeFrames(options: {
 
 	let message: Anthropic.Beta.BetaMessage;
 	try {
-		message = await client.beta.messages
-			.stream({
-				model: MODEL,
-				max_tokens: MAX_OUTPUT_TOKENS,
-				thinking: { type: 'disabled' },
-				system,
-				messages: [{ role: 'user', content }],
-				betas: ['server-side-fallback-2026-07-01'],
-				fallbacks: 'default'
-			})
-			.finalMessage();
+		message = await withDescribeClient(
+			(client, auth) =>
+				client.beta.messages
+					.stream({
+						model: MODEL,
+						max_tokens: MAX_OUTPUT_TOKENS,
+						thinking: { type: 'disabled' },
+						system,
+						messages: [{ role: 'user', content }],
+						betas: betasFor(auth),
+						fallbacks: 'default'
+					})
+					.finalMessage(),
+			{ timeout: API_TIMEOUT_MS, maxRetries: 1 }
+		);
 	} catch (err) {
 		throw classifyApiError(err);
 	}
@@ -573,9 +594,8 @@ export async function describeVideoSegment(options: DescribeOptions): Promise<De
 		return { ok: false, code: 'notFound' };
 	}
 
-	// --- The key, before any expensive work --------------------------------
-	const apiKey = resolveDescribeKey();
-	if (!apiKey) return { ok: false, code: 'noKey' };
+	// --- Credentials, before any expensive work ----------------------------
+	if (!hasDescribeCredentials()) return { ok: false, code: 'noKey' };
 
 	const probe = await ffprobe(absPath);
 	if (!probe) {
@@ -626,7 +646,6 @@ export async function describeVideoSegment(options: DescribeOptions): Promise<De
 		try {
 			const fileName = path.basename(relPath, path.extname(relPath));
 			const { text, model } = await describeFrames({
-				apiKey,
 				frames,
 				system: buildSystemPrompt(languageName(language), subtitles !== null),
 				opening: buildUserPrompt({ fileName, start, end: clampedEnd, plan }),

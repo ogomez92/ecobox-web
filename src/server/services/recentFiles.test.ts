@@ -32,7 +32,7 @@ describe('resolveRecentTarget', () => {
 		});
 		expect(target.exists).toBe(true);
 		expect(target.path).toBe('Stranger Things/Season 01/ep10.mp3');
-		expect(target.href).toBe('/play/Stranger Things/Season 01/ep10.mp3');
+		expect(target.href).toBe('/play/Stranger%20Things/Season%2001/ep10.mp3');
 	});
 
 	it('falls back to the containing folder when only the file is gone', async () => {
@@ -42,7 +42,7 @@ describe('resolveRecentTarget', () => {
 		});
 		expect(target.exists).toBe(false);
 		expect(target.path).toBe('Stranger Things/Season 01');
-		expect(target.href).toBe('/browse/Stranger Things/Season 01');
+		expect(target.href).toBe('/browse/Stranger%20Things/Season%2001');
 		expect(target.name).toBe('Season 01');
 	});
 
@@ -52,7 +52,7 @@ describe('resolveRecentTarget', () => {
 		});
 		expect(target.exists).toBe(false);
 		expect(target.path).toBe('Stranger Things');
-		expect(target.href).toBe('/browse/Stranger Things');
+		expect(target.href).toBe('/browse/Stranger%20Things');
 	});
 
 	it('lands on the media root when the whole tree above it is gone', async () => {
@@ -74,7 +74,7 @@ describe('resolveRecentTarget', () => {
 			})
 		});
 		expect(target.kind).toBe('book');
-		expect(target.href).toBe('/read/Stranger Things/Season 01');
+		expect(target.href).toBe('/read/Stranger%20Things/Season%2001');
 	});
 
 	it('skips ancestors this session may not see and keeps walking up', async () => {

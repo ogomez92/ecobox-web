@@ -5,6 +5,7 @@
 	import { t } from '$lib/i18n/index.svelte';
 	import { foldForSearch } from '$lib/utils/text';
 	import { formatBytes } from '$lib/utils/format';
+	import { encodePathSegments } from '$lib/utils/urlPath';
 	import type { FileEntry } from '$lib/types';
 
 	interface Props {
@@ -89,16 +90,16 @@
 	 */
 	function hrefFor(entry: FileEntry): string {
 		if (entry.isDirectory) {
-			if (entry.isBookFolder) return `/read/${entry.path}`;
-			if (entry.isDaisyBook || entry.isChapteredFolder) return `/play/${entry.path}`;
-			return `/browse/${entry.path}`;
+			if (entry.isBookFolder) return `/read/${encodePathSegments(entry.path)}`;
+			if (entry.isDaisyBook || entry.isChapteredFolder) return `/play/${encodePathSegments(entry.path)}`;
+			return `/browse/${encodePathSegments(entry.path)}`;
 		}
 		if (entry.isRawBook) {
 			const parent = parentOf(entry.path);
 			const focus = `?focus=${encodeURIComponent(entry.name)}`;
-			return parent ? `/browse/${parent}${focus}` : `/${focus}`;
+			return parent ? `/browse/${encodePathSegments(parent)}${focus}` : `/${focus}`;
 		}
-		return `/play/${entry.path}`;
+		return `/play/${encodePathSegments(entry.path)}`;
 	}
 
 	function parentOf(p: string): string {

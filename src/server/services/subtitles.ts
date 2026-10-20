@@ -195,6 +195,21 @@ const QUALIFIER_BOUNDARY = /^[.\-_ ([]/;
  * never be handed to `ep1.mp3`. What remains is ranked by whether the extra text
  * starts at a qualifier boundary, then by how little was added, then by format.
  */
+/**
+ * The qualifier that marks a whole-video *description* sidecar
+ * (`<base>.description.vtt`, written by `videoDescribeFull.ts`). It is a subtitle
+ * file in shape only: it must never be picked as the caption track — the player
+ * would read the descriptions out as dialogue, and a later describe run would be
+ * handed its own output as "what the listener hears".
+ */
+export const DESCRIPTION_SIDECAR_SUFFIX = '.description';
+
+/** Whether a subtitle-shaped file name is a description sidecar rather than captions. */
+export function isDescriptionSidecar(fileName: string): boolean {
+	const { base, ext } = splitExtension(fileName);
+	return SUBTITLE_EXTENSIONS.includes(ext) && normalizeName(base).endsWith(DESCRIPTION_SIDECAR_SUFFIX);
+}
+
 export function pickSubtitleFile(mediaFileName: string, entryNames: string[]): string | null {
 	const mediaFull = normalizeName(mediaFileName);
 	const mediaBase = normalizeName(splitExtension(mediaFileName).base);
@@ -208,6 +223,9 @@ export function pickSubtitleFile(mediaFileName: string, entryNames: string[]): s
 	for (const name of entryNames) {
 		const { base, ext } = splitExtension(name);
 		if (SUBTITLE_EXTENSIONS.includes(ext)) {
+			// A description track is neither a caption candidate nor a file that
+			// claims a stem of its own.
+			if (isDescriptionSidecar(name)) continue;
 			subtitles.push({ name, stem: normalizeName(base), ext });
 			continue;
 		}

@@ -4,7 +4,14 @@ export interface FileEntry {
 	isDirectory: boolean;
 	size: number;
 	modifiedAt: Date;
+	/**
+	 * Seconds, for a playable file whose duration is known. A listing carries it
+	 * only when it is already cached; `/api/files/durations` computes the rest on
+	 * demand (see the "duration" sort). Absent = unknown, which sorts last.
+	 */
 	duration?: number;
+	/** Epoch ms of the last time this entry was opened/played; absent = never. */
+	lastPlayedAt?: number;
 	isChapteredFolder?: boolean;
 	isDaisyBook?: boolean;
 	isRadioFile?: boolean;
@@ -621,10 +628,14 @@ export interface DescribeFailure {
 
 export type DescribeResult = DescribeSuccess | DescribeFailure;
 
-/** Whether an Anthropic key exists server-side, and where it came from. Never the key. */
+/**
+ * Whether an Anthropic credential exists server-side, and where it came from.
+ * Never the secret. `token` is an auth token (stored or `ANTHROPIC_AUTH_TOKEN`),
+ * which is tried before any API key.
+ */
 export interface DescribeKeyStatus {
 	configured: boolean;
-	source: 'env' | 'stored' | null;
+	source: 'token' | 'env' | 'stored' | null;
 }
 
 /**
@@ -632,3 +643,66 @@ export interface DescribeKeyStatus {
  * sampled once a second; longer ones are spread over this many frames instead.
  */
 export const MAX_DESCRIBE_FRAMES = 50;
+
+// ---------------------------------------------------------------------------
+// Whole-video description (Claude, chunked)
+// ---------------------------------------------------------------------------
+
+/**
+ * Length of one description chunk. The whole video is walked in windows this
+ * long, sampled once a second (so ten frames each), and the last window is
+ * simply shorter. Chosen so a chunk's text is about what a screen reader can say
+ * while the chunk plays.
+ */
+export const FULL_DESCRIBE_CHUNK_SECONDS = 10;
+
+/** One chunk's description, on the file's own clock like a subtitle cue. */
+export interface FullDescribeCue {
+	start: number;
+	end: number;
+	text: string;
+}
+
+/**
+ * Where a whole-video description stands. `paused` covers both a user cancel and
+ * a server restart mid-run: either way the chunks done so far are kept and a new
+ * start request resumes from the first missing one.
+ */
+export type FullDescribeState = 'idle' | 'running' | 'paused' | 'done' | 'failed';
+
+/** `GET /api/describe/full` — the stored track (cues so far) plus progress. */
+export interface FullDescribeStatus {
+	state: FullDescribeState;
+	/** Language the track is written in (a UI locale), '' when idle. */
+	language: string;
+	totalChunks: number;
+	doneChunks: number;
+	cues: FullDescribeCue[];
+	/** The model that answered the last chunk, when any has. */
+	model: string | null;
+	/**
+	 * Media-root-relative path of the `<base>.description.vtt` file the track is
+	 * kept in, once at least one chunk exists; null before that.
+	 */
+	sidecar: string | null;
+	/** Set when `state` is `failed`: why the run stopped, in the same codes as a segment. */
+	errorCode: DescribeErrorCode | null;
+	errorDetail: string | null;
+}
+
+/**
+ * `GET /api/describe/full/estimate` — what a whole-video run would cost, before it
+ * starts. Token counts come from the API's own token counter on the first chunk's
+ * real frames when a credential allows it (`exact`), else from the frame size;
+ * `usd` is null when the configured model's price is not in our table. There is
+ * no API for the account's remaining credit, so none is reported.
+ */
+export interface FullDescribeEstimate {
+	chunks: number;
+	frames: number;
+	model: string;
+	inputTokens: number;
+	outputTokens: number;
+	usd: number | null;
+	exact: boolean;
+}

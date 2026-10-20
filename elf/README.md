@@ -121,6 +121,30 @@ are runtime data, not compiled into `eci_synth`).
 
 The bundle location is `ELF_DIR` (`.env`), defaulting to `<cwd>/elf`.
 
+### Install path length
+
+On POSIX, `eci_synth` writes its `eci.ini` into a per-process work dir with a
+`lib` symlink pointing at the bundle, and the `Path=` entries are relative
+(`./lib/enu.so`). Do not change them back to absolute paths. The engine copies each
+`Path=` value into a small fixed buffer, and a long value overruns it into an
+adjacent function pointer. The first synthesis then segfaults, even though
+`--list` and engine init both succeed. Here it happened from about 155 characters
+of module path. Upstream apple-eloquence-elf fixed the same crash in 1.3.0 with
+`./`-relative entries in its generated INI.
+
+## Upstream version
+
+`lib/` matches upstream **apple-eloquence-elf 1.3.0** (x86_64). The 1.3.0
+`eci.so` and the Western-language modules are byte-identical to the 1.1.x
+conversion vendored before it, so updating changed no audio. The 1.3.0 release
+also ships Linux CJK modules (`chs`/`cht`/`jpn`/`kor` + `*rom.so`). They are
+**not** vendored: with the gate removed and `Path_Rom=` set, all four still
+segfault mid-synthesis on every run (tested 2026-10-02), and upstream also keeps
+them gated. Re-test before un-gating on a future release. Two other 1.3.0 fixes
+are already covered here: abbreviation expansion off (`eciDictionary`), and the
+long-path crash (see above). The long-utterance frame cap is a speech-dispatcher
+module bug that `eci_synth` never had.
+
 ## The Windows build
 
 `lib-win32/` is not a conversion: it is the **original** ECI 6.1 runtime for Windows

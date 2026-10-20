@@ -13,17 +13,20 @@
 	import EffectsPanel from './EffectsPanel.svelte';
 	import CastDialog from './CastDialog.svelte';
 	import DescribeKeyDialog from './DescribeKeyDialog.svelte';
+	import FullDescribeDialog from './FullDescribeDialog.svelte';
 	import { playerStore } from '$lib/stores/player.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { subtitlesStore } from '$lib/stores/subtitles.svelte';
 	import { videoDescribeStore } from '$lib/stores/videoDescribe.svelte';
+	import { fullDescribeStore } from '$lib/stores/fullDescribe.svelte';
 	import { isPlayableMedia, isVideoExtension } from '$lib/utils/mediaTypes';
 	import { recentStore } from '$lib/stores/recent.svelte';
 	import { audioEffects } from '$lib/services/audioEffects';
 	import { roomCaster } from '$lib/services/roomCaster.svelte';
 	import { formatDuration } from '$lib/utils/format';
 	import { i18n, t } from '$lib/i18n/index.svelte';
-	import type { ChapteredBookManifest } from '$lib/types';
+	import { encodePathSegments } from '$lib/utils/urlPath';
+	import type { ChapteredBookManifest, DescribeErrorCode, FullDescribeState } from '$lib/types';
 
 	/**
 	 * Either flavour of audio bookmark. Single files store a time against the file;
@@ -51,6 +54,12 @@
 	let showDescribeKey = $state(false);
 	let describeKeyReason = $state<'missing' | 'invalid'>('missing');
 	let describeButtonRef: HTMLButtonElement | null = $state(null);
+	let showFullDescribe = $state(false);
+	// undefined = still being fetched, null = the server could not estimate.
+	let fullDescribeEstimate = $state<import('$lib/types').FullDescribeEstimate | null | undefined>(undefined);
+	let fullDescribeButtonRef: HTMLButtonElement | null = $state(null);
+	// Which action asked for the API key, so saving it resumes the right one.
+	let describeKeyNext = $state<'segment' | 'full'>('segment');
 	let bookmarks = $state<PlaybackBookmark[]>([]);
 
 	// Presentation rows for the shared BookmarkList (keyed by bookmark id; time → detail).
@@ -84,6 +93,7 @@
 	let bookmarkAnnouncement = $state('');
 	let subtitleAnnouncement = $state('');
 	let describeAnnouncement = $state('');
+	let fullDescribeAnnouncement = $state('');
 
 	const title = $derived(playerStore.currentTitle);
 	const chapterTitle = $derived(playerStore.currentChapter?.title);
@@ -142,9 +152,8 @@
 		videoDescribeStore.resetFor(describeTarget);
 	});
 
-	const describeErrorText = $derived.by(() => {
-		const code = videoDescribeStore.errorCode;
-		if (!code) return '';
+	/** The localized sentence for a describe failure (segment and whole-video alike). */
+	function describeErrorMessage(code: DescribeErrorCode): string {
 		switch (code) {
 			case 'noStart': return t('describe.errorNoStart');
 			case 'noEnd': return t('describe.errorNoEnd');
@@ -167,6 +176,60 @@
 			case 'empty': return t('describe.errorEmpty');
 			default: return t('describe.errorServer');
 		}
+	}
+
+	const describeErrorText = $derived(
+		videoDescribeStore.errorCode ? describeErrorMessage(videoDescribeStore.errorCode) : ''
+	);
+
+	// --- Whole-video description track ----------------------------------------
+	// Built on the server chunk by chunk (Ctrl+Alt+D) and played back like a
+	// subtitle track: the cue for the current second is shown in a box and spoken
+	// through a live region as playback reaches it. Reloaded per file, like
+	// subtitles, since a chaptered folder changes file under the same page.
+	$effect(() => {
+		const file = describeTarget;
+		if (!file || !isVideo) {
+			fullDescribeStore.clear();
+			return;
+		}
+		fullDescribeStore.load(file);
+	});
+
+	const fullDescribeErrorText = $derived(
+		fullDescribeStore.errorCode ? describeErrorMessage(fullDescribeStore.errorCode) : ''
+	);
+	const showFullDescribeTrack = $derived(isVideo && fullDescribeStore.enabled && fullDescribeStore.available);
+	const fullDescribeCue = $derived(
+		showFullDescribeTrack ? fullDescribeStore.cueAt(playerStore.currentTime) : null
+	);
+	const fullDescribeText = $derived(fullDescribeCue?.text ?? '');
+	// Spoken at the politeness chosen for subtitles: it is the same kind of running
+	// commentary, and a listener who wanted captions polite wants this polite too.
+	const spokenFullDescribe = $derived(announcesSubtitles ? fullDescribeText.replace(/\n/g, ' ') : '');
+	const fullDescribeStateText = $derived.by(() => {
+		switch (fullDescribeStore.state) {
+			case 'running': return t('describeAll.stateRunning');
+			case 'paused': return t('describeAll.statePaused');
+			case 'done': return t('describeAll.stateDone');
+			case 'failed': return t('describeAll.stateFailed');
+			default: return '';
+		}
+	});
+
+	// Announce the run's transitions — finished, stopped, failed — but not the
+	// state a file is merely found in when it loads.
+	let lastFullDescribeState: FullDescribeState | null = null;
+	$effect(() => {
+		const state = fullDescribeStore.state;
+		const done = fullDescribeStore.doneChunks;
+		const total = fullDescribeStore.totalChunks;
+		const previous = lastFullDescribeState;
+		lastFullDescribeState = state;
+		if (previous !== 'running') return;
+		if (state === 'done') announceFullDescribe(t('describeAll.done', { total }));
+		else if (state === 'failed') announceFullDescribe(t('describeAll.failed', { next: done + 1, total }));
+		else if (state === 'paused') announceFullDescribe(t('describeAll.stopped', { done, total }));
 	});
 
 	const describeSegmentLabel = $derived.by(() => {
@@ -260,8 +323,112 @@
 	function onDescribeKeySaved() {
 		showDescribeKey = false;
 		announceDescribe(t('describe.key.saved'));
+		if (describeKeyNext === 'full') {
+			requestAnimationFrame(() => fullDescribeButtonRef?.focus());
+			openFullDescribeDialog();
+			return;
+		}
 		requestAnimationFrame(() => describeButtonRef?.focus());
 		runDescription();
+	}
+
+	function announceFullDescribe(message: string) {
+		fullDescribeAnnouncement = message;
+		setTimeout(() => { fullDescribeAnnouncement = ''; }, 100);
+	}
+
+	/**
+	 * Ctrl+Alt+D. Stops a run in progress; otherwise opens the confirmation for
+	 * starting (or resuming) one — after making sure there is a key, so the dialog
+	 * never promises a run that would fail for the lack of one.
+	 */
+	async function requestFullDescription() {
+		if (!isVideo || fullDescribeStore.isBusy) return;
+		if (fullDescribeStore.isRunning) {
+			await cancelFullDescription();
+			return;
+		}
+		if (fullDescribeStore.state === 'done') {
+			announceFullDescribe(t('describeAll.alreadyDone'));
+			return;
+		}
+		const status = videoDescribeStore.keyStatus ?? (await videoDescribeStore.loadKeyStatus());
+		if (!status.configured) {
+			describeKeyNext = 'full';
+			describeKeyReason = 'missing';
+			showDescribeKey = true;
+			return;
+		}
+		openFullDescribeDialog();
+	}
+
+	/** Open the confirmation and fetch its cost estimate; the dialog updates when it lands. */
+	function openFullDescribeDialog() {
+		fullDescribeEstimate = undefined;
+		showFullDescribe = true;
+		const forFile = describeTarget;
+		void fullDescribeStore.estimate(i18n.locale).then((estimate) => {
+			if (describeTarget === forFile) fullDescribeEstimate = estimate;
+		});
+	}
+
+	function closeFullDescribe() {
+		showFullDescribe = false;
+		requestAnimationFrame(() => fullDescribeButtonRef?.focus());
+	}
+
+	/** The dialog's Start/Resume: kick the run off and say so. */
+	async function startFullDescription(restart = false) {
+		showFullDescribe = false;
+		requestAnimationFrame(() => fullDescribeButtonRef?.focus());
+		const resuming = !restart && fullDescribeStore.doneChunks > 0;
+		const ok = await fullDescribeStore.start(i18n.locale, restart);
+		if (ok) {
+			if (fullDescribeStore.state === 'done') {
+				announceFullDescribe(t('describeAll.alreadyDone'));
+			} else if (resuming) {
+				announceFullDescribe(t('describeAll.resumed', {
+					next: fullDescribeStore.doneChunks + 1,
+					total: fullDescribeStore.totalChunks
+				}));
+			} else {
+				announceFullDescribe(t('describeAll.started', { total: fullDescribeStore.totalChunks }));
+			}
+			return;
+		}
+		const code = fullDescribeStore.errorCode;
+		if (code === 'noKey' || code === 'badKey') {
+			describeKeyNext = 'full';
+			describeKeyReason = code === 'badKey' ? 'invalid' : 'missing';
+			showDescribeKey = true;
+			return;
+		}
+		announceFullDescribe(fullDescribeErrorText);
+	}
+
+	async function cancelFullDescription() {
+		await fullDescribeStore.cancel();
+		announceFullDescribe(t('describeAll.stopped', {
+			done: fullDescribeStore.doneChunks,
+			total: fullDescribeStore.totalChunks
+		}));
+	}
+
+	async function removeFullDescription() {
+		await fullDescribeStore.remove();
+		announceFullDescribe(t('describeAll.removed'));
+		requestAnimationFrame(() => fullDescribeButtonRef?.focus());
+	}
+
+	/** Alt+D: whether the track is shown and spoken during playback. */
+	function toggleFullDescribePlayback() {
+		if (!fullDescribeStore.available) {
+			announceFullDescribe(t('describeAll.none'));
+			return;
+		}
+		const enabled = !fullDescribeStore.enabled;
+		fullDescribeStore.setEnabled(enabled);
+		announceFullDescribe(enabled ? t('describeAll.playbackOn') : t('describeAll.playbackOff'));
 	}
 
 	// Bookmarks in a multi-file book live in their own table: a bare time would be
@@ -431,6 +598,7 @@
 		cancelSleepTimer();
 		subtitlesStore.clear();
 		videoDescribeStore.cancel();
+		fullDescribeStore.clear();
 		// Stop casting first — audioEffects.destroy() closes the context and would
 		// otherwise leave the caster producing a dead track.
 		if (roomCaster.isCasting) roomCaster.stop();
@@ -458,7 +626,7 @@
 		const focusParam = itemName ? `?focus=${encodeURIComponent(itemName)}` : '';
 
 		if (parentPath) {
-			goto(`/browse/${parentPath}${focusParam}`);
+			goto(`/browse/${encodePathSegments(parentPath)}${focusParam}`);
 		} else {
 			goto(`/${focusParam}`);
 		}
@@ -503,7 +671,7 @@
 
 		// Keep playing across the switch even if the autoplay setting is off.
 		playerStore.playOnNextLoad = true;
-		goto(`/play/${siblings[targetIdx]}`);
+		goto(`/play/${encodePathSegments(siblings[targetIdx])}`);
 	}
 
 	const nextTrack = () => switchTrack(1);
@@ -559,6 +727,7 @@
 			e.preventDefault();
 			if (showEffects) { closeEffectsPanel(); return; }
 			if (showDescribeKey) { closeDescribeKey(); return; }
+			if (showFullDescribe) { closeFullDescribe(); return; }
 			if (showCast) { showCast = false; return; }
 			if (showGoToTime) { showGoToTime = false; return; }
 			if (showBookmarks) {
@@ -574,7 +743,7 @@
 		}
 
 		// For other keys, bail when any modal is open
-		if (showGoToTime || showBookmarks || showChapters || showSleepTimer || showCast || showDescribeKey)
+		if (showGoToTime || showBookmarks || showChapters || showSleepTimer || showCast || showDescribeKey || showFullDescribe)
 			return;
 
 		// F key toggles effects panel even when it's open
@@ -706,11 +875,20 @@
 				break;
 
 			// D: mark the start of a segment to describe; Shift+D marks its end;
-			// Ctrl/Cmd+Shift+D asks Claude what happens in it. Bare Ctrl+D is left
-			// to the browser (bookmark this page) — we never claim a key we don't use.
+			// Ctrl/Cmd+Shift+D asks Claude what happens in it. Ctrl/Cmd+Alt+D describes
+			// the WHOLE video as a track, and Alt+D toggles reading that track back.
+			// Bare Ctrl+D is left to the browser (bookmark this page) — we never claim
+			// a key we don't use.
 			case 'KeyD': {
-				if (!isVideo || e.altKey) return;
+				if (!isVideo) return;
 				const withCtrl = e.ctrlKey || e.metaKey;
+				if (e.altKey) {
+					if (e.shiftKey) return;
+					e.preventDefault();
+					if (withCtrl) requestFullDescription();
+					else toggleFullDescribePlayback();
+					break;
+				}
 				if (withCtrl && !e.shiftKey) return;
 				e.preventDefault();
 				if (withCtrl) requestDescription();
@@ -1000,6 +1178,134 @@
 			</div>
 		{/if}
 
+		<!-- Whole-video description track: the cue for the current moment, shown like a
+		     caption. Its screen-reader copy is a live region at the bottom of the page,
+		     so this box is hidden from AT while that is carrying the text. -->
+		{#if showFullDescribeTrack}
+			<div class="mb-6 min-h-[4rem] flex items-center justify-center">
+				{#if fullDescribeText}
+					<p
+						class="w-full rounded-lg border border-primary-500/40 bg-primary-50 dark:bg-primary-900/30 px-4 py-3 text-center text-base sm:text-lg italic leading-snug text-gray-900 dark:text-gray-100 whitespace-pre-line"
+						aria-hidden={announcesSubtitles}
+					>
+						{fullDescribeText}
+					</p>
+				{/if}
+			</div>
+		{/if}
+
+		<!-- Whole-video description: progress and controls for the track being built
+		     (or built already). The cues themselves play back above; the progress
+		     bar is what a listener checks while a long run is going. -->
+		{#if isVideo && (fullDescribeStore.state !== 'idle' || fullDescribeStore.errorCode)}
+			<section
+				class="mb-6 rounded-lg border border-gray-300 dark:border-gray-700 bg-white/70 dark:bg-gray-800/70 p-4"
+				aria-labelledby="describe-all-heading"
+				aria-busy={fullDescribeStore.isRunning}
+			>
+				<div class="flex items-start justify-between gap-3">
+					<h2
+						id="describe-all-heading"
+						class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
+					>
+						{t('describeAll.heading')}
+					</h2>
+					{#if fullDescribeStateText}
+						<span class="text-sm text-gray-600 dark:text-gray-400">{fullDescribeStateText}</span>
+					{/if}
+				</div>
+
+				{#if fullDescribeStore.totalChunks > 0}
+					<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+						{t('describeAll.progress', { done: fullDescribeStore.doneChunks, total: fullDescribeStore.totalChunks })}
+					</p>
+					<div
+						class="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
+						role="progressbar"
+						aria-label={t('describeAll.progressAria')}
+						aria-valuemin="0"
+						aria-valuemax={fullDescribeStore.totalChunks}
+						aria-valuenow={fullDescribeStore.doneChunks}
+					>
+						<div
+							class="h-full bg-primary-600 transition-[width]"
+							style="width: {Math.round(fullDescribeStore.progress * 100)}%"
+						></div>
+					</div>
+				{/if}
+
+				{#if fullDescribeStore.sidecar}
+					<p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+						{t('describeAll.savedAs', { file: fullDescribeStore.sidecar.split('/').pop() ?? fullDescribeStore.sidecar })}
+					</p>
+				{/if}
+
+				{#if fullDescribeErrorText}
+					<p class="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">
+						{fullDescribeErrorText}{#if fullDescribeStore.errorDetail}
+							<span class="opacity-70"> ({fullDescribeStore.errorDetail})</span>
+						{/if}
+					</p>
+				{/if}
+
+				<div class="mt-3 flex flex-wrap gap-2">
+					{#if fullDescribeStore.isRunning}
+						<button
+							type="button"
+							class="btn-secondary text-sm"
+							onclick={cancelFullDescription}
+							disabled={fullDescribeStore.isBusy}
+							aria-label={t('describeAll.cancelAria')}
+						>
+							{t('describeAll.cancelButton')}
+						</button>
+					{:else}
+						{#if fullDescribeStore.state === 'paused' || fullDescribeStore.state === 'failed'}
+							<button
+								type="button"
+								class="btn-secondary text-sm"
+								onclick={() => startFullDescription(false)}
+								disabled={fullDescribeStore.isBusy}
+							>
+								{t('describeAll.resume')}
+							</button>
+						{/if}
+						{#if fullDescribeStore.state !== 'idle'}
+							<button
+								type="button"
+								class="btn-secondary text-sm"
+								onclick={() => startFullDescription(true)}
+								disabled={fullDescribeStore.isBusy}
+								aria-label={t('describeAll.restartAria')}
+							>
+								{t('describeAll.restart')}
+							</button>
+							<button
+								type="button"
+								class="btn-ghost text-sm"
+								onclick={removeFullDescription}
+								disabled={fullDescribeStore.isBusy}
+								aria-label={t('describeAll.removeAria')}
+							>
+								{t('describeAll.remove')}
+							</button>
+						{/if}
+					{/if}
+					{#if fullDescribeStore.available}
+						<button
+							type="button"
+							class="btn-secondary text-sm"
+							onclick={toggleFullDescribePlayback}
+							aria-pressed={fullDescribeStore.enabled}
+							aria-label={t('describeAll.toggleAria')}
+						>
+							{t('describeAll.toggle')}
+						</button>
+					{/if}
+				</div>
+			</section>
+		{/if}
+
 		<!-- Video description. The picture is never rendered anywhere in this app, so
 		     this panel is the only place its content ever appears. The description
 		     itself sits in an ASSERTIVE live region: the user asked for it and is
@@ -1231,6 +1537,20 @@
 						<Icon name="video" size={20} class="mr-2" />
 						{videoDescribeStore.isDescribing ? t('describe.working') : t('describe.button')}
 					</button>
+
+					<!-- The whole video as a track: one button that starts, or stops, the run. -->
+					<button
+						bind:this={fullDescribeButtonRef}
+						type="button"
+						class="btn-secondary {fullDescribeStore.isRunning ? 'ring-2 ring-primary-500 text-primary-600 dark:text-primary-400' : ''}"
+						onclick={requestFullDescription}
+						disabled={fullDescribeStore.isBusy}
+						aria-busy={fullDescribeStore.isRunning}
+						aria-label={fullDescribeStore.isRunning ? t('describeAll.cancelAria') : t('describeAll.buttonAria')}
+					>
+						<Icon name="captions" size={20} class="mr-2" />
+						{fullDescribeStore.isRunning ? t('describeAll.cancelButton') : t('describeAll.button')}
+					</button>
 				{/if}
 			{/if}
 
@@ -1360,6 +1680,18 @@
 	/>
 {/if}
 
+<!-- Whole-video description: confirm the size of the job before the server starts. -->
+{#if showFullDescribe}
+	<FullDescribeDialog
+		duration={playerStore.duration}
+		doneChunks={fullDescribeStore.doneChunks}
+		totalChunks={fullDescribeStore.totalChunks}
+		estimate={fullDescribeEstimate}
+		onstart={() => startFullDescription(false)}
+		onclose={closeFullDescribe}
+	/>
+{/if}
+
 <!-- Live region for announcements -->
 <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 	{seekUnitAnnouncement}
@@ -1376,6 +1708,9 @@
 <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 	{describeAnnouncement}
 </div>
+<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+	{fullDescribeAnnouncement}
+</div>
 
 <!-- Subtitle live regions. Both are rendered so the one in use is registered with
      the screen reader from the start (swapping aria-live on a live element is
@@ -1386,6 +1721,16 @@
 </div>
 <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 	{settingsStore.subtitleAnnounce === 'polite' ? spokenSubtitle : ''}
+</div>
+
+<!-- Whole-video description track, spoken as playback reaches each cue. Its own
+     pair of regions, at the subtitle politeness, so a caption and a description
+     landing in the same second do not overwrite each other. -->
+<div class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">
+	{settingsStore.subtitleAnnounce === 'assertive' ? spokenFullDescribe : ''}
+</div>
+<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+	{settingsStore.subtitleAnnounce === 'polite' ? spokenFullDescribe : ''}
 </div>
 
 <style>

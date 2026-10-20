@@ -137,6 +137,35 @@ export const recentFiles = sqliteTable('recent_files', {
 	accessedAt: integer('accessed_at', { mode: 'timestamp_ms' }).notNull()
 });
 
+/**
+ * A whole-video audio-description track, one row per video (see
+ * `videoDescribeFull.ts`). `cues` is the JSON array of chunk descriptions done so
+ * far and `memory` the model's own running notes (names, setting, threads) that
+ * are handed back to it for the next chunk — both are kept across a cancel or a
+ * server restart, which is what makes a run resumable. `size`/`mtime` pin the row
+ * to the file it was made from: a re-encoded file gets a fresh run.
+ */
+export const videoDescriptions = sqliteTable('video_descriptions', {
+	path: text('path').primaryKey(),
+	language: text('language').notNull(),
+	size: integer('size').notNull(),
+	mtime: integer('mtime').notNull(),
+	duration: real('duration').notNull(),
+	chunkSeconds: integer('chunk_seconds').notNull(),
+	totalChunks: integer('total_chunks').notNull(),
+	doneChunks: integer('done_chunks').notNull().default(0),
+	// 'running' | 'paused' | 'done' | 'failed'
+	status: text('status').notNull(),
+	errorCode: text('error_code'),
+	errorDetail: text('error_detail'),
+	// JSON: FullDescribeCue[]
+	cues: text('cues').notNull().default('[]'),
+	// JSON: the model-maintained SceneMemory, or null before the first chunk
+	memory: text('memory'),
+	model: text('model'),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+});
+
 export const protectedPaths = sqliteTable('protected_paths', {
 	path: text('path').primaryKey(),
 	createdAt: integer('created_at', { mode: 'timestamp' })
