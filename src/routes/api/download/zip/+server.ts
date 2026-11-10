@@ -4,7 +4,7 @@ import { resolveExistingPath } from '$server/services/files';
 import { db } from '$server/db';
 import { protectedPaths } from '$server/db/schema';
 import { env } from '$env/dynamic/private';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import path from 'path';
 import fs from 'fs';
 import { PassThrough } from 'stream';
@@ -54,7 +54,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 		const folderName = path.basename(folderPath) || 'download';
 
 		// Create archive
-		const archive = archiver('zip', {
+		const archive = new ZipArchive({
 			zlib: { level: 5 }
 		});
 

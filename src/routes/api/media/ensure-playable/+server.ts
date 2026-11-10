@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { ensureVideoPlayable } from '$server/services/videoConvert';
 import { isPathHidden } from '$server/services/protection';
+import { getPlayabilityStatus, type PlayabilityStatus } from '$server/services/playabilityQueue';
 
 /**
  * v1 repairs synchronously, exactly like book conversion and audio extraction.
@@ -51,4 +52,18 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		console.error('Video playability repair error:', err);
 		throw error(500, 'Failed to convert video');
 	}
+};
+
+/**
+ * GET /api/media/ensure-playable?path=…&path=… — where the background checks the
+ * upload route queued (see playabilityQueue.ts) have got to. Answers
+ * `{ statuses: { [path]: PlayabilityStatus | null } }`; null means never queued or
+ * long finished, which a poller should treat as done.
+ */
+export const GET: RequestHandler = async ({ url, cookies }) => {
+	const statuses: Record<string, PlayabilityStatus | null> = {};
+	for (const relPath of url.searchParams.getAll('path')) {
+		statuses[relPath] = (await isPathHidden(relPath, cookies)) ? null : getPlayabilityStatus(relPath);
+	}
+	return json({ statuses });
 };

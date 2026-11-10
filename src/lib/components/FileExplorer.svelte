@@ -12,6 +12,7 @@
 	import RecentList from './RecentList.svelte';
 	import { filesStore } from '$lib/stores/files.svelte';
 	import { recentStore } from '$lib/stores/recent.svelte';
+	import { videoChecksStore } from '$lib/stores/videoChecks.svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import { goto } from '$app/navigation';
 	import { encodePathSegments } from '$lib/utils/urlPath';
@@ -171,6 +172,16 @@
 		filesStore.loadFiles(filesStore.currentPath);
 		filesStore.loadStorage();
 	}
+
+	// A background post-upload check can replace a video with its audio (or change
+	// its size), so the listing is refreshed when one finishes. Skips the first run.
+	let seenVideoChecks = videoChecksStore.changes;
+	$effect(() => {
+		const changes = videoChecksStore.changes;
+		if (changes === seenVideoChecks) return;
+		seenVideoChecks = changes;
+		untrack(handleUploadComplete);
+	});
 
 	/**
 	 * The ⋮ menu offers one "convert" action whose meaning depends on the file:

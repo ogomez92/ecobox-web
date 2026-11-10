@@ -238,9 +238,21 @@ Safari-only. The list is deliberately conservative because the two ways of being
 wrong are not symmetric: a false "playable" costs the user silence, a false
 "unplayable" costs one re-encode.
 
-**`POST /api/media/ensure-playable {path}`** is the automatic post-upload check —
-`UploadDialog` calls it for **every** uploaded video, and `ensureVideoPlayable()`
-does the least destructive thing that works:
+**The automatic post-upload check runs on the server, not in the browser.**
+`/api/upload/stream` enqueues **every** uploaded video the moment its bytes are on
+disk (`$server/services/playabilityQueue.ts` — one at a time, in memory; results
+logged to the journal unless `skipped`). It used to be driven by `UploadDialog`
+after the last file, one blocking request per video (~1 min per E-AC-3 episode),
+announced only after "Upload complete" — closing the tab then silently dropped the
+whole batch, which is how a season of E-AC-3 episodes ended up silent. The dialog
+now just hands the paths to `$lib/stores/videoChecks.svelte.ts`, which polls
+**`GET /api/media/ensure-playable?path=…&path=…`** every 3 s and announces queued /
+"Checking…" / result / "Finished checking N videos" through a polite live region in
+the root `+layout.svelte`, so it outlives the dialog; a reencode or extraction bumps
+`changes` and `FileExplorer` reloads the listing. A restart mid-queue loses pending
+entries. `POST /api/media/ensure-playable {path}` still runs one check
+synchronously. Either way `ensureVideoPlayable()` does the least destructive thing
+that works:
 
 | what's wrong | what happens |
 |---|---|
@@ -434,7 +446,7 @@ feature** — separate prompt, route, store and table.
   NEW** since the last description (or nothing), **use a name only once it is
   established** (subtitles / on-screen text / credits) and otherwise a *stable
   descriptive handle* reused across chunks, and keep each description to what can
-  be spoken in ~10 s. Verified on a 25 s clip: chunk 2 reused "the man in glasses"
+  be spoken in ~10 s — a `MAX_DESCRIPTION_WORDS` (20) target — soft, a little over is fine —, repeated in the closing message, because "one to three sentences" ran ~70 words (2026-10-27: 70 → ~21–29 words on Mr. Mercedes S01E04; at 15 it was ~17 but felt too terse). Verified on a 25 s clip: chunk 2 reused "the man in glasses"
   from chunk 1, did not re-describe the mall, and the memory carried the CHAMPS
   SPORTS sign and an open thread.
 - **A background job, resumable.** `POST /api/describe/full {path, language,

@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { i18n, t } from '$lib/i18n/index.svelte';
+	import { videoChecksStore } from '$lib/stores/videoChecks.svelte';
 
 	let { children } = $props();
 
@@ -22,4 +23,10 @@
 
 <div class="min-h-screen flex flex-col">
 	{@render children()}
+</div>
+
+<!-- Background work that outlives the dialog that started it (post-upload video
+     checks), so it is announced app-wide rather than inside any one view. -->
+<div class="sr-only" aria-live="polite" aria-atomic="true">
+	{videoChecksStore.announcement}
 </div>

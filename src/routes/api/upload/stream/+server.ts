@@ -3,6 +3,8 @@ import type { RequestHandler } from './$types';
 import { resolvePath, createWriteStream, ensureDirectory } from '$server/services/files';
 import { once } from 'node:events';
 import path from 'path';
+import { isVideoExtension } from '$lib/utils/mediaTypes';
+import { enqueuePlayabilityCheck } from '$server/services/playabilityQueue';
 
 // Allow large file uploads (10GB max)
 export const config = {
@@ -66,7 +68,12 @@ export const POST: RequestHandler = async ({ request, url }) => {
 			await new Promise<void>((resolve) => writeStream.end(() => resolve()));
 			if (writeError) throw writeError;
 
-			return json({ success: true, path: filePath });
+			// Queued here, not by the client, so the check survives the tab being
+			// closed — see playabilityQueue.ts.
+			const playabilityCheck = isVideoExtension(filePath);
+			if (playabilityCheck) enqueuePlayabilityCheck(filePath);
+
+			return json({ success: true, path: filePath, playabilityCheck });
 		} finally {
 			reader.releaseLock();
 		}

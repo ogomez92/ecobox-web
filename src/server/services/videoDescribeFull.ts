@@ -71,6 +71,14 @@ import {
 const MAX_OUTPUT_TOKENS = 4096;
 
 /**
+ * Hard ceiling on a spoken description. A 10 s chunk is read over the chunk it
+ * covers, usually on top of dialogue; at a typical TTS pace ~20 words is 7–8 s,
+ * which leaves room before the next cue. "One to three sentences" alone let the
+ * model run past 10 s.
+ */
+export const MAX_DESCRIPTION_WORDS = 20;
+
+/**
  * A trailing sliver shorter than this is folded into the previous chunk rather
  * than becoming a chunk of its own: half a second of picture is one frame that
  * the previous window already ends on.
@@ -280,7 +288,7 @@ export const ANSWER_SCHEMA = {
 		description: {
 			type: 'string',
 			description:
-				'The audio description for this chunk, exactly as it will be read aloud. Plain sentences, no markup. Empty string only if nothing at all changed on screen.'
+				`The audio description for this chunk, exactly as it will be read aloud. About ${MAX_DESCRIPTION_WORDS} words at most, plain sentences, no markup. Empty string only if nothing at all changed on screen.`
 		},
 		memory: {
 			type: 'object',
@@ -387,7 +395,8 @@ export function buildFullSystemPrompt(language: string, hasSubtitles: boolean): 
 		'',
 		'Style:',
 		'- Present tense, plain declarative sentences, concrete and neutral. Do not interpret motives, guess at the plot, or editorialize.',
-		'- The description is spoken over the chunk it covers, so keep it to what fits in about ten seconds: usually one to three sentences, a little more when a lot changes, nothing when nothing does.',
+		`- Be brief. The description is spoken over the chunk it covers, often on top of dialogue, and must finish well before the next one starts. Aim for about ${MAX_DESCRIPTION_WORDS} words at most (in languages written without spaces, what can be said in about seven seconds); going a little over is fine when a lot happens, but never write a paragraph. Usually one or two short sentences are right; nothing when nothing changed.`,
+		'- When more happens than fits, keep only what matters most to follow the story: an action, a new person, on-screen text. Drop adjectives, clothing and background detail first. When the chunk has several cuts, describe the one or two shots that matter most rather than listing every shot. Write compact sentences, not lists of details.',
 		'- No preamble, no headings, no bullet points, no markdown, no emoji, and never mention frames, images, sampling, chunks, the memory, or that you were shown anything. Write about the scene itself.',
 		'- Do not include internal or system XML tags in your response.',
 		`- Write the description in ${language}. The memory may be in any language.`
@@ -420,7 +429,7 @@ export function buildFullUserPrompt(options: {
 	return [
 		`Video: "${fileName}". This is chunk ${chunk.index + 1} of ${totalChunks}, running from ${formatTimestamp(chunk.start)} to ${formatTimestamp(chunk.end)} (${(chunk.end - chunk.start).toFixed(1)} seconds), shown as ${frameCount} frame${frameCount === 1 ? '' : 's'} in order, one per second, each labelled with its time in the file.`,
 		chunk.index === 0
-			? 'This is the very first chunk: there is no previous description, so establish the scene — who is there, where, what it looks like — as the opening of the track.'
+			? `This is the very first chunk: there is no previous description, so establish the scene — who is there and where — as the opening of the track, still in about ${MAX_DESCRIPTION_WORDS} words.`
 			: 'Continue the track from the previous description.',
 		'',
 		'Context (not for the listener):',
@@ -434,7 +443,7 @@ export function buildFullClosingPrompt(subtitles: string | null): string {
 		subtitles
 			? `Subtitles for this chunk, which the listener hears and you must not repeat:\n${subtitles}`
 			: '',
-		'Write the description for this chunk and the updated memory.'
+		`Write the description for this chunk (about ${MAX_DESCRIPTION_WORDS} words at most) and the updated memory.`
 	]
 		.filter(Boolean)
 		.join('\n\n');
