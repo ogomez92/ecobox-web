@@ -4,6 +4,9 @@ node_modules/
 # Piper engine virtualenv (piper-tts pip package; recreate per CLAUDE.md, not committed)
 /piper1/
 
+# Phonon engine virtualenv + Hugging Face model cache (ptts pip package; see CLAUDE.md)
+/phonon/
+
 # Build output
 .svelte-kit/
 build/

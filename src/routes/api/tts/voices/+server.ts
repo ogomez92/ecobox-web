@@ -22,7 +22,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	// Piper's voice list is user-imported and changes at runtime (import/delete), and
 	// listing it is just a local readdir — so don't cache it, or a freshly imported
 	// voice wouldn't appear (and a deleted one would linger) until the TTL expired.
-	const cacheable = service !== 'piper';
+	const cacheable = service !== 'piper' && service !== 'phonon';
 	const key = `${service}:${lang}`;
 	const hit = cacheable ? cache.get(key) : undefined;
 	if (hit && Date.now() - hit.at < TTL) {

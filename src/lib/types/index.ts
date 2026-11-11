@@ -294,7 +294,9 @@ export type EffectPreset = 'flat' | 'dialog' | 'bass' | 'treble' | 'custom';
  * config). The rest synthesize server-side and have persisted per-service config.
  * `azure-edge` is the keyless "Edge read-aloud" mode (no API key, experimental).
  * `elf` and `piper` are fully local engines bundled with the app (no API key, no
- * network); `piper` is neural and reads user-imported voice models.
+ * network); `piper` is neural and reads user-imported voice models; `phonon` is
+ * Gradium's small neural on-device model with bundled catalog voices plus uploaded
+ * (cloned) voice embeddings.
  */
 export type TtsService =
 	| 'webspeech'
@@ -303,7 +305,8 @@ export type TtsService =
 	| 'azure-edge'
 	| 'google'
 	| 'elf'
-	| 'piper';
+	| 'piper'
+	| 'phonon';
 /** Services that synthesize server-side and have a persisted credentials row. */
 export type TtsAudioService = Exclude<TtsService, 'webspeech'>;
 
@@ -411,11 +414,12 @@ export const TTS_AUDIO_SERVICES: TtsAudioService[] = [
 	'azure-edge',
 	'google',
 	'elf',
-	'piper'
+	'piper',
+	'phonon'
 ];
 
 /** Audio services that need no credentials (keyless / fully local). */
-export const TTS_KEYLESS_SERVICES: TtsAudioService[] = ['azure-edge', 'elf', 'piper'];
+export const TTS_KEYLESS_SERVICES: TtsAudioService[] = ['azure-edge', 'elf', 'piper', 'phonon'];
 
 /**
  * Services that bake the reading rate into synthesis — re-synthesizing the unit when

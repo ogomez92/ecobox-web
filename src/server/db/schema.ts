@@ -77,7 +77,7 @@ export const bookBookmarks = sqliteTable('book_bookmarks', {
 });
 
 export const ttsCredentials = sqliteTable('tts_credentials', {
-	// 'elevenlabs' | 'azure' | 'azure-edge' | 'google' | 'elf'
+	// 'elevenlabs' | 'azure' | 'azure-edge' | 'google' | 'elf' | 'piper' | 'phonon'
 	service: text('service').primaryKey(),
 	// SECRET — never serialized to the client (see /api/tts/config GET).
 	apiKey: text('api_key'),

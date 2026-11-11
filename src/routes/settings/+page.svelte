@@ -18,10 +18,113 @@
 		type SubtitleAnnounce,
 		SEEK_BACK_ON_PAUSE_OPTIONS
 	} from '$lib/types';
-	import { goto, afterNavigate } from '$app/navigation';
+	import { goto, afterNavigate, replaceState } from '$app/navigation';
+	import type { MessageKey } from '$lib/i18n/locales/en';
+	import type { ComponentProps } from 'svelte';
 
 	const seekIntervalOptions = [1, 2, 3, 5, 10, 15, 30];
 	const longSeekIntervalOptions = [10, 15, 30, 45, 60, 90, 120];
+
+	/**
+	 * Settings sections as a WAI-ARIA tablist (same pattern as FileExplorer's
+	 * Files/Recent tabs). Activation follows focus — panels are plain markup that is
+	 * always mounted, so switching is free. Inactive panels are `hidden`, never
+	 * unmounted, so form state, in-flight uploads and live regions survive a switch.
+	 *
+	 * The tab is remembered per device (localStorage) and can be linked with a URL
+	 * hash (/settings#reading); the hash wins over the remembered tab, and the
+	 * reader's legacy /settings#tts-service link opens the Reading tab.
+	 */
+	type IconName = ComponentProps<typeof Icon>['name'];
+	const SETTINGS_TABS = ['playback', 'general', 'reading', 'maintenance', 'shortcuts'] as const;
+	type SettingsTab = (typeof SETTINGS_TABS)[number];
+	const TAB_META: Record<SettingsTab, { label: MessageKey; icon: IconName }> = {
+		playback: { label: 'settings.tabPlayback', icon: 'play' },
+		general: { label: 'settings.tabGeneral', icon: 'settings' },
+		reading: { label: 'settings.tabReading', icon: 'book' },
+		maintenance: { label: 'settings.tabMaintenance', icon: 'trash' },
+		shortcuts: { label: 'settings.tabShortcuts', icon: 'info' }
+	};
+	const SETTINGS_TAB_KEY = 'ecobox-settings-tab';
+	let activeTab = $state<SettingsTab>('playback');
+	let tabRefs = $state<Record<SettingsTab, HTMLButtonElement | null>>({
+		playback: null,
+		general: null,
+		reading: null,
+		maintenance: null,
+		shortcuts: null
+	});
+
+	function isSettingsTab(v: string | null | undefined): v is SettingsTab {
+		return !!v && (SETTINGS_TABS as readonly string[]).includes(v);
+	}
+
+	/** Map a URL hash to a tab: a tab id, or an element id that lives in a tab. */
+	function tabFromHash(hash: string): SettingsTab | null {
+		const id = hash.replace(/^#/, '');
+		if (!id) return null;
+		if (isSettingsTab(id)) return id;
+		if (id === 'tts-service') return 'reading';
+		return null;
+	}
+
+	function initialTab(): SettingsTab {
+		const fromHash = tabFromHash(window.location.hash);
+		if (fromHash) return fromHash;
+		try {
+			const saved = localStorage.getItem(SETTINGS_TAB_KEY);
+			if (isSettingsTab(saved)) return saved;
+		} catch {
+			// ignore
+		}
+		return 'playback';
+	}
+
+	function selectTab(tab: SettingsTab, options: { focusTab?: boolean } = {}) {
+		activeTab = tab;
+		try {
+			localStorage.setItem(SETTINGS_TAB_KEY, tab);
+		} catch {
+			// ignore
+		}
+		if (window.location.hash !== `#${tab}`) {
+			try {
+				replaceState(`#${tab}`, {});
+			} catch {
+				// router not ready — the tab still switches, only the link lags
+			}
+		}
+		if (options.focusTab) tick().then(() => tabRefs[tab]?.focus());
+	}
+
+	function onTabKeydown(e: KeyboardEvent, tab: SettingsTab) {
+		const index = SETTINGS_TABS.indexOf(tab);
+		let next = -1;
+		switch (e.key) {
+			case 'ArrowRight':
+				next = (index + 1) % SETTINGS_TABS.length;
+				break;
+			case 'ArrowLeft':
+				next = (index - 1 + SETTINGS_TABS.length) % SETTINGS_TABS.length;
+				break;
+			case 'Home':
+				next = 0;
+				break;
+			case 'End':
+				next = SETTINGS_TABS.length - 1;
+				break;
+			default:
+				return;
+		}
+		e.preventDefault();
+		selectTab(SETTINGS_TABS[next], { focusTab: true });
+	}
+
+	// A hash typed or linked while already on the page switches the tab too.
+	function handleHashChange() {
+		const tab = tabFromHash(window.location.hash);
+		if (tab && tab !== activeTab) selectTab(tab);
+	}
 
 	// Move focus to the back button on open so focus isn't stranded on whatever
 	// triggered the navigation (e.g. the Ctrl+, shortcut or the header gear).
@@ -29,6 +132,9 @@
 	// (/settings#tts-service), focus the provider selector instead.
 	let backButtonRef: HTMLButtonElement | null = $state(null);
 	onMount(() => {
+		// Pick the tab before the focus logic below runs, so a #tts-service target
+		// is already un-hidden by the time it is focused.
+		activeTab = initialTab();
 		tick().then(() => {
 			if (typeof window !== 'undefined' && window.location.hash === '#tts-service') {
 				const svc = document.getElementById('tts-service');
@@ -147,6 +253,28 @@
 	let importError = $state('');
 	let importAnnouncement = $state('');
 
+	// --- Phonon (local neural engine): bundled catalog voices + uploaded voice files ---
+	let phononVoices = $state<{ stem: string; name: string; lang: string; bytes: number }[]>([]);
+	let phononFile = $state<File | null>(null);
+	let phononName = $state('');
+	let phononLang = $state('en');
+	let phononFileInput = $state<HTMLInputElement | null>(null);
+	const PHONON_LANG_OPTIONS = ['en', 'fr', 'de', 'es', 'pt'] as const;
+	function phononLangLabel(l: string): string {
+		switch (l) {
+			case 'fr':
+				return t('settings.ttsPhononLang_fr');
+			case 'de':
+				return t('settings.ttsPhononLang_de');
+			case 'es':
+				return t('settings.ttsPhononLang_es');
+			case 'pt':
+				return t('settings.ttsPhononLang_pt');
+			default:
+				return t('settings.ttsPhononLang_en');
+		}
+	}
+
 	const audioService = $derived(
 		settingsStore.ttsService !== 'webspeech' ? (settingsStore.ttsService as TtsAudioService) : null
 	);
@@ -213,6 +341,7 @@
 			loadServiceVoices(settingsStore.ttsService as TtsAudioService);
 		}
 		if (settingsStore.ttsService === 'piper') loadPiperModels();
+		if (settingsStore.ttsService === 'phonon') loadPhononVoices();
 	});
 
 	async function loadCacheSize() {
@@ -244,6 +373,69 @@
 		ttsServiceVoices = [];
 		if (value !== 'webspeech') loadServiceVoices(value as TtsAudioService);
 		if (value === 'piper') loadPiperModels();
+		if (value === 'phonon') loadPhononVoices();
+	}
+
+	async function loadPhononVoices() {
+		try {
+			const res = await fetch('/api/tts/phonon/voices');
+			if (res.ok) phononVoices = await res.json();
+		} catch {
+			// ignore — list stays as-is
+		}
+	}
+
+	/** Upload a Phonon voice embedding (.safetensors) with its display name + language. */
+	async function uploadPhononVoice() {
+		importError = '';
+		if (!phononFile) {
+			importError = t('settings.ttsPhononNeedFile');
+			importAnnouncement = importError;
+			phononFileInput?.focus();
+			return;
+		}
+		const form = new FormData();
+		form.append('file', phononFile);
+		form.append('name', phononName);
+		form.append('lang', phononLang);
+		importingVoice = true;
+		importAnnouncement = t('settings.ttsPiperImporting');
+		try {
+			const res = await fetch('/api/tts/phonon/voices', { method: 'POST', body: form });
+			const data = await res.json().catch(() => ({}));
+			if (res.ok) {
+				importAnnouncement = t('settings.ttsPiperImported');
+				phononFile = null;
+				phononName = '';
+				if (phononFileInput) phononFileInput.value = '';
+				await loadPhononVoices();
+				await loadServiceVoices('phonon');
+				// Select the voice just uploaded — that's why it was uploaded.
+				if (data?.id) ttsConfigStore.setVoiceId('phonon', data.id);
+			} else {
+				importError = data?.error || t('settings.ttsPiperImportError');
+				importAnnouncement = importError;
+			}
+		} catch {
+			importError = t('settings.ttsPiperImportError');
+			importAnnouncement = importError;
+		}
+		importingVoice = false;
+	}
+
+	async function removePhononVoice(stem: string) {
+		try {
+			const res = await fetch(`/api/tts/phonon/voices?stem=${encodeURIComponent(stem)}`, {
+				method: 'DELETE'
+			});
+			if (res.ok) {
+				importAnnouncement = t('settings.ttsPhononRemoved');
+				await loadPhononVoices();
+				loadServiceVoices('phonon');
+			}
+		} catch {
+			// ignore
+		}
 	}
 
 	async function loadPiperModels() {
@@ -372,7 +564,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
+<svelte:window onkeydown={handleWindowKeydown} onhashchange={handleHashChange} />
 
 <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
 	<!-- Shared sink for server-synthesized voice previews (Test voice). -->
@@ -394,888 +586,1052 @@
 	</header>
 
 	<main class="max-w-2xl mx-auto p-4 pb-8">
-		<!-- Playback Settings -->
-		<fieldset class="card p-4 mb-4 min-w-0">
-			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.playback')}</legend>
+		<div
+			role="tablist"
+			aria-label={t('settings.tabsLabel')}
+			class="flex flex-wrap gap-1 mb-4 border-b border-gray-200 dark:border-gray-700"
+		>
+			{#each SETTINGS_TABS as tab (tab)}
+				<button
+					bind:this={tabRefs[tab]}
+					type="button"
+					role="tab"
+					id="settings-tab-{tab}"
+					aria-selected={activeTab === tab}
+					aria-controls="settings-panel-{tab}"
+					tabindex={activeTab === tab ? 0 : -1}
+					onclick={() => selectTab(tab)}
+					onkeydown={(e) => onTabKeydown(e, tab)}
+					class="flex items-center gap-1.5 px-3 sm:px-4 py-2 -mb-px text-sm font-medium rounded-t-lg border-b-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+					class:border-primary-500={activeTab === tab}
+					class:text-primary-600={activeTab === tab}
+					class:dark:text-primary-400={activeTab === tab}
+					class:border-transparent={activeTab !== tab}
+					class:text-gray-500={activeTab !== tab}
+					class:dark:text-gray-400={activeTab !== tab}
+					class:hover:text-gray-700={activeTab !== tab}
+					class:dark:hover:text-gray-200={activeTab !== tab}
+				>
+					<Icon name={TAB_META[tab].icon} size={16} />
+					{t(TAB_META[tab].label)}
+				</button>
+			{/each}
+		</div>
 
-			<div class="space-y-4">
-				<div class="flex items-center justify-between py-2">
-					<div>
-						<span id="autoplay-label" class="text-gray-700 dark:text-gray-300">{t('settings.autoplay')}</span>
-						<p id="autoplay-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.autoplayDesc')}</p>
+		<div
+			id="settings-panel-playback"
+			role="tabpanel"
+			aria-labelledby="settings-tab-playback"
+			tabindex="0"
+			hidden={activeTab !== 'playback'}
+			class="focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-lg"
+		>
+			<!-- Playback Settings -->
+			<fieldset class="card p-4 mb-4 min-w-0">
+				<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.playback')}</legend>
+
+				<div class="space-y-4">
+					<div class="flex items-center justify-between py-2">
+						<div>
+							<span id="autoplay-label" class="text-gray-700 dark:text-gray-300">{t('settings.autoplay')}</span>
+							<p id="autoplay-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.autoplayDesc')}</p>
+						</div>
+						<button
+							type="button"
+							onclick={() => settingsStore.setAutoplay(!settingsStore.autoplay)}
+							class="relative w-12 h-6 rounded-full transition-colors"
+							class:bg-primary-500={settingsStore.autoplay}
+							class:bg-gray-300={!settingsStore.autoplay}
+							class:dark:bg-gray-600={!settingsStore.autoplay}
+							role="switch"
+							aria-checked={settingsStore.autoplay}
+							aria-labelledby="autoplay-label"
+							aria-describedby="autoplay-desc"
+						>
+							<span
+								class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+								class:translate-x-0.5={!settingsStore.autoplay}
+								class:translate-x-6={settingsStore.autoplay}
+							></span>
+						</button>
 					</div>
-					<button
-						type="button"
-						onclick={() => settingsStore.setAutoplay(!settingsStore.autoplay)}
-						class="relative w-12 h-6 rounded-full transition-colors"
-						class:bg-primary-500={settingsStore.autoplay}
-						class:bg-gray-300={!settingsStore.autoplay}
-						class:dark:bg-gray-600={!settingsStore.autoplay}
-						role="switch"
-						aria-checked={settingsStore.autoplay}
-						aria-labelledby="autoplay-label"
-						aria-describedby="autoplay-desc"
-					>
-						<span
-							class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
-							class:translate-x-0.5={!settingsStore.autoplay}
-							class:translate-x-6={settingsStore.autoplay}
-						></span>
-					</button>
-				</div>
 
-				<div class="flex items-center justify-between py-2">
-					<div>
-						<span id="winamp-shortcuts-label" class="text-gray-700 dark:text-gray-300">{t('settings.winampShortcuts')}</span>
-						<p id="winamp-shortcuts-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.winampShortcutsDesc')}</p>
+					<div class="flex items-center justify-between py-2">
+						<div>
+							<span id="winamp-shortcuts-label" class="text-gray-700 dark:text-gray-300">{t('settings.winampShortcuts')}</span>
+							<p id="winamp-shortcuts-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.winampShortcutsDesc')}</p>
+						</div>
+						<button
+							type="button"
+							onclick={() => settingsStore.setWinampShortcuts(!settingsStore.winampShortcuts)}
+							class="relative w-12 h-6 rounded-full transition-colors"
+							class:bg-primary-500={settingsStore.winampShortcuts}
+							class:bg-gray-300={!settingsStore.winampShortcuts}
+							class:dark:bg-gray-600={!settingsStore.winampShortcuts}
+							role="switch"
+							aria-checked={settingsStore.winampShortcuts}
+							aria-labelledby="winamp-shortcuts-label"
+							aria-describedby="winamp-shortcuts-desc"
+						>
+							<span
+								class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+								class:translate-x-0.5={!settingsStore.winampShortcuts}
+								class:translate-x-6={settingsStore.winampShortcuts}
+							></span>
+						</button>
 					</div>
-					<button
-						type="button"
-						onclick={() => settingsStore.setWinampShortcuts(!settingsStore.winampShortcuts)}
-						class="relative w-12 h-6 rounded-full transition-colors"
-						class:bg-primary-500={settingsStore.winampShortcuts}
-						class:bg-gray-300={!settingsStore.winampShortcuts}
-						class:dark:bg-gray-600={!settingsStore.winampShortcuts}
-						role="switch"
-						aria-checked={settingsStore.winampShortcuts}
-						aria-labelledby="winamp-shortcuts-label"
-						aria-describedby="winamp-shortcuts-desc"
-					>
-						<span
-							class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
-							class:translate-x-0.5={!settingsStore.winampShortcuts}
-							class:translate-x-6={settingsStore.winampShortcuts}
-						></span>
-					</button>
-				</div>
 
-				<div class="flex items-center justify-between py-2">
-					<div>
-						<span id="auto-advance-label" class="text-gray-700 dark:text-gray-300">{t('settings.autoAdvance')}</span>
-						<p id="auto-advance-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.autoAdvanceDesc')}</p>
+					<div class="flex items-center justify-between py-2">
+						<div>
+							<span id="auto-advance-label" class="text-gray-700 dark:text-gray-300">{t('settings.autoAdvance')}</span>
+							<p id="auto-advance-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.autoAdvanceDesc')}</p>
+						</div>
+						<button
+							type="button"
+							onclick={() => settingsStore.setAutoAdvanceTracks(!settingsStore.autoAdvanceTracks)}
+							class="relative w-12 h-6 rounded-full transition-colors"
+							class:bg-primary-500={settingsStore.autoAdvanceTracks}
+							class:bg-gray-300={!settingsStore.autoAdvanceTracks}
+							class:dark:bg-gray-600={!settingsStore.autoAdvanceTracks}
+							role="switch"
+							aria-checked={settingsStore.autoAdvanceTracks}
+							aria-labelledby="auto-advance-label"
+							aria-describedby="auto-advance-desc"
+						>
+							<span
+								class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+								class:translate-x-0.5={!settingsStore.autoAdvanceTracks}
+								class:translate-x-6={settingsStore.autoAdvanceTracks}
+							></span>
+						</button>
 					</div>
-					<button
-						type="button"
-						onclick={() => settingsStore.setAutoAdvanceTracks(!settingsStore.autoAdvanceTracks)}
-						class="relative w-12 h-6 rounded-full transition-colors"
-						class:bg-primary-500={settingsStore.autoAdvanceTracks}
-						class:bg-gray-300={!settingsStore.autoAdvanceTracks}
-						class:dark:bg-gray-600={!settingsStore.autoAdvanceTracks}
-						role="switch"
-						aria-checked={settingsStore.autoAdvanceTracks}
-						aria-labelledby="auto-advance-label"
-						aria-describedby="auto-advance-desc"
-					>
-						<span
-							class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
-							class:translate-x-0.5={!settingsStore.autoAdvanceTracks}
-							class:translate-x-6={settingsStore.autoAdvanceTracks}
-						></span>
-					</button>
-				</div>
 
-				<div class="flex items-center justify-between py-2">
-					<div>
-						<span id="subtitles-label" class="text-gray-700 dark:text-gray-300">{t('settings.subtitles')}</span>
-						<p id="subtitles-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.subtitlesDesc')}</p>
+					<div class="flex items-center justify-between py-2">
+						<div>
+							<span id="subtitles-label" class="text-gray-700 dark:text-gray-300">{t('settings.subtitles')}</span>
+							<p id="subtitles-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.subtitlesDesc')}</p>
+						</div>
+						<button
+							type="button"
+							onclick={() => settingsStore.setSubtitlesEnabled(!settingsStore.subtitlesEnabled)}
+							class="relative w-12 h-6 rounded-full transition-colors"
+							class:bg-primary-500={settingsStore.subtitlesEnabled}
+							class:bg-gray-300={!settingsStore.subtitlesEnabled}
+							class:dark:bg-gray-600={!settingsStore.subtitlesEnabled}
+							role="switch"
+							aria-checked={settingsStore.subtitlesEnabled}
+							aria-labelledby="subtitles-label"
+							aria-describedby="subtitles-desc"
+						>
+							<span
+								class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+								class:translate-x-0.5={!settingsStore.subtitlesEnabled}
+								class:translate-x-6={settingsStore.subtitlesEnabled}
+							></span>
+						</button>
 					</div>
-					<button
-						type="button"
-						onclick={() => settingsStore.setSubtitlesEnabled(!settingsStore.subtitlesEnabled)}
-						class="relative w-12 h-6 rounded-full transition-colors"
-						class:bg-primary-500={settingsStore.subtitlesEnabled}
-						class:bg-gray-300={!settingsStore.subtitlesEnabled}
-						class:dark:bg-gray-600={!settingsStore.subtitlesEnabled}
-						role="switch"
-						aria-checked={settingsStore.subtitlesEnabled}
-						aria-labelledby="subtitles-label"
-						aria-describedby="subtitles-desc"
-					>
-						<span
-							class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
-							class:translate-x-0.5={!settingsStore.subtitlesEnabled}
-							class:translate-x-6={settingsStore.subtitlesEnabled}
-						></span>
-					</button>
-				</div>
 
-				{#if settingsStore.subtitlesEnabled}
+					{#if settingsStore.subtitlesEnabled}
+						<div>
+							<label for="subtitle-announce" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+								{t('settings.subtitleAnnounce')}
+							</label>
+							<select
+								id="subtitle-announce"
+								value={settingsStore.subtitleAnnounce}
+								onchange={(e) => settingsStore.setSubtitleAnnounce((e.target as HTMLSelectElement).value as SubtitleAnnounce)}
+								aria-describedby="subtitle-announce-desc"
+								class="input"
+							>
+								<option value="assertive">{t('settings.subtitleAnnounceAssertive')}</option>
+								<option value="polite">{t('settings.subtitleAnnouncePolite')}</option>
+								<option value="off">{t('settings.subtitleAnnounceOff')}</option>
+							</select>
+							<p id="subtitle-announce-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+								{t('settings.subtitleAnnounceDesc')}
+							</p>
+						</div>
+					{/if}
+
 					<div>
-						<label for="subtitle-announce" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-							{t('settings.subtitleAnnounce')}
+						<label for="seek-interval" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+							{t('settings.seekInterval')}
 						</label>
 						<select
-							id="subtitle-announce"
-							value={settingsStore.subtitleAnnounce}
-							onchange={(e) => settingsStore.setSubtitleAnnounce((e.target as HTMLSelectElement).value as SubtitleAnnounce)}
-							aria-describedby="subtitle-announce-desc"
+							id="seek-interval"
+							value={settingsStore.seekInterval}
+							onchange={(e) => settingsStore.setSeekInterval(parseInt((e.target as HTMLSelectElement).value, 10))}
+							aria-describedby="seek-interval-desc"
 							class="input"
 						>
-							<option value="assertive">{t('settings.subtitleAnnounceAssertive')}</option>
-							<option value="polite">{t('settings.subtitleAnnouncePolite')}</option>
-							<option value="off">{t('settings.subtitleAnnounceOff')}</option>
+							{#each seekIntervalOptions as option}
+								<option value={option}>{option}s</option>
+							{/each}
 						</select>
-						<p id="subtitle-announce-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-							{t('settings.subtitleAnnounceDesc')}
+						<p id="seek-interval-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+							{t('settings.seekIntervalDesc')}
 						</p>
 					</div>
-				{/if}
 
-				<div>
-					<label for="seek-interval" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-						{t('settings.seekInterval')}
-					</label>
-					<select
-						id="seek-interval"
-						value={settingsStore.seekInterval}
-						onchange={(e) => settingsStore.setSeekInterval(parseInt((e.target as HTMLSelectElement).value, 10))}
-						aria-describedby="seek-interval-desc"
-						class="input"
-					>
-						{#each seekIntervalOptions as option}
-							<option value={option}>{option}s</option>
-						{/each}
-					</select>
-					<p id="seek-interval-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-						{t('settings.seekIntervalDesc')}
-					</p>
-				</div>
-
-				<div>
-					<label for="long-seek-interval" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-						{t('settings.longSeekInterval')}
-					</label>
-					<select
-						id="long-seek-interval"
-						value={settingsStore.longSeekInterval}
-						onchange={(e) => settingsStore.setLongSeekInterval(parseInt((e.target as HTMLSelectElement).value, 10))}
-						aria-describedby="long-seek-interval-desc"
-						class="input"
-					>
-						{#each longSeekIntervalOptions as option}
-							<option value={option}>{option}s</option>
-						{/each}
-					</select>
-					<p id="long-seek-interval-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-						{t('settings.longSeekIntervalDesc')}
-					</p>
-				</div>
-
-				<div>
-					<label for="seek-back-on-pause" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-						{t('settings.seekBackOnPause')}
-					</label>
-					<select
-						id="seek-back-on-pause"
-						value={settingsStore.seekBackOnPause}
-						onchange={(e) => settingsStore.setSeekBackOnPause(parseInt((e.target as HTMLSelectElement).value, 10))}
-						aria-describedby="seek-back-on-pause-desc"
-						class="input"
-					>
-						{#each SEEK_BACK_ON_PAUSE_OPTIONS as option}
-							<option value={option}>{option === 0 ? t('settings.seekBackOnPauseOff') : `${option}s`}</option>
-						{/each}
-					</select>
-					<p id="seek-back-on-pause-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-						{t('settings.seekBackOnPauseDesc')}
-					</p>
-				</div>
-			</div>
-		</fieldset>
-
-		<!-- Bookmarks -->
-		<fieldset class="card p-4 mb-4 min-w-0">
-			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.bookmarks')}</legend>
-
-			<div class="flex items-center justify-between py-2">
-				<div>
-					<span id="bookmark-pause-label" class="text-gray-700 dark:text-gray-300">{t('settings.bookmarkOnPause')}</span>
-					<p id="bookmark-pause-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.bookmarkOnPauseDesc')}</p>
-				</div>
-				<button
-					type="button"
-					onclick={() => settingsStore.setCreateBookmarkOnPause(!settingsStore.createBookmarkOnPause)}
-					class="relative w-12 h-6 rounded-full transition-colors"
-					class:bg-primary-500={settingsStore.createBookmarkOnPause}
-					class:bg-gray-300={!settingsStore.createBookmarkOnPause}
-					class:dark:bg-gray-600={!settingsStore.createBookmarkOnPause}
-					role="switch"
-					aria-checked={settingsStore.createBookmarkOnPause}
-					aria-labelledby="bookmark-pause-label"
-					aria-describedby="bookmark-pause-desc"
-				>
-					<span
-						class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
-						class:translate-x-0.5={!settingsStore.createBookmarkOnPause}
-						class:translate-x-6={settingsStore.createBookmarkOnPause}
-					></span>
-				</button>
-			</div>
-		</fieldset>
-
-		<!-- Appearance -->
-		<fieldset class="card p-4 mb-4 min-w-0">
-			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.appearance')}</legend>
-
-			<fieldset>
-				<legend class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-					{t('settings.theme')}
-				</legend>
-				<div class="space-y-2">
-					{#each [
-						{ value: 'system', label: t('settings.themeSystem') },
-						{ value: 'light', label: t('settings.themeLight') },
-						{ value: 'dark', label: t('settings.themeDark') }
-					] as option}
-						<label class="flex items-center gap-3 py-2 cursor-pointer">
-							<input
-								type="radio"
-								name="theme"
-								value={option.value}
-								checked={settingsStore.theme === option.value}
-								tabindex={settingsStore.theme === option.value ? 0 : -1}
-								onchange={() => settingsStore.setTheme(option.value as 'light' | 'dark' | 'system')}
-								class="w-4 h-4 text-primary-600"
-							/>
-							<span class="text-gray-700 dark:text-gray-300">{option.label}</span>
+					<div>
+						<label for="long-seek-interval" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+							{t('settings.longSeekInterval')}
 						</label>
-					{/each}
+						<select
+							id="long-seek-interval"
+							value={settingsStore.longSeekInterval}
+							onchange={(e) => settingsStore.setLongSeekInterval(parseInt((e.target as HTMLSelectElement).value, 10))}
+							aria-describedby="long-seek-interval-desc"
+							class="input"
+						>
+							{#each longSeekIntervalOptions as option}
+								<option value={option}>{option}s</option>
+							{/each}
+						</select>
+						<p id="long-seek-interval-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+							{t('settings.longSeekIntervalDesc')}
+						</p>
+					</div>
+
+					<div>
+						<label for="seek-back-on-pause" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+							{t('settings.seekBackOnPause')}
+						</label>
+						<select
+							id="seek-back-on-pause"
+							value={settingsStore.seekBackOnPause}
+							onchange={(e) => settingsStore.setSeekBackOnPause(parseInt((e.target as HTMLSelectElement).value, 10))}
+							aria-describedby="seek-back-on-pause-desc"
+							class="input"
+						>
+							{#each SEEK_BACK_ON_PAUSE_OPTIONS as option}
+								<option value={option}>{option === 0 ? t('settings.seekBackOnPauseOff') : `${option}s`}</option>
+							{/each}
+						</select>
+						<p id="seek-back-on-pause-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+							{t('settings.seekBackOnPauseDesc')}
+						</p>
+					</div>
 				</div>
 			</fieldset>
 
-			<div class="mt-4">
-				<label for="mask-title" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-					{t('settings.maskTitle')}
-				</label>
-				<input
-					id="mask-title"
-					type="text"
-					value={settingsStore.maskTitle}
-					oninput={(e) => settingsStore.setMaskTitle((e.target as HTMLInputElement).value)}
-					placeholder={t('settings.maskTitlePlaceholder')}
-					aria-describedby="mask-title-desc"
-					class="input"
-				/>
-				<p id="mask-title-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-					{t('settings.maskTitleDesc')}
-				</p>
-			</div>
-		</fieldset>
+			<!-- Bookmarks -->
+			<fieldset class="card p-4 mb-4 min-w-0">
+				<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.bookmarks')}</legend>
 
-		<!-- Casting -->
-		<fieldset class="card p-4 mb-4 min-w-0">
-			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.casting')}</legend>
+				<div class="flex items-center justify-between py-2">
+					<div>
+						<span id="bookmark-pause-label" class="text-gray-700 dark:text-gray-300">{t('settings.bookmarkOnPause')}</span>
+						<p id="bookmark-pause-desc" class="text-sm text-gray-500 dark:text-gray-400">{t('settings.bookmarkOnPauseDesc')}</p>
+					</div>
+					<button
+						type="button"
+						onclick={() => settingsStore.setCreateBookmarkOnPause(!settingsStore.createBookmarkOnPause)}
+						class="relative w-12 h-6 rounded-full transition-colors"
+						class:bg-primary-500={settingsStore.createBookmarkOnPause}
+						class:bg-gray-300={!settingsStore.createBookmarkOnPause}
+						class:dark:bg-gray-600={!settingsStore.createBookmarkOnPause}
+						role="switch"
+						aria-checked={settingsStore.createBookmarkOnPause}
+						aria-labelledby="bookmark-pause-label"
+						aria-describedby="bookmark-pause-desc"
+					>
+						<span
+							class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+							class:translate-x-0.5={!settingsStore.createBookmarkOnPause}
+							class:translate-x-6={settingsStore.createBookmarkOnPause}
+						></span>
+					</button>
+				</div>
+			</fieldset>
 
-			<div>
-				<label for="sonicroom-url" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-					{t('settings.sonicroomUrl')}
-				</label>
-				<input
-					id="sonicroom-url"
-					type="url"
-					inputmode="url"
-					value={settingsStore.sonicroomUrl}
-					oninput={(e) => settingsStore.setSonicroomUrl((e.target as HTMLInputElement).value)}
-					placeholder={t('settings.sonicroomUrlPlaceholder')}
-					aria-describedby="sonicroom-url-desc"
-					class="input"
-				/>
-				<p id="sonicroom-url-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-					{t('settings.sonicroomUrlDesc')}
-				</p>
-			</div>
-		</fieldset>
+			<!-- Casting -->
+			<fieldset class="card p-4 mb-4 min-w-0">
+				<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.casting')}</legend>
 
-		<!-- Reading (text-to-speech) -->
-		<fieldset class="card p-4 mb-4 min-w-0">
-			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.reading')}</legend>
-
-			<div class="space-y-4">
 				<div>
-					<label for="tts-rate" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-						{t('settings.ttsRate')}: {settingsStore.ttsRate.toFixed(1)}x
+					<label for="sonicroom-url" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+						{t('settings.sonicroomUrl')}
 					</label>
 					<input
-						id="tts-rate"
-						type="range"
-						min="0.5"
-						max="5"
-						step="0.1"
-						value={settingsStore.ttsRate}
-						oninput={(e) => settingsStore.setTtsRate(parseFloat((e.target as HTMLInputElement).value))}
-						aria-describedby="tts-rate-desc"
-						aria-valuetext={`${settingsStore.ttsRate.toFixed(1)}x`}
-						class="w-full"
-					/>
-					<p id="tts-rate-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-						{t('settings.ttsRateDesc')}
-					</p>
-				</div>
-
-			</div>
-		</fieldset>
-
-		<!-- Voices & AI services -->
-		<fieldset class="card p-4 mb-4 min-w-0">
-			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.ttsServices')}</legend>
-
-			<div class="space-y-4">
-				<div>
-					<label for="tts-service" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-						{t('settings.ttsService')}
-					</label>
-					<select
-						id="tts-service"
-						value={settingsStore.ttsService}
-						onchange={(e) => onTtsServiceChange((e.target as HTMLSelectElement).value as TtsService)}
-						aria-describedby="tts-service-desc"
+						id="sonicroom-url"
+						type="url"
+						inputmode="url"
+						value={settingsStore.sonicroomUrl}
+						oninput={(e) => settingsStore.setSonicroomUrl((e.target as HTMLInputElement).value)}
+						placeholder={t('settings.sonicroomUrlPlaceholder')}
+						aria-describedby="sonicroom-url-desc"
 						class="input"
-					>
-						<option value="webspeech">{t('settings.ttsSvcWebSpeech')}</option>
-						<option value="elevenlabs">{t('settings.ttsSvcElevenLabs')}</option>
-						<option value="azure">{t('settings.ttsSvcAzure')}</option>
-						<option value="azure-edge">{t('settings.ttsSvcAzureEdge')}</option>
-						<option value="google">{t('settings.ttsSvcGoogle')}</option>
-						<option value="elf">{t('settings.ttsSvcElf')}</option>
-						<option value="piper">{t('settings.ttsSvcPiper')}</option>
-					</select>
-					<p id="tts-service-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-						{t('settings.ttsServiceDesc')}
+					/>
+					<p id="sonicroom-url-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+						{t('settings.sonicroomUrlDesc')}
 					</p>
 				</div>
+			</fieldset>
+		</div>
 
-				{#if audioService}
-					{#if audioService === 'azure-edge'}
-						<p class="text-sm text-amber-600 dark:text-amber-400">{t('settings.ttsEdgeNote')}</p>
-					{:else if audioService === 'elf'}
-						<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsElfNote')}</p>
-					{:else if audioService === 'piper'}
-						<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsPiperNote')}</p>
-					{:else}
-						<div>
-							<label for="tts-api-key" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-								{t('settings.ttsApiKey')}
-							</label>
-							<div class="flex gap-2">
+		<div
+			id="settings-panel-general"
+			role="tabpanel"
+			aria-labelledby="settings-tab-general"
+			tabindex="0"
+			hidden={activeTab !== 'general'}
+			class="focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-lg"
+		>
+			<!-- Appearance -->
+			<fieldset class="card p-4 mb-4 min-w-0">
+				<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.appearance')}</legend>
+
+				<fieldset>
+					<legend class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+						{t('settings.theme')}
+					</legend>
+					<div class="space-y-2">
+						{#each [
+							{ value: 'system', label: t('settings.themeSystem') },
+							{ value: 'light', label: t('settings.themeLight') },
+							{ value: 'dark', label: t('settings.themeDark') }
+						] as option}
+							<label class="flex items-center gap-3 py-2 cursor-pointer">
 								<input
-									id="tts-api-key"
-									type="password"
-									autocomplete="off"
-									bind:value={apiKeyInput}
-									placeholder={currentTtsConfig?.configured ? t('settings.ttsKeySaved') : ''}
-									class="input flex-1"
+									type="radio"
+									name="theme"
+									value={option.value}
+									checked={settingsStore.theme === option.value}
+									tabindex={settingsStore.theme === option.value ? 0 : -1}
+									onchange={() => settingsStore.setTheme(option.value as 'light' | 'dark' | 'system')}
+									class="w-4 h-4 text-primary-600"
 								/>
-								<button type="button" class="btn-secondary" onclick={saveApiKey} disabled={!apiKeyInput.trim()}>
-									{t('common.save')}
-								</button>
-							</div>
-							{#if currentTtsConfig?.configured}
-								<button
-									type="button"
-									class="mt-2 text-sm text-red-600 dark:text-red-400 hover:underline"
-									onclick={removeApiKey}
-								>
-									{t('settings.ttsRemoveKey')}
-								</button>
-							{/if}
-						</div>
-					{/if}
-
-					{#if audioService === 'elevenlabs'}
-						<div>
-							<label for="tts-model" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-								{t('settings.ttsModel')}
+								<span class="text-gray-700 dark:text-gray-300">{option.label}</span>
 							</label>
-							<select
-								id="tts-model"
-								value={currentTtsConfig?.model || 'eleven_multilingual_v2'}
-								onchange={(e) => ttsConfigStore.setModel('elevenlabs', (e.target as HTMLSelectElement).value)}
-								class="input"
-							>
-								{#each ELEVEN_MODELS as m}
-									<option value={m}>{m}</option>
-								{/each}
-							</select>
-							{#if !ELEVEN_LANG_CODE_MODELS.includes(currentTtsConfig?.model || 'eleven_multilingual_v2')}
-								<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-									{t('settings.ttsLangCodeHint')}
-								</p>
-							{/if}
-						</div>
-
-						<!-- ElevenLabs voice_settings: stability / similarity / style / speaker boost -->
-						<div>
-							<label for="tts-stability" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-								{t('settings.ttsStability')}: {(currentTtsConfig?.voiceSettings.stability ?? 0.5).toFixed(2)}
-							</label>
-							<input
-								id="tts-stability"
-								type="range"
-								min="0"
-								max="1"
-								step="0.05"
-								value={currentTtsConfig?.voiceSettings.stability ?? 0.5}
-								oninput={(e) =>
-									ttsConfigStore.setVoiceSettings('elevenlabs', {
-										stability: parseFloat((e.target as HTMLInputElement).value)
-									})}
-								class="w-full"
-							/>
-							<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsStabilityDesc')}</p>
-						</div>
-
-						<div>
-							<label for="tts-similarity" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-								{t('settings.ttsSimilarity')}: {(currentTtsConfig?.voiceSettings.similarityBoost ?? 0.75).toFixed(2)}
-							</label>
-							<input
-								id="tts-similarity"
-								type="range"
-								min="0"
-								max="1"
-								step="0.05"
-								value={currentTtsConfig?.voiceSettings.similarityBoost ?? 0.75}
-								oninput={(e) =>
-									ttsConfigStore.setVoiceSettings('elevenlabs', {
-										similarityBoost: parseFloat((e.target as HTMLInputElement).value)
-									})}
-								class="w-full"
-							/>
-							<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsSimilarityDesc')}</p>
-						</div>
-
-						<div>
-							<label for="tts-style" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-								{t('settings.ttsStyle')}: {(currentTtsConfig?.voiceSettings.style ?? 0).toFixed(2)}
-							</label>
-							<input
-								id="tts-style"
-								type="range"
-								min="0"
-								max="1"
-								step="0.05"
-								value={currentTtsConfig?.voiceSettings.style ?? 0}
-								oninput={(e) =>
-									ttsConfigStore.setVoiceSettings('elevenlabs', {
-										style: parseFloat((e.target as HTMLInputElement).value)
-									})}
-								class="w-full"
-							/>
-							<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsStyleDesc')}</p>
-						</div>
-
-						<div class="flex items-center justify-between py-2">
-							<div>
-								<span id="tts-speaker-boost-label" class="text-gray-700 dark:text-gray-300">
-									{t('settings.ttsSpeakerBoost')}
-								</span>
-								<p id="tts-speaker-boost-desc" class="text-sm text-gray-500 dark:text-gray-400">
-									{t('settings.ttsSpeakerBoostDesc')}
-								</p>
-							</div>
-							<button
-								type="button"
-								onclick={() =>
-									ttsConfigStore.setVoiceSettings('elevenlabs', {
-										useSpeakerBoost: !(currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true)
-									})}
-								class="relative w-12 h-6 rounded-full transition-colors shrink-0"
-								class:bg-primary-500={currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true}
-								class:bg-gray-300={!(currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true)}
-								class:dark:bg-gray-600={!(currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true)}
-								role="switch"
-								aria-checked={currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true}
-								aria-labelledby="tts-speaker-boost-label"
-								aria-describedby="tts-speaker-boost-desc"
-							>
-								<span
-									class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
-									class:translate-x-0.5={!(currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true)}
-									class:translate-x-6={currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true}
-								></span>
-							</button>
-						</div>
-					{/if}
-
-					{#if audioService === 'elf'}
-						<!-- ELF voice parameters: a customize switch + per-knob sliders. -->
-						<div class="flex items-center justify-between py-2">
-							<div>
-								<span id="tts-elf-customize-label" class="text-gray-700 dark:text-gray-300">
-									{t('settings.ttsElfCustomize')}
-								</span>
-								<p id="tts-elf-customize-desc" class="text-sm text-gray-500 dark:text-gray-400">
-									{t('settings.ttsElfCustomizeDesc')}
-								</p>
-							</div>
-							<button
-								type="button"
-								onclick={() => ttsConfigStore.setElfCustomize('elf', !currentTtsConfig?.elfCustomize)}
-								class="relative w-12 h-6 rounded-full transition-colors shrink-0"
-								class:bg-primary-500={currentTtsConfig?.elfCustomize}
-								class:bg-gray-300={!currentTtsConfig?.elfCustomize}
-								class:dark:bg-gray-600={!currentTtsConfig?.elfCustomize}
-								role="switch"
-								aria-checked={currentTtsConfig?.elfCustomize ?? false}
-								aria-labelledby="tts-elf-customize-label"
-								aria-describedby="tts-elf-customize-desc"
-							>
-								<span
-									class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
-									class:translate-x-0.5={!currentTtsConfig?.elfCustomize}
-									class:translate-x-6={currentTtsConfig?.elfCustomize}
-								></span>
-							</button>
-						</div>
-
-						{#if currentTtsConfig?.elfCustomize}
-							{#each elfParamFields as field (field.key)}
-								<div>
-									<label
-										for={`tts-elf-${field.key}`}
-										class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-									>
-										{t(field.label)}: {currentTtsConfig?.elfParams[field.key] ?? 0}
-									</label>
-									<input
-										id={`tts-elf-${field.key}`}
-										type="range"
-										min="0"
-										max="100"
-										step="1"
-										value={currentTtsConfig?.elfParams[field.key] ?? 0}
-										oninput={(e) =>
-											setElfParam(field.key, parseInt((e.target as HTMLInputElement).value, 10))}
-										aria-valuetext={`${currentTtsConfig?.elfParams[field.key] ?? 0}`}
-										class="w-full"
-									/>
-								</div>
-							{/each}
-						{/if}
-					{/if}
-
-					{#if audioService === 'piper'}
-						<!-- Piper voice management: import a model/config pair, list & remove imports. -->
-						<div>
-							<p class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-								{t('settings.ttsVoice')}
-							</p>
-							<label
-								class="btn-secondary inline-flex items-center gap-2 cursor-pointer"
-								class:opacity-50={importingVoice}
-							>
-								<Icon name="upload" size={16} />
-								{importingVoice ? t('settings.ttsPiperImporting') : t('settings.ttsPiperImport')}
-								<input
-									type="file"
-									multiple
-									accept=".onnx,.json,application/json,application/octet-stream"
-									class="sr-only"
-									disabled={importingVoice}
-									onchange={(e) => {
-										const el = e.currentTarget as HTMLInputElement;
-										importPiperVoices(el.files).finally(() => (el.value = ''));
-									}}
-								/>
-							</label>
-							<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsPiperImportHint')}</p>
-							{#if importError}
-								<p class="mt-1 text-sm text-red-600 dark:text-red-400">{importError}</p>
-							{/if}
-							<p class="sr-only" role="status" aria-live="polite">{importAnnouncement}</p>
-
-							{#if piperModels.length > 0}
-								<ul class="mt-3 space-y-2">
-									{#each piperModels as m (m.stem)}
-										<li class="flex items-center justify-between gap-2 text-sm">
-											<span class="min-w-0 text-gray-700 dark:text-gray-300">
-												<span class="truncate">{m.label}</span>
-												<span class="text-gray-500 dark:text-gray-400">
-													({m.lang || '—'}{m.speakers > 1 ? `, ${m.speakers} voices` : ''}, {formatBytes(m.bytes)})
-												</span>
-											</span>
-											<button
-												type="button"
-												class="shrink-0 text-red-600 dark:text-red-400 hover:underline inline-flex items-center gap-1"
-												onclick={() => removePiperVoice(m.stem)}
-												aria-label={`${t('settings.ttsPiperDelete')}: ${m.label}`}
-											>
-												<Icon name="trash" size={14} />
-												{t('settings.ttsPiperDelete')}
-											</button>
-										</li>
-									{/each}
-								</ul>
-							{:else}
-								<p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsPiperNoVoices')}</p>
-							{/if}
-						</div>
-					{/if}
-
-					{#if audioService === 'azure'}
-						<div>
-							<label for="tts-region" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-								{t('settings.ttsRegion')}
-							</label>
-							<input
-								id="tts-region"
-								type="text"
-								value={currentTtsConfig?.region || ''}
-								oninput={(e) => ttsConfigStore.setRegion('azure', (e.target as HTMLInputElement).value)}
-								placeholder={t('settings.ttsRegionPlaceholder')}
-								class="input"
-							/>
-						</div>
-					{/if}
-
-					<div>
-						<p class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-							{t('settings.ttsVoice')}
-						</p>
-						{#if voicesLoading}
-							<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsLoadingVoices')}</p>
-						{:else if serviceVoiceOptions.length > 0}
-							<VoiceLanguageTabs
-								voices={serviceVoiceOptions}
-								selectedId={currentTtsConfig?.voiceId ?? null}
-								onSelect={(id) => {
-									if (audioService) ttsConfigStore.setVoiceId(audioService, id);
-								}}
-								idPrefix="tts-svc-voice"
-								selectLabel={t('settings.ttsVoice')}
-							/>
-							<button
-								type="button"
-								class="btn-secondary mt-2 flex items-center gap-2"
-								onclick={previewServiceVoice}
-								disabled={!currentTtsConfig?.voiceId}
-							>
-								<Icon name="play" size={16} />
-								{t('reader.testVoice')}
-							</button>
-						{:else}
-							<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsNoVoices')}</p>
-						{/if}
+						{/each}
 					</div>
+				</fieldset>
 
-					<div>
-						<button type="button" class="btn-secondary" onclick={testTtsService} disabled={testing}>
-							{testing ? t('settings.ttsTesting') : t('settings.ttsTest')}
-						</button>
-						{#if testResult}
-							<p
-								class="mt-2 text-sm"
-								class:text-green-600={testResult.ok}
-								class:text-red-600={!testResult.ok}
-								role="status"
-								aria-live="polite"
-							>
-								{testResult.ok ? t('settings.ttsTestOk') : t('settings.ttsTestFailed', { error: testResult.message })}
-							</p>
-						{/if}
-					</div>
-				{:else}
-					<!-- Web Speech (device): the voice list is device-local, so it's chosen here. -->
-					{#if webSpeechVoiceOptions.length > 0}
-						<div>
-							<p class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-								{t('settings.ttsVoice')}
-							</p>
-							<VoiceLanguageTabs
-								voices={webSpeechVoiceOptions}
-								selectedId={ttsVoiceURI}
-								onSelect={(id) => setTtsVoice(id)}
-								idPrefix="tts-device-voice"
-								selectLabel={t('settings.ttsVoice')}
-							/>
-							<button
-								type="button"
-								class="btn-secondary mt-2 flex items-center gap-2"
-								onclick={previewDeviceVoice}
-							>
-								<Icon name="play" size={16} />
-								{t('reader.testVoice')}
-							</button>
-							<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-								{t('settings.ttsVoiceDesc')}
-							</p>
-						</div>
-					{/if}
-				{/if}
-
-				<!-- Audio cache (disk) -->
-				<div class="pt-2 border-t border-gray-200 dark:border-gray-700">
-					<h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{t('settings.ttsCache')}</h3>
-					<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsCacheDesc')}</p>
-					<p class="mt-2 text-sm text-gray-700 dark:text-gray-300" aria-live="polite">
-						{t('settings.ttsCacheSize', { size: formatBytes(cacheBytes) })}
-					</p>
-					<button
-						type="button"
-						class="btn-secondary mt-2"
-						onclick={clearTtsCache}
-						disabled={clearingCache || cacheBytes === 0}
-					>
-						{clearingCache ? t('settings.ttsCacheClearing') : t('settings.ttsClearCache')}
-					</button>
-				</div>
-
-				<!-- Database cleanup (orphaned records for deleted media) -->
-				<div class="pt-2 border-t border-gray-200 dark:border-gray-700">
-					<h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{t('settings.dbCleanup')}</h3>
-					<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('settings.dbCleanupDesc')}</p>
-					{#if dbCleanupTotal !== null}
-						<p class="mt-2 text-sm text-gray-700 dark:text-gray-300">
-							{dbCleanupTotal === 0
-								? t('settings.dbCleanupNone')
-								: t('settings.dbCleanupResult', { n: dbCleanupTotal })}
-						</p>
-					{/if}
-					<button
-						type="button"
-						class="btn-secondary mt-2"
-						onclick={cleanupDatabase}
-						disabled={cleaningDb}
-						aria-busy={cleaningDb}
-					>
-						{cleaningDb ? t('settings.dbCleanupRunning') : t('settings.dbCleanupBtn')}
-					</button>
-					<!-- Persistent live region: announces in-progress → result/error as the text swaps. -->
-					<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
-						{dbCleanupAnnouncement}
-					</div>
-				</div>
-			</div>
-		</fieldset>
-
-		<!-- Language -->
-		<fieldset class="card p-4 mb-4 min-w-0">
-			<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.language')}</legend>
-
-			<p id="language-desc" class="text-sm text-gray-500 dark:text-gray-400 mb-3">{t('settings.languageDesc')}</p>
-			<div class="space-y-2" aria-describedby="language-desc">
-					<label class="flex items-center gap-3 py-2 cursor-pointer">
-						<input
-							type="radio"
-							name="language"
-							value="system"
-							checked={languageValue === 'system'}
-							tabindex={languageValue === 'system' ? 0 : -1}
-							onchange={() => setLanguage('system')}
-							class="w-4 h-4 text-primary-600"
-						/>
-						<span class="text-gray-700 dark:text-gray-300">{t('settings.langSystem')}</span>
+				<div class="mt-4">
+					<label for="mask-title" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+						{t('settings.maskTitle')}
 					</label>
-					{#each SUPPORTED_LOCALES as code}
+					<input
+						id="mask-title"
+						type="text"
+						value={settingsStore.maskTitle}
+						oninput={(e) => settingsStore.setMaskTitle((e.target as HTMLInputElement).value)}
+						placeholder={t('settings.maskTitlePlaceholder')}
+						aria-describedby="mask-title-desc"
+						class="input"
+					/>
+					<p id="mask-title-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+						{t('settings.maskTitleDesc')}
+					</p>
+				</div>
+			</fieldset>
+
+			<!-- Language -->
+			<fieldset class="card p-4 mb-4 min-w-0">
+				<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.language')}</legend>
+
+				<p id="language-desc" class="text-sm text-gray-500 dark:text-gray-400 mb-3">{t('settings.languageDesc')}</p>
+				<div class="space-y-2" aria-describedby="language-desc">
 						<label class="flex items-center gap-3 py-2 cursor-pointer">
 							<input
 								type="radio"
 								name="language"
-								value={code}
-								checked={languageValue === code}
-								tabindex={languageValue === code ? 0 : -1}
-								onchange={() => setLanguage(code)}
+								value="system"
+								checked={languageValue === 'system'}
+								tabindex={languageValue === 'system' ? 0 : -1}
+								onchange={() => setLanguage('system')}
 								class="w-4 h-4 text-primary-600"
 							/>
-							<span class="text-gray-700 dark:text-gray-300">{LOCALE_NAMES[code]}</span>
+							<span class="text-gray-700 dark:text-gray-300">{t('settings.langSystem')}</span>
 						</label>
-					{/each}
-			</div>
-		</fieldset>
+						{#each SUPPORTED_LOCALES as code}
+							<label class="flex items-center gap-3 py-2 cursor-pointer">
+								<input
+									type="radio"
+									name="language"
+									value={code}
+									checked={languageValue === code}
+									tabindex={languageValue === code ? 0 : -1}
+									onchange={() => setLanguage(code)}
+									class="w-4 h-4 text-primary-600"
+								/>
+								<span class="text-gray-700 dark:text-gray-300">{LOCALE_NAMES[code]}</span>
+							</label>
+						{/each}
+				</div>
+			</fieldset>
+		</div>
 
-		<!-- Deletion History -->
-		<section class="card p-4 mb-4">
-			<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">{t('settings.deletionHistory')}</h2>
-			<p class="text-sm text-gray-500 dark:text-gray-400 mb-4">{t('settings.deletionHistoryDesc')}</p>
+		<div
+			id="settings-panel-reading"
+			role="tabpanel"
+			aria-labelledby="settings-tab-reading"
+			tabindex="0"
+			hidden={activeTab !== 'reading'}
+			class="focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-lg"
+		>
+			<!-- Reading (text-to-speech) -->
+			<fieldset class="card p-4 mb-4 min-w-0">
+				<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.reading')}</legend>
 
-			<DeletionHistoryList />
-		</section>
-
-		<!-- Keyboard Shortcuts -->
-		<section class="card p-4">
-			<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.shortcuts')}</h2>
-
-			<div class="space-y-2 text-sm">
-				<div class="flex justify-between py-1">
-					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbPlayPause')}</span>
-					<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">Space</kbd>
-				</div>
-				<div class="flex justify-between py-1">
-					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSeek')}</span>
-					<span>
-						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">←</kbd>
-						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 ml-1">→</kbd>
-					</span>
-				</div>
-				<div class="flex justify-between py-1">
-					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSeekUnit')}</span>
-					<span>
-						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">↑</kbd>
-						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 ml-1">↓</kbd>
-					</span>
-				</div>
-				<div class="flex justify-between py-1">
-					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbJumpToTime')}</span>
-					<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">J</kbd>
-				</div>
-				<div class="flex justify-between py-1">
-					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbVolume')}</span>
-					<span>
-						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">I</kbd>
-						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 ml-1">K</kbd>
-					</span>
-				</div>
-				<div class="flex justify-between py-1">
-					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbMute')}</span>
-					<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">M</kbd>
-				</div>
-				<div class="flex justify-between py-1">
-					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbBookmark')}</span>
-					<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">B</kbd>
-				</div>
-				<div class="flex justify-between py-1">
-					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSeekPercent')}</span>
-					<span>
-						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">1</kbd>
-						<span class="text-gray-400 mx-1">-</span>
-						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">9</kbd>
-					</span>
-				</div>
-				<div class="flex justify-between py-1">
-					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSeekEnd')}</span>
-					<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">0</kbd>
-				</div>
-				<div class="flex justify-between py-1">
-					<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSubtitles')}</span>
-					<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">S</kbd>
-				</div>
-
-				{#if settingsStore.winampShortcuts}
-					<p class="pt-3 mt-2 border-t border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-500 dark:text-gray-400">
-						{t('settings.winampShortcuts')}
-					</p>
-					<div class="flex justify-between py-1">
-						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbWinampPlay')}</span>
-						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">X</kbd>
+				<div class="space-y-4">
+					<div>
+						<label for="tts-rate" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+							{t('settings.ttsRate')}: {settingsStore.ttsRate.toFixed(1)}x
+						</label>
+						<input
+							id="tts-rate"
+							type="range"
+							min="0.5"
+							max="5"
+							step="0.1"
+							value={settingsStore.ttsRate}
+							oninput={(e) => settingsStore.setTtsRate(parseFloat((e.target as HTMLInputElement).value))}
+							aria-describedby="tts-rate-desc"
+							aria-valuetext={`${settingsStore.ttsRate.toFixed(1)}x`}
+							class="w-full"
+						/>
+						<p id="tts-rate-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+							{t('settings.ttsRateDesc')}
+						</p>
 					</div>
+
+				</div>
+			</fieldset>
+
+			<!-- Voices & AI services -->
+			<fieldset class="card p-4 mb-4 min-w-0">
+				<legend class="block text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.ttsServices')}</legend>
+
+				<div class="space-y-4">
+					<div>
+						<label for="tts-service" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+							{t('settings.ttsService')}
+						</label>
+						<select
+							id="tts-service"
+							value={settingsStore.ttsService}
+							onchange={(e) => onTtsServiceChange((e.target as HTMLSelectElement).value as TtsService)}
+							aria-describedby="tts-service-desc"
+							class="input"
+						>
+							<option value="webspeech">{t('settings.ttsSvcWebSpeech')}</option>
+							<option value="elevenlabs">{t('settings.ttsSvcElevenLabs')}</option>
+							<option value="azure">{t('settings.ttsSvcAzure')}</option>
+							<option value="azure-edge">{t('settings.ttsSvcAzureEdge')}</option>
+							<option value="google">{t('settings.ttsSvcGoogle')}</option>
+							<option value="elf">{t('settings.ttsSvcElf')}</option>
+							<option value="piper">{t('settings.ttsSvcPiper')}</option>
+							<option value="phonon">{t('settings.ttsSvcPhonon')}</option>
+						</select>
+						<p id="tts-service-desc" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+							{t('settings.ttsServiceDesc')}
+						</p>
+					</div>
+
+					{#if audioService}
+						{#if audioService === 'azure-edge'}
+							<p class="text-sm text-amber-600 dark:text-amber-400">{t('settings.ttsEdgeNote')}</p>
+						{:else if audioService === 'elf'}
+							<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsElfNote')}</p>
+						{:else if audioService === 'piper'}
+							<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsPiperNote')}</p>
+						{:else if audioService === 'phonon'}
+							<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsPhononNote')}</p>
+						{:else}
+							<div>
+								<label for="tts-api-key" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+									{t('settings.ttsApiKey')}
+								</label>
+								<div class="flex gap-2">
+									<input
+										id="tts-api-key"
+										type="password"
+										autocomplete="off"
+										bind:value={apiKeyInput}
+										placeholder={currentTtsConfig?.configured ? t('settings.ttsKeySaved') : ''}
+										class="input flex-1"
+									/>
+									<button type="button" class="btn-secondary" onclick={saveApiKey} disabled={!apiKeyInput.trim()}>
+										{t('common.save')}
+									</button>
+								</div>
+								{#if currentTtsConfig?.configured}
+									<button
+										type="button"
+										class="mt-2 text-sm text-red-600 dark:text-red-400 hover:underline"
+										onclick={removeApiKey}
+									>
+										{t('settings.ttsRemoveKey')}
+									</button>
+								{/if}
+							</div>
+						{/if}
+
+						{#if audioService === 'elevenlabs'}
+							<div>
+								<label for="tts-model" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+									{t('settings.ttsModel')}
+								</label>
+								<select
+									id="tts-model"
+									value={currentTtsConfig?.model || 'eleven_multilingual_v2'}
+									onchange={(e) => ttsConfigStore.setModel('elevenlabs', (e.target as HTMLSelectElement).value)}
+									class="input"
+								>
+									{#each ELEVEN_MODELS as m}
+										<option value={m}>{m}</option>
+									{/each}
+								</select>
+								{#if !ELEVEN_LANG_CODE_MODELS.includes(currentTtsConfig?.model || 'eleven_multilingual_v2')}
+									<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+										{t('settings.ttsLangCodeHint')}
+									</p>
+								{/if}
+							</div>
+
+							<!-- ElevenLabs voice_settings: stability / similarity / style / speaker boost -->
+							<div>
+								<label for="tts-stability" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+									{t('settings.ttsStability')}: {(currentTtsConfig?.voiceSettings.stability ?? 0.5).toFixed(2)}
+								</label>
+								<input
+									id="tts-stability"
+									type="range"
+									min="0"
+									max="1"
+									step="0.05"
+									value={currentTtsConfig?.voiceSettings.stability ?? 0.5}
+									oninput={(e) =>
+										ttsConfigStore.setVoiceSettings('elevenlabs', {
+											stability: parseFloat((e.target as HTMLInputElement).value)
+										})}
+									class="w-full"
+								/>
+								<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsStabilityDesc')}</p>
+							</div>
+
+							<div>
+								<label for="tts-similarity" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+									{t('settings.ttsSimilarity')}: {(currentTtsConfig?.voiceSettings.similarityBoost ?? 0.75).toFixed(2)}
+								</label>
+								<input
+									id="tts-similarity"
+									type="range"
+									min="0"
+									max="1"
+									step="0.05"
+									value={currentTtsConfig?.voiceSettings.similarityBoost ?? 0.75}
+									oninput={(e) =>
+										ttsConfigStore.setVoiceSettings('elevenlabs', {
+											similarityBoost: parseFloat((e.target as HTMLInputElement).value)
+										})}
+									class="w-full"
+								/>
+								<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsSimilarityDesc')}</p>
+							</div>
+
+							<div>
+								<label for="tts-style" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+									{t('settings.ttsStyle')}: {(currentTtsConfig?.voiceSettings.style ?? 0).toFixed(2)}
+								</label>
+								<input
+									id="tts-style"
+									type="range"
+									min="0"
+									max="1"
+									step="0.05"
+									value={currentTtsConfig?.voiceSettings.style ?? 0}
+									oninput={(e) =>
+										ttsConfigStore.setVoiceSettings('elevenlabs', {
+											style: parseFloat((e.target as HTMLInputElement).value)
+										})}
+									class="w-full"
+								/>
+								<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsStyleDesc')}</p>
+							</div>
+
+							<div class="flex items-center justify-between py-2">
+								<div>
+									<span id="tts-speaker-boost-label" class="text-gray-700 dark:text-gray-300">
+										{t('settings.ttsSpeakerBoost')}
+									</span>
+									<p id="tts-speaker-boost-desc" class="text-sm text-gray-500 dark:text-gray-400">
+										{t('settings.ttsSpeakerBoostDesc')}
+									</p>
+								</div>
+								<button
+									type="button"
+									onclick={() =>
+										ttsConfigStore.setVoiceSettings('elevenlabs', {
+											useSpeakerBoost: !(currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true)
+										})}
+									class="relative w-12 h-6 rounded-full transition-colors shrink-0"
+									class:bg-primary-500={currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true}
+									class:bg-gray-300={!(currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true)}
+									class:dark:bg-gray-600={!(currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true)}
+									role="switch"
+									aria-checked={currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true}
+									aria-labelledby="tts-speaker-boost-label"
+									aria-describedby="tts-speaker-boost-desc"
+								>
+									<span
+										class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+										class:translate-x-0.5={!(currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true)}
+										class:translate-x-6={currentTtsConfig?.voiceSettings.useSpeakerBoost ?? true}
+									></span>
+								</button>
+							</div>
+						{/if}
+
+						{#if audioService === 'elf'}
+							<!-- ELF voice parameters: a customize switch + per-knob sliders. -->
+							<div class="flex items-center justify-between py-2">
+								<div>
+									<span id="tts-elf-customize-label" class="text-gray-700 dark:text-gray-300">
+										{t('settings.ttsElfCustomize')}
+									</span>
+									<p id="tts-elf-customize-desc" class="text-sm text-gray-500 dark:text-gray-400">
+										{t('settings.ttsElfCustomizeDesc')}
+									</p>
+								</div>
+								<button
+									type="button"
+									onclick={() => ttsConfigStore.setElfCustomize('elf', !currentTtsConfig?.elfCustomize)}
+									class="relative w-12 h-6 rounded-full transition-colors shrink-0"
+									class:bg-primary-500={currentTtsConfig?.elfCustomize}
+									class:bg-gray-300={!currentTtsConfig?.elfCustomize}
+									class:dark:bg-gray-600={!currentTtsConfig?.elfCustomize}
+									role="switch"
+									aria-checked={currentTtsConfig?.elfCustomize ?? false}
+									aria-labelledby="tts-elf-customize-label"
+									aria-describedby="tts-elf-customize-desc"
+								>
+									<span
+										class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+										class:translate-x-0.5={!currentTtsConfig?.elfCustomize}
+										class:translate-x-6={currentTtsConfig?.elfCustomize}
+									></span>
+								</button>
+							</div>
+
+							{#if currentTtsConfig?.elfCustomize}
+								{#each elfParamFields as field (field.key)}
+									<div>
+										<label
+											for={`tts-elf-${field.key}`}
+											class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+										>
+											{t(field.label)}: {currentTtsConfig?.elfParams[field.key] ?? 0}
+										</label>
+										<input
+											id={`tts-elf-${field.key}`}
+											type="range"
+											min="0"
+											max="100"
+											step="1"
+											value={currentTtsConfig?.elfParams[field.key] ?? 0}
+											oninput={(e) =>
+												setElfParam(field.key, parseInt((e.target as HTMLInputElement).value, 10))}
+											aria-valuetext={`${currentTtsConfig?.elfParams[field.key] ?? 0}`}
+											class="w-full"
+										/>
+									</div>
+								{/each}
+							{/if}
+						{/if}
+
+						{#if audioService === 'piper'}
+							<!-- Piper voice management: import a model/config pair, list & remove imports. -->
+							<div>
+								<p class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+									{t('settings.ttsVoice')}
+								</p>
+								<label
+									class="btn-secondary inline-flex items-center gap-2 cursor-pointer"
+									class:opacity-50={importingVoice}
+								>
+									<Icon name="upload" size={16} />
+									{importingVoice ? t('settings.ttsPiperImporting') : t('settings.ttsPiperImport')}
+									<input
+										type="file"
+										multiple
+										accept=".onnx,.json,application/json,application/octet-stream"
+										class="sr-only"
+										disabled={importingVoice}
+										onchange={(e) => {
+											const el = e.currentTarget as HTMLInputElement;
+											importPiperVoices(el.files).finally(() => (el.value = ''));
+										}}
+									/>
+								</label>
+								<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsPiperImportHint')}</p>
+								{#if importError}
+									<p class="mt-1 text-sm text-red-600 dark:text-red-400">{importError}</p>
+								{/if}
+								<p class="sr-only" role="status" aria-live="polite">{importAnnouncement}</p>
+
+								{#if piperModels.length > 0}
+									<ul class="mt-3 space-y-2">
+										{#each piperModels as m (m.stem)}
+											<li class="flex items-center justify-between gap-2 text-sm">
+												<span class="min-w-0 text-gray-700 dark:text-gray-300">
+													<span class="truncate">{m.label}</span>
+													<span class="text-gray-500 dark:text-gray-400">
+														({m.lang || '—'}{m.speakers > 1 ? `, ${m.speakers} voices` : ''}, {formatBytes(m.bytes)})
+													</span>
+												</span>
+												<button
+													type="button"
+													class="shrink-0 text-red-600 dark:text-red-400 hover:underline inline-flex items-center gap-1"
+													onclick={() => removePiperVoice(m.stem)}
+													aria-label={`${t('settings.ttsPiperDelete')}: ${m.label}`}
+												>
+													<Icon name="trash" size={14} />
+													{t('settings.ttsPiperDelete')}
+												</button>
+											</li>
+										{/each}
+									</ul>
+								{:else}
+									<p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsPiperNoVoices')}</p>
+								{/if}
+							</div>
+						{/if}
+
+						{#if audioService === 'phonon'}
+							<!-- Phonon: upload a voice file (e.g. a clone made on Gradium), list & remove uploads. -->
+							<fieldset class="space-y-3">
+								<legend class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+									{t('settings.ttsPhononUpload')}
+								</legend>
+								<p id="phonon-upload-hint" class="text-sm text-gray-500 dark:text-gray-400">
+									{t('settings.ttsPhononUploadHint')}
+								</p>
+								<div>
+									<label for="phonon-file" class="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+										{t('settings.ttsPhononFile')}
+									</label>
+									<input
+										id="phonon-file"
+										type="file"
+										accept=".safetensors"
+										aria-describedby="phonon-upload-hint"
+										bind:this={phononFileInput}
+										disabled={importingVoice}
+										onchange={(e) => {
+											const f = (e.currentTarget as HTMLInputElement).files?.[0] ?? null;
+											phononFile = f;
+											if (f && !phononName) phononName = f.name.replace(/\.safetensors$/i, '');
+										}}
+										class="block w-full text-sm"
+									/>
+								</div>
+								<div class="flex flex-wrap gap-3">
+									<div class="flex-1 min-w-40">
+										<label for="phonon-name" class="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+											{t('settings.ttsPhononName')}
+										</label>
+										<input id="phonon-name" type="text" maxlength="80" bind:value={phononName} class="input" />
+									</div>
+									<div>
+										<label for="phonon-lang" class="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+											{t('settings.ttsPhononLang')}
+										</label>
+										<select id="phonon-lang" bind:value={phononLang} class="input">
+											{#each PHONON_LANG_OPTIONS as l (l)}
+												<option value={l}>{phononLangLabel(l)}</option>
+											{/each}
+										</select>
+									</div>
+								</div>
+								<button
+									type="button"
+									class="btn-secondary inline-flex items-center gap-2"
+									disabled={importingVoice}
+									onclick={uploadPhononVoice}
+								>
+									<Icon name="upload" size={16} />
+									{importingVoice ? t('settings.ttsPiperImporting') : t('settings.ttsPhononUploadButton')}
+								</button>
+								{#if importError}
+									<p class="text-sm text-red-600 dark:text-red-400">{importError}</p>
+								{/if}
+								<p class="sr-only" role="status" aria-live="polite">{importAnnouncement}</p>
+
+								{#if phononVoices.length > 0}
+									<ul class="space-y-2" aria-label={t('settings.ttsPhononUploaded')}>
+										{#each phononVoices as v (v.stem)}
+											<li class="flex items-center justify-between gap-2 text-sm">
+												<span class="min-w-0 text-gray-700 dark:text-gray-300">
+													<span class="truncate">{v.name}</span>
+													<span class="text-gray-500 dark:text-gray-400">({phononLangLabel(v.lang)})</span>
+												</span>
+												<button
+													type="button"
+													class="shrink-0 text-red-600 dark:text-red-400 hover:underline inline-flex items-center gap-1"
+													onclick={() => removePhononVoice(v.stem)}
+													aria-label={`${t('settings.ttsPiperDelete')}: ${v.name}`}
+												>
+													<Icon name="trash" size={14} />
+													{t('settings.ttsPiperDelete')}
+												</button>
+											</li>
+										{/each}
+									</ul>
+								{/if}
+							</fieldset>
+						{/if}
+
+						{#if audioService === 'azure'}
+							<div>
+								<label for="tts-region" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+									{t('settings.ttsRegion')}
+								</label>
+								<input
+									id="tts-region"
+									type="text"
+									value={currentTtsConfig?.region || ''}
+									oninput={(e) => ttsConfigStore.setRegion('azure', (e.target as HTMLInputElement).value)}
+									placeholder={t('settings.ttsRegionPlaceholder')}
+									class="input"
+								/>
+							</div>
+						{/if}
+
+						<div>
+							<p class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+								{t('settings.ttsVoice')}
+							</p>
+							{#if voicesLoading}
+								<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsLoadingVoices')}</p>
+							{:else if serviceVoiceOptions.length > 0}
+								<VoiceLanguageTabs
+									voices={serviceVoiceOptions}
+									selectedId={currentTtsConfig?.voiceId ?? null}
+									onSelect={(id) => {
+										if (audioService) ttsConfigStore.setVoiceId(audioService, id);
+									}}
+									idPrefix="tts-svc-voice"
+									selectLabel={t('settings.ttsVoice')}
+								/>
+								<button
+									type="button"
+									class="btn-secondary mt-2 flex items-center gap-2"
+									onclick={previewServiceVoice}
+									disabled={!currentTtsConfig?.voiceId}
+								>
+									<Icon name="play" size={16} />
+									{t('reader.testVoice')}
+								</button>
+							{:else}
+								<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsNoVoices')}</p>
+							{/if}
+						</div>
+
+						<div>
+							<button type="button" class="btn-secondary" onclick={testTtsService} disabled={testing}>
+								{testing ? t('settings.ttsTesting') : t('settings.ttsTest')}
+							</button>
+							{#if testResult}
+								<p
+									class="mt-2 text-sm"
+									class:text-green-600={testResult.ok}
+									class:text-red-600={!testResult.ok}
+									role="status"
+									aria-live="polite"
+								>
+									{testResult.ok ? t('settings.ttsTestOk') : t('settings.ttsTestFailed', { error: testResult.message })}
+								</p>
+							{/if}
+						</div>
+					{:else}
+						<!-- Web Speech (device): the voice list is device-local, so it's chosen here. -->
+						{#if webSpeechVoiceOptions.length > 0}
+							<div>
+								<p class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+									{t('settings.ttsVoice')}
+								</p>
+								<VoiceLanguageTabs
+									voices={webSpeechVoiceOptions}
+									selectedId={ttsVoiceURI}
+									onSelect={(id) => setTtsVoice(id)}
+									idPrefix="tts-device-voice"
+									selectLabel={t('settings.ttsVoice')}
+								/>
+								<button
+									type="button"
+									class="btn-secondary mt-2 flex items-center gap-2"
+									onclick={previewDeviceVoice}
+								>
+									<Icon name="play" size={16} />
+									{t('reader.testVoice')}
+								</button>
+								<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+									{t('settings.ttsVoiceDesc')}
+								</p>
+							</div>
+						{/if}
+					{/if}
+
+					<!-- Audio cache (disk) -->
+					<div class="pt-2 border-t border-gray-200 dark:border-gray-700">
+						<h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{t('settings.ttsCache')}</h3>
+						<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('settings.ttsCacheDesc')}</p>
+						<p class="mt-2 text-sm text-gray-700 dark:text-gray-300" aria-live="polite">
+							{t('settings.ttsCacheSize', { size: formatBytes(cacheBytes) })}
+						</p>
+						<button
+							type="button"
+							class="btn-secondary mt-2"
+							onclick={clearTtsCache}
+							disabled={clearingCache || cacheBytes === 0}
+						>
+							{clearingCache ? t('settings.ttsCacheClearing') : t('settings.ttsClearCache')}
+						</button>
+					</div>
+				</div>
+			</fieldset>
+		</div>
+
+		<div
+			id="settings-panel-maintenance"
+			role="tabpanel"
+			aria-labelledby="settings-tab-maintenance"
+			tabindex="0"
+			hidden={activeTab !== 'maintenance'}
+			class="focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-lg"
+		>
+			<!-- Database cleanup (orphaned records for deleted media) -->
+			<section class="card p-4 mb-4">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">{t('settings.dbCleanup')}</h2>
+				<p class="text-sm text-gray-500 dark:text-gray-400">{t('settings.dbCleanupDesc')}</p>
+				{#if dbCleanupTotal !== null}
+					<p class="mt-2 text-sm text-gray-700 dark:text-gray-300">
+						{dbCleanupTotal === 0
+							? t('settings.dbCleanupNone')
+							: t('settings.dbCleanupResult', { n: dbCleanupTotal })}
+					</p>
+				{/if}
+				<button
+					type="button"
+					class="btn-secondary mt-2"
+					onclick={cleanupDatabase}
+					disabled={cleaningDb}
+					aria-busy={cleaningDb}
+				>
+					{cleaningDb ? t('settings.dbCleanupRunning') : t('settings.dbCleanupBtn')}
+				</button>
+				<!-- Persistent live region: announces in-progress → result/error as the text swaps. -->
+				<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+					{dbCleanupAnnouncement}
+				</div>
+			</section>
+
+			<!-- Deletion History -->
+			<section class="card p-4 mb-4">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">{t('settings.deletionHistory')}</h2>
+				<p class="text-sm text-gray-500 dark:text-gray-400 mb-4">{t('settings.deletionHistoryDesc')}</p>
+
+				<DeletionHistoryList />
+			</section>
+		</div>
+
+		<div
+			id="settings-panel-shortcuts"
+			role="tabpanel"
+			aria-labelledby="settings-tab-shortcuts"
+			tabindex="0"
+			hidden={activeTab !== 'shortcuts'}
+			class="focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-lg"
+		>
+			<!-- Keyboard Shortcuts -->
+			<section class="card p-4">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('settings.shortcuts')}</h2>
+
+				<div class="space-y-2 text-sm">
 					<div class="flex justify-between py-1">
 						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbPlayPause')}</span>
-						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">C</kbd>
+						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">Space</kbd>
 					</div>
 					<div class="flex justify-between py-1">
-						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbWinampStop')}</span>
-						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">V</kbd>
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSeek')}</span>
+						<span>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">←</kbd>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 ml-1">→</kbd>
+						</span>
 					</div>
 					<div class="flex justify-between py-1">
-						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbWinampNext')}</span>
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSeekUnit')}</span>
+						<span>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">↑</kbd>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 ml-1">↓</kbd>
+						</span>
+					</div>
+					<div class="flex justify-between py-1">
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbJumpToTime')}</span>
+						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">J</kbd>
+					</div>
+					<div class="flex justify-between py-1">
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbVolume')}</span>
+						<span>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">I</kbd>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 ml-1">K</kbd>
+						</span>
+					</div>
+					<div class="flex justify-between py-1">
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbMute')}</span>
+						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">M</kbd>
+					</div>
+					<div class="flex justify-between py-1">
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbBookmark')}</span>
 						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">B</kbd>
 					</div>
 					<div class="flex justify-between py-1">
-						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbWinampPrev')}</span>
-						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">Z</kbd>
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSeekPercent')}</span>
+						<span>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">1</kbd>
+							<span class="text-gray-400 mx-1">-</span>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">9</kbd>
+						</span>
 					</div>
-				{/if}
-			</div>
-		</section>
+					<div class="flex justify-between py-1">
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSeekEnd')}</span>
+						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">0</kbd>
+					</div>
+					<div class="flex justify-between py-1">
+						<span class="text-gray-600 dark:text-gray-400">{t('settings.kbSubtitles')}</span>
+						<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">S</kbd>
+					</div>
+
+					{#if settingsStore.winampShortcuts}
+						<p class="pt-3 mt-2 border-t border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-500 dark:text-gray-400">
+							{t('settings.winampShortcuts')}
+						</p>
+						<div class="flex justify-between py-1">
+							<span class="text-gray-600 dark:text-gray-400">{t('settings.kbWinampPlay')}</span>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">X</kbd>
+						</div>
+						<div class="flex justify-between py-1">
+							<span class="text-gray-600 dark:text-gray-400">{t('settings.kbPlayPause')}</span>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">C</kbd>
+						</div>
+						<div class="flex justify-between py-1">
+							<span class="text-gray-600 dark:text-gray-400">{t('settings.kbWinampStop')}</span>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">V</kbd>
+						</div>
+						<div class="flex justify-between py-1">
+							<span class="text-gray-600 dark:text-gray-400">{t('settings.kbWinampNext')}</span>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">B</kbd>
+						</div>
+						<div class="flex justify-between py-1">
+							<span class="text-gray-600 dark:text-gray-400">{t('settings.kbWinampPrev')}</span>
+							<kbd class="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">Z</kbd>
+						</div>
+					{/if}
+				</div>
+			</section>
+		</div>
 	</main>
 </div>

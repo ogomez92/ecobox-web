@@ -12,6 +12,7 @@ import { azureSynthesize, azureVoices, edgeSynthesize, edgeVoices } from './azur
 import { googleSynthesize, googleVoices } from './google';
 import { elfSynthesize, elfVoices, elfHealthCheck } from './elf';
 import { piperSynthesize, piperVoices, piperHealthCheck } from './piper';
+import { phononSynthesize, phononVoices, phononHealthCheck } from './phonon';
 
 export { TtsError } from './errors';
 
@@ -74,6 +75,9 @@ export async function synthesize(input: SynthesizeInput): Promise<ArrayBuffer> {
 			// Local engine — bake the reading rate into synthesis (native --length_scale),
 			// like ELF, rather than time-stretching the finished MP3 client-side.
 			return toArrayBuffer(await piperSynthesize({ voiceId, text, rate: input.rate }));
+		case 'phonon':
+			// Local, but no pacing control in the model: rate is stretched client-side.
+			return toArrayBuffer(await phononSynthesize({ voiceId, text }));
 		default:
 			throw new TtsError(400, 'Unknown TTS service');
 	}
@@ -94,6 +98,8 @@ export async function listVoices(service: TtsAudioService, lang: string): Promis
 			return elfVoices();
 		case 'piper':
 			return piperVoices();
+		case 'phonon':
+			return phononVoices();
 		default:
 			throw new TtsError(400, 'Unknown TTS service');
 	}
@@ -126,6 +132,7 @@ export async function validateService(
 ): Promise<{ ok: boolean; message: string; voiceCount?: number }> {
 	if (service === 'elf') return elfHealthCheck();
 	if (service === 'piper') return piperHealthCheck();
+	if (service === 'phonon') return phononHealthCheck();
 	try {
 		const voices = await listVoices(service, '');
 		return { ok: true, message: 'ok', voiceCount: voices.length };
