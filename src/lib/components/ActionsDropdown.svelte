@@ -8,10 +8,12 @@
 		ondelete: () => void;
 		onprotect?: () => void;
 		onconvert?: () => void;
+		/** Book folders only: read the book into an MP3 next to it. */
+		onaudiobook?: () => void;
 		isUnlocked?: boolean;
 	}
 
-	let { file, ondelete, onprotect, onconvert, isUnlocked = false }: Props = $props();
+	let { file, ondelete, onprotect, onconvert, onaudiobook, isUnlocked = false }: Props = $props();
 
 	let isOpen = $state(false);
 	let buttonEl: HTMLButtonElement | undefined = $state();
@@ -40,48 +42,84 @@
 		isOpen = false;
 	}
 
+	function handleAudiobook() {
+		isOpen = false;
+		onaudiobook?.();
+	}
+
 	function handleToggle(e: MouseEvent) {
 		e.preventDefault();
 		e.stopPropagation();
 		isOpen = !isOpen;
 	}
 
+	// The menu lives inside a file-table row, and the table has its own key
+	// handler (arrows, Home/End, type-ahead, Delete, Backspace). Every key this
+	// menu handles must stop propagating, or the table moves focus to the next
+	// row the moment the user arrows inside the menu.
+	let pendingFocus: 'first' | 'last' = 'first';
+
+	function menuItems(): HTMLButtonElement[] {
+		return Array.from(menuEl?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') {
+		if (e.key === 'Escape' && isOpen) {
 			e.preventDefault();
+			e.stopPropagation();
 			isOpen = false;
 			buttonEl?.focus();
-		} else if (e.key === 'ArrowDown' && isOpen && menuEl) {
+		} else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+			// Menu-button pattern: arrows open the menu on the first/last item.
 			e.preventDefault();
-			const firstItem = menuEl.querySelector<HTMLButtonElement>('[role="menuitem"]');
-			firstItem?.focus();
-		} else if (e.key === 'ArrowUp' && isOpen && menuEl) {
-			e.preventDefault();
-			const items = menuEl.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
-			items[items.length - 1]?.focus();
+			e.stopPropagation();
+			const which = e.key === 'ArrowDown' ? 'first' : 'last';
+			if (isOpen) {
+				const items = menuItems();
+				(which === 'first' ? items[0] : items[items.length - 1])?.focus();
+			} else {
+				pendingFocus = which;
+				isOpen = true;
+			}
 		}
 	}
 
 	function handleMenuKeydown(e: KeyboardEvent) {
-		const items = menuEl?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
-		if (!items) return;
+		// Nothing typed inside the open menu belongs to the table behind it.
+		e.stopPropagation();
+		const items = menuItems();
+		if (items.length === 0) return;
 
-		const currentIndex = Array.from(items).indexOf(e.target as HTMLButtonElement);
+		const currentIndex = items.indexOf(e.target as HTMLButtonElement);
 
 		if (e.key === 'ArrowDown') {
 			e.preventDefault();
-			const nextIndex = (currentIndex + 1) % items.length;
-			items[nextIndex]?.focus();
+			items[(currentIndex + 1) % items.length]?.focus();
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			const prevIndex = currentIndex <= 0 ? items.length - 1 : currentIndex - 1;
-			items[prevIndex]?.focus();
+			items[currentIndex <= 0 ? items.length - 1 : currentIndex - 1]?.focus();
+		} else if (e.key === 'Home') {
+			e.preventDefault();
+			items[0]?.focus();
+		} else if (e.key === 'End') {
+			e.preventDefault();
+			items[items.length - 1]?.focus();
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
 			isOpen = false;
 			buttonEl?.focus();
 		} else if (e.key === 'Tab') {
 			isOpen = false;
+		} else if (e.key.length === 1 && /^[\p{L}\p{N}]$/u.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+			// Type-ahead: jump to the next item whose label starts with the letter.
+			const ch = e.key.toLocaleLowerCase();
+			for (let i = 1; i <= items.length; i++) {
+				const item = items[(currentIndex + i) % items.length];
+				if (item.textContent?.trim().toLocaleLowerCase().startsWith(ch)) {
+					item.focus();
+					break;
+				}
+			}
 		}
 	}
 
@@ -101,8 +139,9 @@
 
 	$effect(() => {
 		if (isOpen && menuEl) {
-			const firstItem = menuEl.querySelector<HTMLButtonElement>('[role="menuitem"]');
-			firstItem?.focus();
+			const items = menuItems();
+			(pendingFocus === 'last' ? items[items.length - 1] : items[0])?.focus();
+			pendingFocus = 'first';
 		}
 	});
 </script>
@@ -127,7 +166,7 @@
 			bind:this={menuEl}
 			role="menu"
 			tabindex="-1"
-			class="absolute right-0 mt-1 w-40 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-20"
+			class="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-20"
 			onkeydown={handleMenuKeydown}
 		>
 			<button
@@ -150,6 +189,17 @@
 				>
 					<Icon name={file.isVideoFile ? 'audio' : 'book'} size={16} />
 					{file.isVideoFile ? t('actions.extractAudio') : t('actions.convert')}
+				</button>
+			{/if}
+			{#if file.isBookFolder && onaudiobook}
+				<button
+					type="button"
+					role="menuitem"
+					onclick={handleAudiobook}
+					class="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+				>
+					<Icon name="audio" size={16} />
+					{t('actions.convertToAudio')}
 				</button>
 			{/if}
 			{#if isUnlocked}

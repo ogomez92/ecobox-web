@@ -4,6 +4,7 @@ import { listDirectory, deleteFile, createFolder, validateFolderName } from '$se
 import { recordDeletion } from '$server/services/deletionHistory';
 import { purgeCacheForPath } from '$server/services/tts/cache';
 import { purgeFullDescriptionsForPath } from '$server/services/videoDescribeFull';
+import { cancelAudiobooksForPath } from '$server/services/audiobookExport';
 import { db } from '$server/db';
 import { bookBookmarks } from '$server/db/schema';
 import { eq, or, sql } from 'drizzle-orm';
@@ -182,6 +183,12 @@ export const DELETE: RequestHandler = async ({ url }) => {
 			purgeFullDescriptionsForPath(path);
 		} catch (descErr) {
 			console.error('Failed to purge video descriptions:', descErr);
+		}
+		// Stop any "convert to audio" run for a deleted book (or a folder holding one).
+		try {
+			cancelAudiobooksForPath(path);
+		} catch (abErr) {
+			console.error('Failed to cancel audiobook exports:', abErr);
 		}
 		// Record every deletion in the history. Best-effort: never let history
 		// bookkeeping fail an actual deletion.

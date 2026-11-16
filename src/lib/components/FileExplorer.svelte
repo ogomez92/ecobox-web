@@ -13,6 +13,8 @@
 	import { filesStore } from '$lib/stores/files.svelte';
 	import { recentStore } from '$lib/stores/recent.svelte';
 	import { videoChecksStore } from '$lib/stores/videoChecks.svelte';
+	import { audiobookExportStore } from '$lib/stores/audiobookExport.svelte';
+	import AudiobookExportDialog from './AudiobookExportDialog.svelte';
 	import { t } from '$lib/i18n/index.svelte';
 	import { goto } from '$app/navigation';
 	import { encodePathSegments } from '$lib/utils/urlPath';
@@ -182,6 +184,36 @@
 		seenVideoChecks = changes;
 		untrack(handleUploadComplete);
 	});
+
+	// A finished "convert to audio" adds an MP3 next to the book.
+	let seenAudiobooks = audiobookExportStore.changes;
+	$effect(() => {
+		const changes = audiobookExportStore.changes;
+		if (changes === seenAudiobooks) return;
+		seenAudiobooks = changes;
+		untrack(handleUploadComplete);
+	});
+
+	/** The book whose "Convert to audio" dialog is open, and where focus goes back. */
+	let audiobookTarget = $state<FileEntry | null>(null);
+	let audiobookReturnFocus: HTMLElement | null = null;
+
+	function openAudiobook(file: FileEntry) {
+		const active = document.activeElement;
+		audiobookReturnFocus = active instanceof HTMLElement ? active : null;
+		audiobookTarget = file;
+	}
+
+	function closeAudiobook() {
+		audiobookTarget = null;
+		const el = audiobookReturnFocus;
+		audiobookReturnFocus = null;
+		// The ⋮ menu that opened it has closed; fall back to the row.
+		requestAnimationFrame(() => {
+			if (el && el.isConnected && el.offsetParent !== null) el.focus();
+			else rowRefs[focusedIndex]?.focus?.();
+		});
+	}
 
 	/**
 	 * The ⋮ menu offers one "convert" action whose meaning depends on the file:
@@ -392,14 +424,14 @@
 		// browser's own find bar. Like Ctrl+L it deliberately skips the field guard,
 		// so it works no matter what currently has focus.
 		if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F') && !e.shiftKey && !e.altKey) {
-			if (showUploadDialog || deleteTarget || showSearchDialog || showNewFolderDialog) return;
+			if (showUploadDialog || deleteTarget || showSearchDialog || showNewFolderDialog || audiobookTarget) return;
 			e.preventDefault();
 			openSearch();
 			return;
 		}
 
 		// Everything below is inert while a modal dialog owns the screen.
-		if (showSearchDialog || showNewFolderDialog) return;
+		if (showSearchDialog || showNewFolderDialog || audiobookTarget) return;
 
 		// Ctrl+L moves focus to the file list, no matter what currently has focus
 		// — so it intentionally skips the field guard.
@@ -965,6 +997,7 @@
 								ondelete={() => deleteTarget = file}
 								onprotect={() => filesStore.toggleProtection(file.path)}
 								onconvert={() => handleConvert(file)}
+								onaudiobook={() => openAudiobook(file)}
 								isUnlocked={filesStore.unlocked}
 							/>
 						{/each}
@@ -1007,6 +1040,10 @@
 			oncreated={handleFolderCreated}
 			onclose={closeNewFolder}
 		/>
+	{/if}
+
+	{#if audiobookTarget}
+		<AudiobookExportDialog path={audiobookTarget.path} name={audiobookTarget.name} onclose={closeAudiobook} />
 	{/if}
 
 	<ConfirmDialog

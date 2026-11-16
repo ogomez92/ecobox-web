@@ -444,7 +444,9 @@ export const ELEVEN_MODELS = [
 	'eleven_multilingual_v2',
 	'eleven_turbo_v2_5',
 	'eleven_flash_v2_5',
-	'eleven_v3'
+	'eleven_v3',
+	'eleven_v4',
+	'eleven_v4_turbo'
 ] as const;
 export const DEFAULT_ELEVEN_MODEL = 'eleven_multilingual_v2';
 
@@ -453,7 +455,12 @@ export const DEFAULT_ELEVEN_MODEL = 'eleven_multilingual_v2';
  * may reject it), so we only send it for these.
  * https://elevenlabs.io/docs/api-reference/text-to-speech/convert
  */
-export const ELEVEN_LANG_CODE_MODELS: string[] = ['eleven_turbo_v2_5', 'eleven_flash_v2_5'];
+export const ELEVEN_LANG_CODE_MODELS: string[] = [
+	'eleven_turbo_v2_5',
+	'eleven_flash_v2_5',
+	'eleven_v4',
+	'eleven_v4_turbo'
+];
 
 /**
  * Offered rewind-on-pause amounts, in seconds. `0` is "off" — the default, since
@@ -709,4 +716,81 @@ export interface FullDescribeEstimate {
 	outputTokens: number;
 	usd: number | null;
 	exact: boolean;
+}
+
+// --- Book → audio file export ("Convert to audio") ---
+
+/** Why an audiobook export could not be estimated, started, or finished. */
+export type AudiobookErrorCode =
+	/** The reading service runs in the browser (Web Speech): nothing to do on the server. */
+	| 'clientOnly'
+	/** The path is not a converted book folder (or is gone / hidden). */
+	| 'notBook'
+	/** The book has no text to speak. */
+	| 'empty'
+	/** No voice is selected and none could be picked for the book's language. */
+	| 'noVoice'
+	/** The provider's remaining character quota is smaller than what the export needs. */
+	| 'quotaExceeded'
+	/** The provider rejected the key (or the key is missing). */
+	| 'badKey'
+	/** The service is not set up (missing region, voice, engine…); `detail` says what. */
+	| 'misconfigured'
+	/** The provider could not be reached, or kept failing after retries. */
+	| 'unreachable'
+	| 'upstream'
+	/** ffmpeg is missing or failed while encoding. */
+	| 'ffmpeg'
+	/** The finished file could not be written next to the book. */
+	| 'write'
+	/** This book is already being converted. */
+	| 'busy'
+	| 'unknown';
+
+/** GET /api/books/audio/estimate — what an export would cost, before it starts. */
+export interface AudiobookEstimate {
+	service: TtsAudioService;
+	voiceId: string;
+	/** Human name of the voice when the provider lists it, else null. */
+	voiceName: string | null;
+	/** Book folder name, used for the output file. */
+	bookName: string;
+	/** Whole book. */
+	whole: AudiobookScope;
+	/** From the saved reading position; null when reading hasn't started (or is at the end). */
+	fromPosition: (AudiobookScope & { chunkIndex: number; percent: number; chapter: string | null }) | null;
+	/** Whether the service bills per character (cloud key services). */
+	billed: boolean;
+	/** Speed baked into the audio (ELF/Piper: the reading speed); null = normal speed. */
+	rate: number | null;
+	/** Provider character quota, when the service exposes one (ElevenLabs). */
+	quota: TtsQuota | null;
+}
+
+export interface AudiobookScope {
+	/** Every character that will be spoken. */
+	chars: number;
+	/** Characters that still have to be synthesized (the rest is already in the TTS cache). */
+	billableChars: number;
+	/** File name the export will be saved under (before collision suffixing). */
+	fileName: string;
+}
+
+export type AudiobookJobState = 'queued' | 'running' | 'finishing' | 'done' | 'failed' | 'cancelled';
+
+/** GET /api/books/audio?path= — progress of one book's export. */
+export interface AudiobookJobStatus {
+	path: string;
+	state: AudiobookJobState;
+	service: TtsAudioService;
+	totalUnits: number;
+	doneUnits: number;
+	totalChars: number;
+	doneChars: number;
+	/** Provider quota left, refreshed during the run, when the service exposes one. */
+	quotaRemaining: number | null;
+	/** Media-root-relative path of the finished file (state `done`). */
+	outputPath: string | null;
+	error: AudiobookErrorCode | null;
+	detail: string | null;
 }

@@ -104,11 +104,12 @@ function parseCHAPFrame(content: Buffer, version: number): Chapter | null {
 				// ISO-8859-1
 				title = textData.toString('latin1').replace(/\0/g, '');
 			} else if (encoding === 1) {
-				// UTF-16 with BOM
-				title = textData.toString('utf16le').replace(/\0/g, '');
+				// UTF-16 with BOM. Honor the BOM's byte order and drop it — it is not
+				// part of the title (ffmpeg writes FF FE, which used to leak a U+FEFF).
+				title = decodeUtf16(textData, textData[0] === 0xfe && textData[1] === 0xff);
 			} else if (encoding === 2) {
 				// UTF-16BE
-				title = textData.swap16().toString('utf16le').replace(/\0/g, '');
+				title = decodeUtf16(textData, true);
 			} else if (encoding === 3) {
 				// UTF-8
 				title = textData.toString('utf8').replace(/\0/g, '');
@@ -131,4 +132,11 @@ function decodeSyncSafe(bytes: Buffer): number {
 
 function decodeBE32(bytes: Buffer): number {
 	return (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
+}
+
+/** Decode UTF-16 text (without mutating the source), stripping a BOM and NULs. */
+function decodeUtf16(data: Buffer, bigEndian: boolean): string {
+	const even = Buffer.from(data.subarray(0, data.length - (data.length % 2)));
+	const text = (bigEndian ? even.swap16() : even).toString('utf16le');
+	return text.replace(/^\uFEFF/, '').replace(/\0/g, '');
 }

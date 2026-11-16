@@ -6,6 +6,7 @@
  */
 import type { TtsEngine, SynthRequest, TtsVoice } from './types';
 import { bakesRate, type TtsAudioService } from '$lib/types';
+import { AUDIO_UNIT_MAX_CHARS } from '$lib/utils/ttsUnits';
 
 interface CacheEntry {
 	url?: string;
@@ -25,7 +26,7 @@ export class AudioEngine implements TtsEngine {
 	// flush at every paragraph boundary, so this only merges *within* long
 	// paragraphs. Kept well under ElevenLabs' multilingual_v2 limit (10k chars);
 	// note Google Cloud TTS caps at 5000 *bytes*, so CJK content can approach it.
-	readonly unitMaxChars = 5000;
+	readonly unitMaxChars = AUDIO_UNIT_MAX_CHARS;
 
 	private service: TtsAudioService;
 	private audio: HTMLAudioElement | null;

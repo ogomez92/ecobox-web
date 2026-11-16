@@ -19,6 +19,7 @@
 		ondelete: () => void;
 		onprotect?: () => void;
 		onconvert?: () => void;
+		onaudiobook?: () => void;
 		isUnlocked?: boolean;
 		/**
 		 * Say when the entry was last played (visibly under the name and in the
@@ -34,6 +35,7 @@
 		ondelete,
 		onprotect,
 		onconvert,
+		onaudiobook,
 		isUnlocked = false,
 		showLastPlayed = false
 	}: Props = $props();
@@ -183,6 +185,6 @@
 		</span>
 	</td>
 	<td class="py-2 px-4 text-right">
-		<ActionsDropdown {file} {ondelete} {onprotect} {onconvert} {isUnlocked} />
+		<ActionsDropdown {file} {ondelete} {onprotect} {onconvert} {onaudiobook} {isUnlocked} />
 	</td>
 </tr>

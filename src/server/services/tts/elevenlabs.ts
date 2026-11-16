@@ -27,7 +27,7 @@ export async function elevenSynthesize(opts: {
 
 	const model = opts.model || DEFAULT_ELEVEN_MODEL;
 	const vs = opts.voiceSettings;
-	// `language_code` is only honored by the v2.5 models — sending it to others
+	// `language_code` is only honored by the v2.5 and v4 models — sending it to others
 	// can 400, so gate it. (Multilingual v2 auto-detects language instead.)
 	const languageCode = ELEVEN_LANG_CODE_MODELS.includes(model) ? iso6391(opts.lang) : undefined;
 
@@ -62,6 +62,13 @@ export async function elevenSynthesize(opts: {
 		throw new TtsError(503, 'ElevenLabs unreachable');
 	}
 	if (!res.ok) {
+		// Quota exhaustion arrives as a 401 too (`detail.status: "quota_exceeded"`);
+		// telling it apart keeps "out of characters" from reading as "bad key".
+		const body = await res.text().catch(() => '');
+		if (/quota_exceeded/i.test(body)) {
+			throw new TtsError(402, 'ElevenLabs character quota exceeded');
+		}
+		if (res.status === 429) throw new TtsError(429, 'ElevenLabs rate limit');
 		throw new TtsError(res.status === 401 ? 401 : 502, `ElevenLabs error ${res.status}`);
 	}
 	return res.arrayBuffer();

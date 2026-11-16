@@ -8,6 +8,14 @@
  */
 import type { Chunk } from '$lib/types';
 
+/**
+ * Max characters per synthesis unit for the server-synthesized services. Shared
+ * by the reader's AudioEngine and the audiobook export so both produce the same
+ * units — and therefore the same cache keys. Kept well under ElevenLabs'
+ * multilingual_v2 limit (10k chars); Google caps at 5000 *bytes*.
+ */
+export const AUDIO_UNIT_MAX_CHARS = 5000;
+
 export interface Unit {
 	/** First chunk index in the unit (inclusive). */
 	startIndex: number;
