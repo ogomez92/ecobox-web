@@ -3,6 +3,18 @@ import { settingsStore } from './settings.svelte';
 import { audioEffects } from '$lib/services/audioEffects';
 import { t } from '$lib/i18n/index.svelte';
 
+const VOLUME_KEY = 'ecobox-player-volume';
+
+/** Saved player volume (0..1), per device; 1 when nothing is stored or storage is unavailable. */
+function loadVolume(): number {
+	try {
+		const v = parseFloat(localStorage.getItem(VOLUME_KEY) ?? '');
+		return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1;
+	} catch {
+		return 1;
+	}
+}
+
 class PlayerStore {
 	// Playback state
 	isPlaying = $state(false);
@@ -79,6 +91,7 @@ class PlayerStore {
 		this.audio = audioElement;
 		this.setupEventListeners();
 		this.setupMediaSession();
+		this.setVolume(loadVolume());
 	}
 
 	private setupEventListeners() {
@@ -542,6 +555,11 @@ class PlayerStore {
 	setVolume(volume: number) {
 		const clamped = Math.max(0, Math.min(1, volume));
 		this.volume = clamped;
+		try {
+			localStorage.setItem(VOLUME_KEY, String(clamped));
+		} catch {
+			// storage unavailable — volume still applies for this session
+		}
 		// Keep the Web Audio master gain in sync (it's the authority once the
 		// graph is connected — e.g. effects on or casting — and is what reaches
 		// the cast stream). When the graph is connected the element is pinned to

@@ -7,6 +7,8 @@ export interface SynthRequest {
 	lang: string;
 	voiceId: string;
 	rate: number;
+	/** Output volume 0..1 (Web Speech applies it per utterance; audio engines use the element's volume). */
+	volume?: number;
 	/** ElevenLabs model id (ignored by other engines). */
 	model?: string;
 	/** ElevenLabs voice_settings (ignored by other engines). */

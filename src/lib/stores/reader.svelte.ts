@@ -59,6 +59,17 @@ function isAutoplayBlocked(e: unknown): boolean {
 	return err.error === 'not-allowed' || err.name === 'NotAllowedError';
 }
 
+const VOLUME_KEY = 'ecobox-reader-volume';
+
+function loadVolume(): number {
+	try {
+		const v = parseFloat(localStorage.getItem(VOLUME_KEY) ?? '');
+		return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1;
+	} catch {
+		return 1;
+	}
+}
+
 class ReaderStore {
 	bookFolderPath = $state<string | null>(null);
 	title = $state('');
@@ -75,6 +86,8 @@ class ReaderStore {
 	notice = $state<string | null>(null);
 
 	rate = $state(1);
+	/** Output volume 0..1, per device (localStorage), like the player's volume slider. */
+	volume = $state(loadVolume());
 	service = $state<TtsService>('webspeech');
 	voiceId = $state<string | null>(null);
 	voices = $state<TtsVoice[]>([]);
@@ -91,6 +104,7 @@ class ReaderStore {
 	private positionSavedForNavigation = false;
 	private lastPositionSaveTime = 0;
 	private rateRestartTimer: ReturnType<typeof setTimeout> | null = null;
+	private volumeRestartTimer: ReturnType<typeof setTimeout> | null = null;
 	private mediaSessionSetup = false;
 	private disarmResume: (() => void) | null = null;
 
@@ -143,6 +157,7 @@ class ReaderStore {
 	/** Give the reader the page's <audio> element (used by audio engines). */
 	initializeAudio(el: HTMLAudioElement | null) {
 		this.audioEl = el;
+		if (el) el.volume = this.volume;
 		if (this.engine && this.engine.kind === 'audio') {
 			(this.engine as AudioEngine).setAudio(el);
 		}
@@ -285,6 +300,7 @@ class ReaderStore {
 			lang: this.locale,
 			voiceId: this.voiceId ?? '',
 			rate: this.rate,
+			volume: this.volume,
 			model: cfg?.model || undefined,
 			voiceSettings: isEleven ? cfg?.voiceSettings : undefined,
 			elfParams: this.service === 'elf' && cfg?.elfCustomize ? cfg.elfParams : undefined,
@@ -552,6 +568,25 @@ class ReaderStore {
 			}
 		}
 		this.seekToChunk(0);
+	}
+
+	setVolume(volume: number) {
+		this.volume = Math.max(0, Math.min(1, volume));
+		try {
+			localStorage.setItem(VOLUME_KEY, String(this.volume));
+		} catch {
+			// storage unavailable — volume still applies for this session
+		}
+		// Audio services play through the shared <audio> element: retune live.
+		if (this.audioEl) this.audioEl.volume = this.volume;
+		// Web Speech can't change a live utterance's volume — re-speak the current
+		// sentence (debounced, the slider fires rapidly) so the change is audible.
+		if (this.engine?.kind === 'webspeech' && this.isPlaying) {
+			if (this.volumeRestartTimer) clearTimeout(this.volumeRestartTimer);
+			this.volumeRestartTimer = setTimeout(() => {
+				if (this.isPlaying) this.speakCurrent();
+			}, 250);
+		}
 	}
 
 	setRate(rate: number) {

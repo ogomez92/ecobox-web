@@ -6,6 +6,7 @@
 	import { ttsConfigStore } from '$lib/stores/ttsConfig.svelte';
 	import { recentStore } from '$lib/stores/recent.svelte';
 	import ReaderControls from './ReaderControls.svelte';
+	import VolumeControl from './VolumeControl.svelte';
 	import FindInBook from './FindInBook.svelte';
 	import BookmarkList from './BookmarkList.svelte';
 	import BookInfoDialog from './BookInfoDialog.svelte';
@@ -373,6 +374,17 @@
 				if (e.shiftKey) showBookmarks = true;
 				else toggleBookmark();
 				break;
+			// I / K: volume up / down (same keys as the media player).
+			case 'KeyI':
+				if (e.ctrlKey || e.metaKey || e.altKey) break;
+				e.preventDefault();
+				readerStore.setVolume(readerStore.volume + 0.1);
+				break;
+			case 'KeyK':
+				if (e.ctrlKey || e.metaKey || e.altKey) break;
+				e.preventDefault();
+				readerStore.setVolume(readerStore.volume - 0.1);
+				break;
 			// T: announce reading position (percentage + chapter).
 			case 'KeyT':
 				e.preventDefault();
@@ -471,6 +483,11 @@
 			</p>
 
 			<div class="w-full space-y-4">
+				<VolumeControl
+					volume={readerStore.volume}
+					onchange={(v) => readerStore.setVolume(v)}
+				/>
+
 				<div>
 					<label
 						for="rate-slider"

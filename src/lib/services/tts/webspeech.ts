@@ -62,6 +62,7 @@ export class WebSpeechEngine implements TtsEngine {
 		const voice = this.native.find((v) => v.voiceURI === req.voiceId);
 		if (voice) u.voice = voice;
 		u.rate = req.rate;
+		u.volume = req.volume ?? 1;
 		u.lang = voice?.lang || req.lang;
 		u.onend = () => {
 			if (isCurrent()) onEnded();
